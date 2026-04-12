@@ -217,67 +217,105 @@ export default function PassengerDash() {
     setSearching(true); setMatchedTrips([]);
     try {
       const all = await api.getTrips();
+      console.log('[Search] total trips from API:', all.length);
+      console.log('[Search] effectiveFrom:', effectiveFrom);
+      console.log('[Search] toCoord:', toCoord);
       const enriched = [];
 
-      // Helper: normalize text for loose matching
-      const norm = s => (s||'').toLowerCase().replace(/[,،\-]/g,' ').replace(/\s+/g,' ').trim();
-      const fromName = norm(fromCoord?.name || '');
-      const toName   = norm(toCoord?.name   || '');
+      // Normalize text for loose matching
+      const norm = s => (s||'').toLowerCase().replace(/[,،\-_]/g,' ').replace(/\s+/g,' ').trim();
+      // Extract meaningful words (3+ chars) from a place name
+      const keywords = name => norm(name).split(' ').filter(w => w.length >= 3);
+      const nameContains = (haystack, needleWords) => needleWords.some(w => norm(haystack).includes(w));
+
+      const fromWords = keywords(fromCoord?.name || '');
+      const toWords   = keywords(toCoord?.name   || '');
 
       for (const trip of all) {
         const stops        = trip.stops || [];
         const pickupStops  = stops.filter(s => s.type === 'pickup');
         const dropoffStops = stops.filter(s => s.type === 'dropoff');
 
-        // ── PICKUP: find best stop by GPS distance ──
-        let bestPickup = null, bestPickupDist = Infinity;
-        if (effectiveFrom) {
+        console.log(`[Trip ${trip.id}] ${trip.from_loc} → ${trip.to_loc} | pickups: ${pickupStops.length} dropoffs: ${dropoffStops.length}`);
+        if (pickupStops.length) console.log('  pickup stops:', pickupStops.map(s => `(${s.lat},${s.lng})`));
+        if (dropoffStops.length) console.log('  dropoff stops:', dropoffStops.map(s => `(${s.lat},${s.lng})`));
+
+        // ── PICKUP MATCHING (3 levels) ──
+        let bestPickup = null, bestPickupDist = 0;
+
+        // Level 1: GPS proximity to any pickup stop
+        if (effectiveFrom && pickupStops.length) {
+          let minD = Infinity;
           for (const ps of pickupStops) {
             const d = haversineDistance(effectiveFrom.lat, effectiveFrom.lng, parseFloat(ps.lat), parseFloat(ps.lng));
-            if (d < bestPickupDist && d <= SEARCH_RADIUS_M) { bestPickupDist = d; bestPickup = { ...ps, distFromUser: d }; }
+            if (d < minD) { minD = d; bestPickup = { ...ps, distFromUser: d }; bestPickupDist = d; }
           }
+          if (minD > SEARCH_RADIUS_M) { bestPickup = null; } // too far
+          console.log(`  pickup GPS closest: ${minD.toFixed(0)}m — ${minD <= SEARCH_RADIUS_M ? 'MATCH' : 'too far'}`);
         }
-        // Fallback: if no GPS match, check trip from_loc name contains searched area word
-        if (!bestPickup && fromName.length > 2) {
-          const tripFrom = norm(trip.from_loc);
-          const words = fromName.split(' ').filter(w => w.length > 2);
-          const nameMatch = words.some(w => tripFrom.includes(w));
-          if (nameMatch) {
-            bestPickup = pickupStops[0] || null;
-            bestPickupDist = bestPickup && effectiveFrom
+
+        // Level 2: trip from_loc text matches passenger search area
+        if (!bestPickup && fromWords.length) {
+          const match = nameContains(trip.from_loc, fromWords);
+          console.log(`  pickup name match "${trip.from_loc}" vs [${fromWords}]: ${match}`);
+          if (match) {
+            bestPickup = pickupStops[0] || { type:'pickup', lat: trip.pickup_lat, lng: trip.pickup_lng, label: trip.from_loc };
+            bestPickupDist = (effectiveFrom && bestPickup?.lat)
               ? haversineDistance(effectiveFrom.lat, effectiveFrom.lng, parseFloat(bestPickup.lat), parseFloat(bestPickup.lng))
               : 0;
           }
         }
-        // Last resort: no location at all, just show first pickup
-        if (!bestPickup && !effectiveFrom) {
-          bestPickup = pickupStops[0] || null;
-          bestPickupDist = 0;
+
+        // Level 3: no stops at all — use trip pickup_lat/lng
+        if (!bestPickup && trip.pickup_lat && effectiveFrom) {
+          const d = haversineDistance(effectiveFrom.lat, effectiveFrom.lng, parseFloat(trip.pickup_lat), parseFloat(trip.pickup_lng));
+          if (d <= SEARCH_RADIUS_M) {
+            bestPickup = { type:'pickup', lat: trip.pickup_lat, lng: trip.pickup_lng, label: trip.from_loc };
+            bestPickupDist = d;
+          }
         }
 
-        // ── DROPOFF: find best stop by GPS distance ──
-        let bestDropoff = null, bestDropoffDist = Infinity;
-        for (const ds of dropoffStops) {
-          const d = haversineDistance(toCoord.lat, toCoord.lng, parseFloat(ds.lat), parseFloat(ds.lng));
-          if (d < bestDropoffDist && d <= SEARCH_RADIUS_M) { bestDropoffDist = d; bestDropoff = { ...ds, distFromDest: d }; }
+        // ── DROPOFF MATCHING (3 levels) ──
+        let bestDropoff = null, bestDropoffDist = 0;
+
+        // Level 1: GPS proximity to any dropoff stop
+        if (dropoffStops.length) {
+          let minD = Infinity;
+          for (const ds of dropoffStops) {
+            const d = haversineDistance(toCoord.lat, toCoord.lng, parseFloat(ds.lat), parseFloat(ds.lng));
+            if (d < minD) { minD = d; bestDropoff = { ...ds, distFromDest: d }; bestDropoffDist = d; }
+          }
+          if (minD > SEARCH_RADIUS_M) { bestDropoff = null; }
+          console.log(`  dropoff GPS closest: ${minD.toFixed(0)}m — ${minD <= SEARCH_RADIUS_M ? 'MATCH' : 'too far'}`);
         }
-        // Fallback: check trip to_loc name contains searched destination word
-        if (!bestDropoff && toName.length > 2) {
-          const tripTo = norm(trip.to_loc);
-          const words = toName.split(' ').filter(w => w.length > 2);
-          const nameMatch = words.some(w => tripTo.includes(w));
-          if (nameMatch) {
-            bestDropoff = dropoffStops[0] || null;
-            bestDropoffDist = bestDropoff
+
+        // Level 2: trip to_loc text matches destination
+        if (!bestDropoff && toWords.length) {
+          const match = nameContains(trip.to_loc, toWords);
+          console.log(`  dropoff name match "${trip.to_loc}" vs [${toWords}]: ${match}`);
+          if (match) {
+            bestDropoff = dropoffStops[0] || { type:'dropoff', lat: trip.dropoff_lat, lng: trip.dropoff_lng, label: trip.to_loc };
+            bestDropoffDist = (bestDropoff?.lat)
               ? haversineDistance(toCoord.lat, toCoord.lng, parseFloat(bestDropoff.lat), parseFloat(bestDropoff.lng))
               : 0;
           }
         }
 
+        // Level 3: no stops — use trip dropoff_lat/lng
+        if (!bestDropoff && trip.dropoff_lat) {
+          const d = haversineDistance(toCoord.lat, toCoord.lng, parseFloat(trip.dropoff_lat), parseFloat(trip.dropoff_lng));
+          if (d <= SEARCH_RADIUS_M) {
+            bestDropoff = { type:'dropoff', lat: trip.dropoff_lat, lng: trip.dropoff_lng, label: trip.to_loc };
+            bestDropoffDist = d;
+          }
+        }
+
+        console.log(`  RESULT: pickup=${!!bestPickup} dropoff=${!!bestDropoff}`);
         if (bestPickup && bestDropoff) {
           enriched.push({ ...trip, bestPickup, bestDropoff, bestPickupDist, bestDropoffDist });
         }
       }
+
       enriched.sort((a, b) => (a.bestPickupDist||0) - (b.bestPickupDist||0));
       setMatchedTrips(enriched);
       if (!enriched.length) notify('No trips found', 'Try a broader area or different destination.', 'info');
