@@ -196,6 +196,7 @@ export default function PassengerDash() {
               tripId={selTrip.id}
               pickupLat={selTrip.pickup_lat}   pickupLng={selTrip.pickup_lng}
               dropoffLat={selTrip.dropoff_lat} dropoffLng={selTrip.dropoff_lng}
+              stops={selTrip.stops || []}
               height={240}
             />
 
@@ -273,7 +274,7 @@ export default function PassengerDash() {
 
                 {/* Live map for active/upcoming trip */}
                 <div style={{ marginTop:14 }}>
-                  <TripMap tripId={b.trip_id} height={200} />
+                  <TripMap tripId={b.trip_id} stops={[]} checkinStatus={b.checkin_status} height={200} />
                 </div>
 
                 <button style={{ ...btnDanger, marginTop:10 }} onClick={() => cancelBooking(b.id)}>Cancel booking</button>

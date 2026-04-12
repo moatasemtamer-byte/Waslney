@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
-import { AdminMap } from '../../components/TripMap.jsx';
+import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
 
 export default function AdminDash() {
   const { user, logout, notify } = useAuth();
@@ -12,6 +12,8 @@ export default function AdminDash() {
   const [users,   setUsers]   = useState([]);
   const [loading, setLoading] = useState(false);
   const [editTrip, setEditTrip] = useState(null);
+  const [stops,   setStops]   = useState([]);
+  const [editStops, setEditStops] = useState([]);
 
   const [form, setForm] = useState({
     from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:''
@@ -24,24 +26,25 @@ export default function AdminDash() {
     setLoading(true);
     try {
       const [t, d, u] = await Promise.all([api.getTrips(), api.getDrivers(), api.getUsers()]);
-      setTrips(t);
-      setDrivers(d);
-      setUsers(u);
+      setTrips(t); setDrivers(d); setUsers(u);
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setLoading(false); }
   }
 
   async function handleCreate() {
     const { from_loc, to_loc, pickup_time, date, price, driver_id } = form;
-    if (!from_loc || !to_loc || !pickup_time || !date || !price || !driver_id) {
+    if (!from_loc||!to_loc||!pickup_time||!date||!price||!driver_id) {
       notify('Incomplete', 'Fill in all required fields.', 'error'); return;
     }
+    if (stops.length < 2) {
+      notify('Add stops', 'Please add at least 1 pickup and 1 drop-off point on the map.', 'error'); return;
+    }
     try {
-      await api.createTrip({ ...form, price: parseFloat(form.price), total_seats: parseInt(form.total_seats) || 16 });
+      await api.createTrip({ ...form, price: parseFloat(form.price), total_seats: parseInt(form.total_seats)||16, stops });
       notify('Trip created!', `${from_loc} → ${to_loc} on ${date}`);
       setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'' });
-      loadAll();
-      setTab('trips');
+      setStops([]);
+      loadAll(); setTab('trips');
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
@@ -55,9 +58,10 @@ export default function AdminDash() {
         date:         editTrip.date,
         price:        parseFloat(editTrip.price),
         driver_id:    editTrip.driver_id,
+        stops:        editStops,
       });
       notify('Trip updated', 'Changes saved.');
-      setEditTrip(null);
+      setEditTrip(null); setEditStops([]);
       loadAll();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -70,11 +74,11 @@ export default function AdminDash() {
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
-  const allTrips        = trips;
-  const activeCount     = trips.filter(t => t.status==='upcoming'||t.status==='active').length;
-  const totalBooked     = trips.reduce((s,t) => s + (t.booked_seats||0), 0);
-  const passengers      = users.filter(u => u.role==='passenger');
-  const driverUsers     = users.filter(u => u.role==='driver');
+  const allTrips    = trips;
+  const activeCount = trips.filter(t => t.status==='upcoming'||t.status==='active').length;
+  const totalBooked = trips.reduce((s,t) => s+(t.booked_seats||0), 0);
+  const passengers  = users.filter(u => u.role==='passenger');
+  const driverUsers = users.filter(u => u.role==='driver');
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
@@ -93,16 +97,13 @@ export default function AdminDash() {
         {tab === 'overview' && (
           <div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:24 }}>
-              <StatCard num={activeCount}     label="Active trips"   color={C.blue} />
-              <StatCard num={totalBooked}     label="Seats booked"   color={C.green} />
-              <StatCard num={drivers.length}  label="Drivers"        color={C.purple} />
-              <StatCard num={passengers.length} label="Passengers"   color={C.amber} />
+              <StatCard num={activeCount}       label="Active trips"  color={C.blue} />
+              <StatCard num={totalBooked}       label="Seats booked"  color={C.green} />
+              <StatCard num={driverUsers.length} label="Drivers"       color={C.purple} />
+              <StatCard num={passengers.length} label="Passengers"    color={C.amber} />
             </div>
-
-            {/* Live admin map */}
             <p style={sectSt}>Live driver locations</p>
             <AdminMap height={340} />
-
             <p style={sectSt}>All trips</p>
             {loading && <Spinner />}
             {allTrips.slice(0,6).map(t => (
@@ -121,21 +122,26 @@ export default function AdminDash() {
         {/* ── CREATE TRIP ── */}
         {tab === 'create' && (
           <div>
-            <div style={{ ...card }}>
+            <div style={card}>
               <p style={sectSt}>New trip</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <Inp label="📍 Pickup point"       value={form.from_loc}     onChange={f('from_loc')}     placeholder="e.g. Nasr City" />
-                <Inp label="🏁 Drop-off point"     value={form.to_loc}       onChange={f('to_loc')}       placeholder="e.g. Maadi" />
-                <Inp label="📅 Date"               type="date" value={form.date}           onChange={f('date')} />
-                <Inp label="🕐 Pickup time"        type="time" value={form.pickup_time}    onChange={f('pickup_time')} />
-                <Inp label="🕐 Est. drop-off time" type="time" value={form.dropoff_time}   onChange={f('dropoff_time')} />
-                <Inp label="💰 Price per seat (EGP)" type="number" value={form.price}       onChange={f('price')} placeholder="45" />
-                <Inp label="💺 Total seats"          type="number" value={form.total_seats}  onChange={f('total_seats')} />
+                <Inp label="📍 Pickup area"       value={form.from_loc}    onChange={f('from_loc')}    placeholder="e.g. Nasr City" />
+                <Inp label="🏁 Drop-off area"     value={form.to_loc}      onChange={f('to_loc')}      placeholder="e.g. Maadi" />
+                <Inp label="📅 Date"              type="date" value={form.date}          onChange={f('date')} />
+                <Inp label="🕐 Pickup time"       type="time" value={form.pickup_time}   onChange={f('pickup_time')} />
+                <Inp label="🕐 Est. drop-off"     type="time" value={form.dropoff_time}  onChange={f('dropoff_time')} />
+                <Inp label="💰 Price/seat (EGP)"  type="number" value={form.price}       onChange={f('price')} placeholder="45" />
+                <Inp label="💺 Total seats"       type="number" value={form.total_seats} onChange={f('total_seats')} />
               </div>
               <Sel label="🚐 Assign driver" value={form.driver_id} onChange={f('driver_id')}>
                 <option value="">Select driver…</option>
                 {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
               </Sel>
+
+              <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
+              <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to alternate between pickup 🟢 and drop-off 🔵 points. Add as many as needed.</p>
+              <StopPicker stops={stops} onChange={setStops} height={340} />
+
               <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
             </div>
           </div>
@@ -155,13 +161,18 @@ export default function AdminDash() {
                     <span style={{ marginLeft:'auto', fontSize:11, color:C.text3 }}>{fmtDate(t.date)} · {t.pickup_time}</span>
                   </div>
                   <div style={{ fontSize:16, fontWeight:400, marginBottom:4 }}>{t.from_loc} → {t.to_loc}</div>
-                  <div style={{ fontSize:12, color:C.text2, marginBottom:10 }}>
-                    Driver: {t.driver_name || driver?.name || '—'} · {t.driver_plate || driver?.plate || '—'} · {t.price} EGP/seat
+                  <div style={{ fontSize:12, color:C.text2, marginBottom:6 }}>
+                    Driver: {t.driver_name||driver?.name||'—'} · {t.driver_plate||driver?.plate||'—'} · {t.price} EGP/seat
                   </div>
+                  {t.stops && t.stops.length > 0 && (
+                    <div style={{ fontSize:11, color:C.text3, marginBottom:8 }}>
+                      {t.stops.filter(s=>s.type==='pickup').length} pickup{t.stops.filter(s=>s.type==='pickup').length!==1?'s':''} · {t.stops.filter(s=>s.type==='dropoff').length} drop-off{t.stops.filter(s=>s.type==='dropoff').length!==1?'s':''}
+                    </div>
+                  )}
                   <CapBarLabeled booked={t.booked_seats||0} total={t.total_seats} />
                   {t.status !== 'cancelled' && t.status !== 'completed' && (
                     <div style={{ display:'flex', gap:8, marginTop:12 }}>
-                      <button onClick={() => setEditTrip({ ...t })} style={btnSm}>Edit</button>
+                      <button onClick={() => { setEditTrip({...t}); setEditStops(t.stops||[]); }} style={btnSm}>Edit</button>
                       <button onClick={() => handleCancel(t.id)} style={btnDanger}>Cancel trip</button>
                     </div>
                   )}
@@ -174,20 +185,22 @@ export default function AdminDash() {
         {/* ── EDIT TRIP ── */}
         {tab === 'trips' && editTrip && (
           <div>
-            <button onClick={() => setEditTrip(null)} style={{ ...btnSm, marginBottom:20 }}>← Cancel</button>
+            <button onClick={() => { setEditTrip(null); setEditStops([]); }} style={{ ...btnSm, marginBottom:20 }}>← Cancel</button>
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <Inp label="Pickup point"   value={editTrip.from_loc}     onChange={e => setEditTrip({ ...editTrip, from_loc:e.target.value })} />
-                <Inp label="Drop-off point" value={editTrip.to_loc}       onChange={e => setEditTrip({ ...editTrip, to_loc:e.target.value })} />
-                <Inp label="Date"  type="date" value={editTrip.date?.slice(0,10)} onChange={e => setEditTrip({ ...editTrip, date:e.target.value })} />
-                <Inp label="Pickup time" type="time" value={editTrip.pickup_time} onChange={e => setEditTrip({ ...editTrip, pickup_time:e.target.value })} />
-                <Inp label="Drop-off time" type="time" value={editTrip.dropoff_time||''} onChange={e => setEditTrip({ ...editTrip, dropoff_time:e.target.value })} />
-                <Inp label="Price (EGP)" type="number" value={editTrip.price} onChange={e => setEditTrip({ ...editTrip, price:e.target.value })} />
+                <Inp label="Pickup area"   value={editTrip.from_loc}    onChange={e => setEditTrip({...editTrip, from_loc:e.target.value})} />
+                <Inp label="Drop-off area" value={editTrip.to_loc}      onChange={e => setEditTrip({...editTrip, to_loc:e.target.value})} />
+                <Inp label="Date" type="date" value={editTrip.date?.slice(0,10)} onChange={e => setEditTrip({...editTrip, date:e.target.value})} />
+                <Inp label="Pickup time" type="time" value={editTrip.pickup_time} onChange={e => setEditTrip({...editTrip, pickup_time:e.target.value})} />
+                <Inp label="Drop-off time" type="time" value={editTrip.dropoff_time||''} onChange={e => setEditTrip({...editTrip, dropoff_time:e.target.value})} />
+                <Inp label="Price (EGP)" type="number" value={editTrip.price} onChange={e => setEditTrip({...editTrip, price:e.target.value})} />
               </div>
-              <Sel label="Assign driver" value={editTrip.driver_id} onChange={e => setEditTrip({ ...editTrip, driver_id:e.target.value })}>
+              <Sel label="Assign driver" value={editTrip.driver_id} onChange={e => setEditTrip({...editTrip, driver_id:e.target.value})}>
                 {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
               </Sel>
+              <p style={{ ...sectSt, marginTop:16 }}>🗺️ Edit stops on map</p>
+              <StopPicker stops={editStops} onChange={setEditStops} height={300} />
               <button onClick={handleSaveEdit} style={btnPrimary}>Save changes</button>
             </div>
           </div>
@@ -196,8 +209,8 @@ export default function AdminDash() {
         {/* ── DRIVERS ── */}
         {tab === 'drivers' && (
           <div>
-            <p style={sectSt}>{drivers.length} registered drivers</p>
-            {drivers.map(d => (
+            <p style={sectSt}>{driverUsers.length} registered drivers</p>
+            {driverUsers.map(d => (
               <div key={d.id} style={{ ...card, marginBottom:12 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
                   <Avatar name={d.name} size={44} />
@@ -232,9 +245,7 @@ export default function AdminDash() {
                     <div style={{ fontWeight:500, fontSize:14 }}>{p.name}</div>
                     <div style={{ fontSize:12, color:C.text2 }}>{p.phone}</div>
                   </div>
-                  <div style={{ textAlign:'right', fontSize:12, color:C.text3 }}>
-                    Joined {fmtDate(p.created_at)}
-                  </div>
+                  <div style={{ textAlign:'right', fontSize:12, color:C.text3 }}>Joined {fmtDate(p.created_at)}</div>
                 </div>
               </div>
             ))}

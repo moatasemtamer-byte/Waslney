@@ -144,6 +144,7 @@ export default function DriverDash() {
               tripId={selTrip.id}
               pickupLat={selTrip.pickup_lat}   pickupLng={selTrip.pickup_lng}
               dropoffLat={selTrip.dropoff_lat} dropoffLng={selTrip.dropoff_lng}
+              stops={tripDetail?.stops || selTrip.stops || []}
               isDriver={true}
               height={260}
             />
