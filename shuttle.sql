@@ -97,6 +97,21 @@ CREATE TABLE IF NOT EXISTS driver_locations (
   FOREIGN KEY (trip_id)   REFERENCES trips(id)  ON DELETE SET NULL
 );
 
+
+-- ── TRIP STOPS ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS trip_stops (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  trip_id    INT NOT NULL,
+  type       ENUM('pickup','dropoff') NOT NULL,
+  label      VARCHAR(150),
+  lat        DECIMAL(10,7) NOT NULL,
+  lng        DECIMAL(10,7) NOT NULL,
+  stop_order INT NOT NULL DEFAULT 0,
+  arrived    TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
+);
+
 -- ============================================================
 --  SEED DATA
 -- ============================================================

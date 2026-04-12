@@ -1,8 +1,76 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
+
+
+// ── Nominatim autocomplete for admin area fields ─────────────────────────────
+function NominatimAreaSearch({ label, value, onChange }) {
+  const [query,   setQuery]   = useState(value || '');
+  const [results, setResults] = useState([]);
+  const [open,    setOpen]    = useState(false);
+  const [loading, setLoading] = useState(false);
+  const debRef  = React.useRef(null);
+  const wrapRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const fn = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', fn);
+    return () => document.removeEventListener('mousedown', fn);
+  }, []);
+
+  function onInput(e) {
+    const q = e.target.value;
+    setQuery(q);
+    onChange(q); // update text value immediately
+    clearTimeout(debRef.current);
+    if (q.length < 2) { setResults([]); setOpen(false); return; }
+    debRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&countrycodes=eg&addressdetails=1`, { headers: { 'Accept-Language': 'en' } });
+        const d = await r.json();
+        setResults(d); setOpen(d.length > 0);
+      } catch { setResults([]); } finally { setLoading(false); }
+    }, 320);
+  }
+
+  function pick(item) {
+    const addr = item.address || {};
+    const name = [addr.neighbourhood || addr.suburb || addr.city_district || item.name, addr.city || addr.town || addr.county].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
+    setQuery(name); setResults([]); setOpen(false);
+    onChange(name);
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position:'relative' }}>
+      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:\"'Sora',sans-serif\" }}>{label}</label>
+      <div style={{ position:'relative' }}>
+        <input value={query} onChange={onInput} onFocus={() => results.length && setOpen(true)}
+          placeholder="Type to search area…"
+          style={{ width:'100%', boxSizing:'border-box', background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, padding:'10px 36px 10px 14px', color:C.text, fontFamily:\"'Sora',sans-serif\", fontSize:14, outline:'none' }} />
+        {loading && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:`2px solid ${C.border}`, borderTopColor:C.green, borderRadius:'50%', animation:'spin .6s linear infinite' }} />}
+      </div>
+      {open && results.length > 0 && (
+        <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:9999, background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, boxShadow:'0 8px 32px rgba(0,0,0,.55)', overflow:'hidden' }}>
+          {results.map((item, i) => {
+            const addr = item.address || {};
+            const main = [addr.neighbourhood||addr.suburb||addr.city_district||item.name, addr.city||addr.town].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
+            return (
+              <div key={item.place_id||i} onMouseDown={() => pick(item)}
+                style={{ padding:'10px 14px', cursor:'pointer', borderBottom:`1px solid ${C.border}`, fontFamily:\"'Sora',sans-serif\" }}
+                onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <div style={{ fontSize:13, color:C.text }}>{main}</div>
+                <div style={{ fontSize:10, color:C.text3, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.display_name.split(',').slice(1,4).join(',')}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminDash() {
   const { user, logout, notify } = useAuth();
@@ -82,6 +150,7 @@ export default function AdminDash() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <Topbar role="admin" name="Admin" onLogout={logout} />
       <div style={{ maxWidth:960, margin:'0 auto', padding:'28px 20px' }}>
 
@@ -125,8 +194,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>New trip</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <Inp label="📍 Pickup area"       value={form.from_loc}    onChange={f('from_loc')}    placeholder="e.g. Nasr City" />
-                <Inp label="🏁 Drop-off area"     value={form.to_loc}      onChange={f('to_loc')}      placeholder="e.g. Maadi" />
+                <NominatimAreaSearch label="📍 Pickup area" value={form.from_loc} onChange={v => setForm({...form, from_loc:v})} />
+                <NominatimAreaSearch label="🏁 Drop-off area" value={form.to_loc} onChange={v => setForm({...form, to_loc:v})} />
                 <Inp label="📅 Date"              type="date" value={form.date}          onChange={f('date')} />
                 <Inp label="🕐 Pickup time"       type="time" value={form.pickup_time}   onChange={f('pickup_time')} />
                 <Inp label="🕐 Est. drop-off"     type="time" value={form.dropoff_time}  onChange={f('dropoff_time')} />
@@ -189,8 +258,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <Inp label="Pickup area"   value={editTrip.from_loc}    onChange={e => setEditTrip({...editTrip, from_loc:e.target.value})} />
-                <Inp label="Drop-off area" value={editTrip.to_loc}      onChange={e => setEditTrip({...editTrip, to_loc:e.target.value})} />
+                <NominatimAreaSearch label="Pickup area" value={editTrip.from_loc} onChange={v => setEditTrip({...editTrip, from_loc:v})} />
+                <NominatimAreaSearch label="Drop-off area" value={editTrip.to_loc} onChange={v => setEditTrip({...editTrip, to_loc:v})} />
                 <Inp label="Date" type="date" value={editTrip.date?.slice(0,10)} onChange={e => setEditTrip({...editTrip, date:e.target.value})} />
                 <Inp label="Pickup time" type="time" value={editTrip.pickup_time} onChange={e => setEditTrip({...editTrip, pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time" value={editTrip.dropoff_time||''} onChange={e => setEditTrip({...editTrip, dropoff_time:e.target.value})} />

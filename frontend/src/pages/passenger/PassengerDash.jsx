@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-import { C, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, Stars, Inp, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
+import { C, Tabs, Topbar, Badge, DetailRow, CapBar, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt } from '../../components/UI.jsx';
 import TripMap from '../../components/TripMap.jsx';
 
-const SEARCH_RADIUS_M = 3000; // 3km radius to match stops
+const SEARCH_RADIUS_M = 2000; // 2 km
 
 function haversineDistance(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -13,196 +13,205 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
+function estimateWalkTime(m) {
+  const min = Math.round(m / 80);
+  return min < 1 ? '< 1 min walk' : `~${min} min walk`;
+}
+function formatDist(m) { return m < 1000 ? `${Math.round(m)}m` : `${(m/1000).toFixed(1)}km`; }
 
-function estimateWalkTime(meters) {
-  const minutes = Math.round(meters / 80); // ~80m/min walking
-  if (minutes < 1) return '< 1 min walk';
-  return `~${minutes} min walk`;
+// ── Nominatim autocomplete ─────────────────────────────────────────────────────
+function NominatimSearch({ label, placeholder, icon, value, onChange }) {
+  const [query,    setQuery]    = useState(value?.name || '');
+  const [results,  setResults]  = useState([]);
+  const [open,     setOpen]     = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const debRef  = useRef(null);
+  const wrapRef = useRef(null);
+
+  useEffect(() => { if (!value) setQuery(''); }, [value]);
+
+  useEffect(() => {
+    const fn = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', fn);
+    return () => document.removeEventListener('mousedown', fn);
+  }, []);
+
+  function onInput(e) {
+    const q = e.target.value;
+    setQuery(q);
+    onChange(null);
+    clearTimeout(debRef.current);
+    if (q.length < 2) { setResults([]); setOpen(false); return; }
+    debRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&countrycodes=eg&addressdetails=1`, { headers: { 'Accept-Language': 'en' } });
+        const d = await r.json();
+        setResults(d); setOpen(d.length > 0);
+      } catch { setResults([]); } finally { setLoading(false); }
+    }, 320);
+  }
+
+  function pick(item) {
+    const name = [item.address?.neighbourhood || item.address?.suburb || item.address?.city_district || item.name, item.address?.city || item.address?.town, item.address?.state].filter(Boolean).slice(0,3).join(', ') || item.display_name.split(',').slice(0,3).join(',');
+    const coord = { lat: parseFloat(item.lat), lng: parseFloat(item.lon), name };
+    setQuery(name); setResults([]); setOpen(false);
+    onChange(coord);
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position:'relative', marginBottom:14 }}>
+      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:"'Sora',sans-serif" }}>{icon} {label}</label>
+      <div style={{ position:'relative' }}>
+        <input
+          value={query} onChange={onInput} onFocus={() => results.length && setOpen(true)}
+          placeholder={placeholder}
+          style={{ width:'100%', boxSizing:'border-box', background:C.bg3, border:`1px solid ${value ? C.greenBorder : C.border}`, borderRadius:8, padding:'10px 36px 10px 14px', color:C.text, fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none' }}
+        />
+        {loading && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:`2px solid ${C.border}`, borderTopColor:C.green, borderRadius:'50%', animation:'spin .6s linear infinite' }} />}
+        {!loading && value && <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', color:C.green, fontSize:14 }}>✓</span>}
+      </div>
+      {open && results.length > 0 && (
+        <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:9999, background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, boxShadow:'0 8px 32px rgba(0,0,0,.55)', overflow:'hidden' }}>
+          {results.map((item, i) => {
+            const addr = item.address || {};
+            const main = [addr.neighbourhood || addr.suburb || addr.city_district || item.name, addr.city || addr.town].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
+            const sub  = item.display_name.split(',').slice(1,4).join(',');
+            return (
+              <div key={item.place_id || i} onMouseDown={() => pick(item)}
+                style={{ padding:'10px 14px', cursor:'pointer', borderBottom:`1px solid ${C.border}`, fontFamily:"'Sora',sans-serif" }}
+                onMouseEnter={e => e.currentTarget.style.background=C.bg4} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                <div style={{ fontSize:13, color:C.text }}>{main}</div>
+                <div style={{ fontSize:10, color:C.text3, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sub}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function formatDist(m) {
-  return m < 1000 ? `${Math.round(m)}m` : `${(m/1000).toFixed(1)}km`;
-}
-
-// Geocode a text address using Nominatim (free, no key)
-async function geocodeAddress(address) {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=eg`;
-  const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
-  const data = await res.json();
-  if (!data.length) return null;
-  return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: data[0].display_name };
-}
-
+// ── Main component ─────────────────────────────────────────────────────────────
 export default function PassengerDash() {
   const { user, logout, notify } = useAuth();
-  const [tab, setTab]   = useState('search');
-  const [sub, setSub]   = useState(null);
+  const [tab, setTab] = useState('search');
+  const [sub, setSub] = useState(null);
 
-  // search
-  const [from, setFrom] = useState('');
-  const [to,   setTo]   = useState('');
-  const [trips, setTrips] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [userLocation, setUserLocation] = useState(null); // { lat, lng }
+  const [fromCoord,    setFromCoord]    = useState(null);
+  const [toCoord,      setToCoord]      = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
   const [locationStatus, setLocationStatus] = useState('');
-  const [matchedTrips, setMatchedTrips] = useState([]); // trips with nearby stops
+  const [matchedTrips, setMatchedTrips] = useState([]);
+  const [searching,    setSearching]    = useState(false);
 
-  // booking
-  const [selTrip,  setSelTrip]  = useState(null);
-  const [selPickup, setSelPickup] = useState(null);  // chosen pickup stop
-  const [selDropoff, setSelDropoff] = useState(null); // chosen dropoff stop
-  const [seats,    setSeats]    = useState(1);
-  const [booking,  setBooking]  = useState(false);
+  const [selTrip,          setSelTrip]          = useState(null);
+  const [selPickup,        setSelPickup]        = useState(null);
+  const [selDropoff,       setSelDropoff]       = useState(null);
+  const [seats,            setSeats]            = useState(1);
+  const [booking,          setBooking]          = useState(false);
   const [confirmedBooking, setConfirmedBooking] = useState(null);
 
-  // my bookings
   const [myBookings, setMyBookings] = useState([]);
-  const [loadingB, setLoadingB] = useState(false);
+  const [loadingB,   setLoadingB]   = useState(false);
 
-  // rating
   const [rateTrip,    setRateTrip]    = useState(null);
   const [ratingStars, setRatingStars] = useState(0);
   const [rateComment, setRateComment] = useState('');
 
-  // notifications
   const [notifs,    setNotifs]    = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const unread = notifs.filter(n => !n.is_read).length;
 
-  useEffect(() => { loadNotifs(); }, []);
+  useEffect(() => { loadNotifs(); requestLocation(); }, []);
 
-  async function loadNotifs() {
-    try { setNotifs(await api.getNotifications()); } catch {}
-  }
+  async function loadNotifs() { try { setNotifs(await api.getNotifications()); } catch {} }
   async function openNotifs() {
     setNotifOpen(true);
     try { await api.markNotifRead(); setNotifs(n => n.map(x => ({ ...x, is_read:1 }))); } catch {}
   }
 
-  // Get user GPS location
   function requestLocation() {
     if (!navigator.geolocation) { setLocationStatus('GPS not available'); return; }
-    setLocationStatus('Getting your location...');
+    setLocationStatus('Getting your location…');
     navigator.geolocation.getCurrentPosition(
       pos => {
-        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setUserLocation(loc);
         setLocationStatus('📍 Location found');
+        setFromCoord(prev => prev || { ...loc, name: 'My current location' });
       },
-      () => setLocationStatus('Location denied — walking time estimates unavailable'),
+      () => setLocationStatus('Location denied — type your area below'),
       { enableHighAccuracy: true, timeout: 8000 }
     );
   }
 
-  useEffect(() => { requestLocation(); }, []);
-
   async function searchTrips() {
-    if (!to.trim()) { notify('Enter destination', 'Type where you want to go.', 'error'); return; }
-    setSearching(true);
-    setMatchedTrips([]);
+    const effectiveFrom = fromCoord || userLocation;
+    if (!toCoord) { notify('Enter destination', 'Select a destination from the dropdown.', 'error'); return; }
+    setSearching(true); setMatchedTrips([]);
     try {
       const all = await api.getTrips();
-
-      // Geocode the destination
-      const toCoord = await geocodeAddress(to);
-      const fromCoord = from.trim() ? await geocodeAddress(from) : userLocation ? { lat: userLocation.lat, lng: userLocation.lng } : null;
-
-      // For each trip, find nearby pickup stops (near fromCoord) and dropoff stops (near toCoord)
       const enriched = [];
       for (const trip of all) {
-        const stops = trip.stops || [];
+        const stops        = trip.stops || [];
         const pickupStops  = stops.filter(s => s.type === 'pickup');
         const dropoffStops = stops.filter(s => s.type === 'dropoff');
 
-        // Find closest pickup stop to user's from location
-        let bestPickup = null;
-        let bestPickupDist = Infinity;
-        if (fromCoord) {
+        let bestPickup = null, bestPickupDist = Infinity;
+        if (effectiveFrom) {
           for (const ps of pickupStops) {
-            const d = haversineDistance(fromCoord.lat, fromCoord.lng, parseFloat(ps.lat), parseFloat(ps.lng));
-            if (d < bestPickupDist && d <= SEARCH_RADIUS_M) {
-              bestPickupDist = d;
-              bestPickup = { ...ps, distFromUser: d };
-            }
+            const d = haversineDistance(effectiveFrom.lat, effectiveFrom.lng, parseFloat(ps.lat), parseFloat(ps.lng));
+            if (d < bestPickupDist && d <= SEARCH_RADIUS_M) { bestPickupDist = d; bestPickup = { ...ps, distFromUser: d }; }
           }
-        } else {
-          // No location — just use first pickup stop
-          bestPickup = pickupStops[0] || null;
-          bestPickupDist = 0;
+        } else { bestPickup = pickupStops[0] || null; bestPickupDist = 0; }
+
+        let bestDropoff = null, bestDropoffDist = Infinity;
+        for (const ds of dropoffStops) {
+          const d = haversineDistance(toCoord.lat, toCoord.lng, parseFloat(ds.lat), parseFloat(ds.lng));
+          if (d < bestDropoffDist && d <= SEARCH_RADIUS_M) { bestDropoffDist = d; bestDropoff = { ...ds, distFromDest: d }; }
         }
 
-        // Find closest dropoff stop to destination
-        let bestDropoff = null;
-        let bestDropoffDist = Infinity;
-        if (toCoord) {
-          for (const ds of dropoffStops) {
-            const d = haversineDistance(toCoord.lat, toCoord.lng, parseFloat(ds.lat), parseFloat(ds.lng));
-            if (d < bestDropoffDist && d <= SEARCH_RADIUS_M) {
-              bestDropoffDist = d;
-              bestDropoff = { ...ds, distFromDest: d };
-            }
-          }
-        } else {
-          // No destination coord — text match fallback
-          const textMatch = trip.to_loc?.toLowerCase().includes(to.toLowerCase());
-          if (textMatch) bestDropoff = dropoffStops[0] || null;
-        }
-
-        // Only include trip if both a nearby pickup and dropoff were found
-        if (bestPickup && bestDropoff) {
+        if (bestPickup && bestDropoff)
           enriched.push({ ...trip, bestPickup, bestDropoff, bestPickupDist, bestDropoffDist });
-        } else if (!toCoord && trip.to_loc?.toLowerCase().includes(to.toLowerCase())) {
-          // Fallback: text match only
-          enriched.push({ ...trip, bestPickup: pickupStops[0]||null, bestDropoff: dropoffStops[0]||null, bestPickupDist: 0, bestDropoffDist: 0 });
-        }
       }
-
-      // Sort by pickup distance
       enriched.sort((a, b) => a.bestPickupDist - b.bestPickupDist);
       setMatchedTrips(enriched);
-      setTrips(all);
-
-      if (!enriched.length) notify('No trips found', 'No trips with stops near those locations.', 'info');
+      if (!enriched.length) notify('No trips found', 'No trips with stops within 2km of those locations.', 'info');
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setSearching(false); }
   }
 
   async function loadBookings() {
     setLoadingB(true);
-    try { setMyBookings(await api.getMyBookings()); } catch {}
-    finally { setLoadingB(false); }
+    try {
+      const bks = await api.getMyBookings();
+      const enriched = await Promise.all(bks.map(async b => {
+        try { const d = await api.getTrip(b.trip_id); return { ...b, stops: d.stops || [] }; }
+        catch { return { ...b, stops: [] }; }
+      }));
+      setMyBookings(enriched);
+    } catch {} finally { setLoadingB(false); }
   }
 
-  useEffect(() => {
-    if (tab === 'bookings' || tab === 'history') loadBookings();
-  }, [tab]);
+  useEffect(() => { if (tab === 'bookings' || tab === 'history') loadBookings(); }, [tab]);
 
-  function openTrip(trip) {
-    setSelTrip(trip);
-    setSelPickup(trip.bestPickup || null);
-    setSelDropoff(trip.bestDropoff || null);
-    setSeats(1);
-    setSub('detail');
-  }
+  function openTrip(trip) { setSelTrip(trip); setSelPickup(trip.bestPickup||null); setSelDropoff(trip.bestDropoff||null); setSeats(1); setSub('detail'); }
 
   async function confirmBook() {
     const avail = selTrip.total_seats - selTrip.booked_seats;
     if (seats > avail) { notify('Not enough seats', `Only ${avail} available.`, 'error'); return; }
     setBooking(true);
     try {
-      const b = await api.bookTrip({ trip_id: selTrip.id, seats, pickup_note: from || selPickup?.label || '' });
-      setConfirmedBooking(b);
-      setSub('confirmed');
+      const b = await api.bookTrip({ trip_id: selTrip.id, seats, pickup_note: fromCoord?.name || selPickup?.label || '' });
+      setConfirmedBooking(b); setSub('confirmed');
       notify('Booking confirmed!', `Pickup at ${selTrip.pickup_time}`);
-    } catch(e) { notify('Error', e.message, 'error'); }
-    finally { setBooking(false); }
+    } catch(e) { notify('Error', e.message, 'error'); } finally { setBooking(false); }
   }
 
   async function cancelBooking(id) {
-    try {
-      await api.cancelBooking(id);
-      notify('Booking cancelled', 'Seat is now available again.');
-      loadBookings();
-    } catch(e) { notify('Error', e.message, 'error'); }
+    try { await api.cancelBooking(id); notify('Booking cancelled', ''); loadBookings(); }
+    catch(e) { notify('Error', e.message, 'error'); }
   }
 
   async function submitRating() {
@@ -210,8 +219,7 @@ export default function PassengerDash() {
     try {
       await api.submitRating({ trip_id: rateTrip.trip_id, stars: ratingStars, comment: rateComment });
       notify('Rating submitted!', `${ratingStars} stars — thank you!`);
-      setRateTrip(null); setRatingStars(0); setRateComment('');
-      loadBookings();
+      setRateTrip(null); setRatingStars(0); setRateComment(''); loadBookings();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
@@ -220,6 +228,7 @@ export default function PassengerDash() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <Topbar role="passenger" name={user.name} onLogout={logout} notifCount={unread} onNotif={openNotifs} />
       <div style={{ maxWidth:860, margin:'0 auto', padding:'28px 20px' }}>
 
@@ -238,47 +247,51 @@ export default function PassengerDash() {
           </div>
         )}
 
-        <Tabs
-          tabs={[{ id:'search', label:'Search trips' }, { id:'bookings', label:`Bookings (${activeBookings.length})` }, { id:'history', label:'History' }]}
-          active={tab} onSet={t => { setTab(t); setSub(null); }}
-        />
+        <Tabs tabs={[{id:'search',label:'Search trips'},{id:'bookings',label:`Bookings (${activeBookings.length})`},{id:'history',label:'History'}]}
+          active={tab} onSet={t => { setTab(t); setSub(null); }} />
 
         {/* ── SEARCH ── */}
         {tab === 'search' && sub === null && (
           <div>
             <div style={{ ...card, marginBottom:20 }}>
-              {/* Location status */}
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, fontSize:12, color: userLocation ? C.green : C.text3 }}>
+              {/* GPS bar */}
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, fontSize:12,
+                color: userLocation ? C.green : C.text3, background: userLocation ? C.greenDim : C.bg4,
+                border:`1px solid ${userLocation ? C.greenBorder : C.border}`, borderRadius:8, padding:'8px 12px' }}>
                 <span>{userLocation ? '📍' : '📵'}</span>
-                <span>{locationStatus || 'Detecting your location...'}</span>
+                <span style={{ flex:1 }}>{locationStatus || 'Detecting location…'}</span>
                 {!userLocation && (
-                  <button onClick={requestLocation} style={{ marginLeft:'auto', background:C.greenDim, color:C.green, border:`1px solid ${C.greenBorder}`, borderRadius:5, padding:'2px 10px', fontSize:11, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                  <button onClick={requestLocation}
+                    style={{ background:C.greenDim, color:C.green, border:`1px solid ${C.greenBorder}`, borderRadius:5, padding:'3px 10px', fontSize:11, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
                     Enable GPS
                   </button>
                 )}
               </div>
-              <Inp label="📍 Your location / area" value={from} onChange={e => setFrom(e.target.value)} placeholder="e.g. Nasr City, Cairo" />
-              <Inp label="🏁 Destination area"     value={to}   onChange={e => setTo(e.target.value)}   placeholder="e.g. Maadi, Cairo" />
-              <button onClick={searchTrips} disabled={searching} style={{ ...btnPrimary, opacity: searching ? .6:1 }}>
+
+              <NominatimSearch label="Your location / pickup area" placeholder="e.g. Nasr City, Maadi…" icon="🟢" value={fromCoord} onChange={setFromCoord} />
+              <NominatimSearch label="Destination area" placeholder="e.g. Maadi, New Cairo, Downtown…" icon="🔵" value={toCoord} onChange={setToCoord} />
+
+              <p style={{ fontSize:11, color:C.text3, marginBottom:14 }}>
+                📏 Shows trips with pickup & drop-off stops within <b style={{ color:C.amber }}>2km</b> of your selected locations
+              </p>
+
+              <button onClick={searchTrips} disabled={searching || !toCoord}
+                style={{ ...btnPrimary, opacity: (searching || !toCoord) ? .5 : 1 }}>
                 {searching ? 'Searching…' : '🔍 Find trips near me'}
               </button>
             </div>
 
             {matchedTrips.length > 0 && (
               <div>
-                <p style={sectSt}>{matchedTrips.length} trip{matchedTrips.length !== 1 ? 's':''} found near you</p>
+                <p style={sectSt}>{matchedTrips.length} trip{matchedTrips.length !== 1?'s':''} with nearby stops</p>
                 {matchedTrips.map(t => {
                   const avail = t.total_seats - t.booked_seats;
                   return (
-                    <div key={t.id} onClick={() => openTrip(t)}
-                      style={{ ...card, marginBottom:12, cursor:'pointer' }}>
+                    <div key={t.id} onClick={() => openTrip(t)} style={{ ...card, marginBottom:12, cursor:'pointer' }}>
                       <div style={{ display:'flex', alignItems:'center', marginBottom:10 }}>
-                        <Badge type={avail <= 0 ? 'red' : avail <= 3 ? 'amber' : 'green'}>
-                          {avail <= 0 ? 'Full' : `${avail} seats left`}
-                        </Badge>
+                        <Badge type={avail<=0?'red':avail<=3?'amber':'green'}>{avail<=0?'Full':`${avail} seats left`}</Badge>
                         <span style={{ marginLeft:'auto', fontSize:11, color:C.text3 }}>{fmtDate(t.date)}</span>
                       </div>
-
                       <div style={{ display:'flex', gap:16 }}>
                         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', paddingTop:3 }}>
                           <div style={{ width:8, height:8, borderRadius:'50%', background:C.green }} />
@@ -287,23 +300,21 @@ export default function PassengerDash() {
                         </div>
                         <div style={{ flex:1 }}>
                           <div style={{ fontSize:14, fontWeight:500, marginBottom:2 }}>{t.from_loc}</div>
-                          {/* Nearby pickup stop */}
                           {t.bestPickup && (
-                            <div style={{ fontSize:11, color:C.green, marginBottom:6, display:'flex', alignItems:'center', gap:6 }}>
-                              🟢 Pickup: <b>{t.bestPickup.label || 'Pickup point'}</b>
-                              {t.bestPickupDist > 0 && <span style={{ color:C.text3 }}>· {formatDist(t.bestPickupDist)} from you · {estimateWalkTime(t.bestPickupDist)}</span>}
+                            <div style={{ fontSize:11, color:C.green, marginBottom:8, display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
+                              🟢 <b>{t.bestPickup.label || 'Pickup point'}</b>
+                              {t.bestPickupDist > 0 && <span style={{ color:C.text3 }}>· {formatDist(t.bestPickupDist)} · {estimateWalkTime(t.bestPickupDist)}</span>}
                             </div>
                           )}
                           <div style={{ fontSize:14, fontWeight:500, marginBottom:2 }}>{t.to_loc}</div>
-                          {/* Nearby dropoff stop */}
                           {t.bestDropoff && (
-                            <div style={{ fontSize:11, color:C.blue, display:'flex', alignItems:'center', gap:6 }}>
-                              🔵 Drop-off: <b>{t.bestDropoff.label || 'Drop-off point'}</b>
+                            <div style={{ fontSize:11, color:C.blue, display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
+                              🔵 <b>{t.bestDropoff.label || 'Drop-off point'}</b>
                               {t.bestDropoffDist > 0 && <span style={{ color:C.text3 }}>· {formatDist(t.bestDropoffDist)} from destination</span>}
                             </div>
                           )}
                         </div>
-                        <div style={{ textAlign:'right' }}>
+                        <div style={{ textAlign:'right', flexShrink:0 }}>
                           <div style={{ fontSize:22, fontWeight:300, color:C.green }}>{t.price}</div>
                           <div style={{ fontSize:10, color:C.text3 }}>EGP/seat</div>
                           <div style={{ marginTop:4, fontSize:11, color:C.text3 }}>{t.pickup_time}</div>
@@ -325,50 +336,43 @@ export default function PassengerDash() {
             <button onClick={() => setSub(null)} style={{ ...btnSm, marginBottom:20 }}>← Back</button>
             <h2 style={{ fontSize:20, fontWeight:400, marginBottom:4 }}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
             <p style={{ color:C.text2, fontSize:13, marginBottom:20 }}>{fmtDate(selTrip.date)}</p>
+            <TripMap tripId={selTrip.id} pickupLat={selPickup?.lat} pickupLng={selPickup?.lng}
+              dropoffLat={selDropoff?.lat} dropoffLng={selDropoff?.lng} stops={selTrip.stops||[]} height={240} />
 
-            <TripMap
-              tripId={selTrip.id}
-              pickupLat={selPickup?.lat}   pickupLng={selPickup?.lng}
-              dropoffLat={selDropoff?.lat} dropoffLng={selDropoff?.lng}
-              stops={selTrip.stops || []}
-              height={240}
-            />
-
-            {/* Pickup & dropoff selection */}
-            {(selTrip.stops || []).filter(s => s.type === 'pickup').length > 1 && (
+            {(selTrip.stops||[]).filter(s=>s.type==='pickup').length > 1 && (
               <div style={{ ...card, marginBottom:14 }}>
                 <p style={sectSt}>🟢 Choose your pickup point</p>
-                {selTrip.stops.filter(s => s.type === 'pickup').map((s, i) => {
-                  const dist = userLocation ? haversineDistance(userLocation.lat, userLocation.lng, parseFloat(s.lat), parseFloat(s.lng)) : null;
-                  const isSelected = selPickup?.lat === s.lat && selPickup?.lng === s.lng;
+                {selTrip.stops.filter(s=>s.type==='pickup').map((s,i) => {
+                  const dist = userLocation ? haversineDistance(userLocation.lat,userLocation.lng,parseFloat(s.lat),parseFloat(s.lng)) : null;
+                  const sel  = selPickup?.lat===s.lat && selPickup?.lng===s.lng;
                   return (
                     <div key={i} onClick={() => setSelPickup(s)}
-                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:`1px solid ${isSelected ? C.greenBorder : C.border}`, background: isSelected ? C.greenDim : 'transparent', cursor:'pointer', marginBottom:8 }}>
-                      <div style={{ width:20, height:20, borderRadius:'50%', background: isSelected ? C.green : C.border2, border:`2px solid ${isSelected ? C.green : C.border}`, flexShrink:0 }} />
+                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, marginBottom:8, cursor:'pointer',
+                        border:`1px solid ${sel?C.greenBorder:C.border}`, background: sel?C.greenDim:'transparent' }}>
+                      <div style={{ width:20, height:20, borderRadius:'50%', flexShrink:0, background:sel?C.green:C.border2, border:`2px solid ${sel?C.green:C.border}` }} />
                       <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:500 }}>{s.label || `Pickup ${i+1}`}</div>
-                        {dist !== null && <div style={{ fontSize:11, color:C.text3 }}>{formatDist(dist)} from you · {estimateWalkTime(dist)}</div>}
+                        <div style={{ fontSize:13, fontWeight:500 }}>{s.label||`Pickup ${i+1}`}</div>
+                        {dist!==null && <div style={{ fontSize:11, color:C.text3 }}>{formatDist(dist)} · {estimateWalkTime(dist)}</div>}
                       </div>
-                      {isSelected && <span style={{ color:C.green, fontSize:16 }}>✓</span>}
+                      {sel && <span style={{ color:C.green }}>✓</span>}
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {(selTrip.stops || []).filter(s => s.type === 'dropoff').length > 1 && (
+            {(selTrip.stops||[]).filter(s=>s.type==='dropoff').length > 1 && (
               <div style={{ ...card, marginBottom:14 }}>
                 <p style={sectSt}>🔵 Choose your drop-off point</p>
-                {selTrip.stops.filter(s => s.type === 'dropoff').map((s, i) => {
-                  const isSelected = selDropoff?.lat === s.lat && selDropoff?.lng === s.lng;
+                {selTrip.stops.filter(s=>s.type==='dropoff').map((s,i) => {
+                  const sel = selDropoff?.lat===s.lat && selDropoff?.lng===s.lng;
                   return (
                     <div key={i} onClick={() => setSelDropoff(s)}
-                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, border:`1px solid ${isSelected ? C.blueBorder : C.border}`, background: isSelected ? C.blueDim : 'transparent', cursor:'pointer', marginBottom:8 }}>
-                      <div style={{ width:20, height:20, borderRadius:'50%', background: isSelected ? C.blue : C.border2, border:`2px solid ${isSelected ? C.blue : C.border}`, flexShrink:0 }} />
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:500 }}>{s.label || `Drop-off ${i+1}`}</div>
-                      </div>
-                      {isSelected && <span style={{ color:C.blue, fontSize:16 }}>✓</span>}
+                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:8, marginBottom:8, cursor:'pointer',
+                        border:`1px solid ${sel?C.blueBorder:C.border}`, background: sel?C.blueDim:'transparent' }}>
+                      <div style={{ width:20, height:20, borderRadius:'50%', flexShrink:0, background:sel?C.blue:C.border2, border:`2px solid ${sel?C.blue:C.border}` }} />
+                      <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:500 }}>{s.label||`Drop-off ${i+1}`}</div></div>
+                      {sel && <span style={{ color:C.blue }}>✓</span>}
                     </div>
                   );
                 })}
@@ -376,13 +380,13 @@ export default function PassengerDash() {
             )}
 
             <div style={{ ...card, marginBottom:14 }}>
-              <DetailRow label="Pickup area"       val={selTrip.from_loc} />
-              {selPickup  && <DetailRow label="Your pickup point"   val={selPickup.label  || `${parseFloat(selPickup.lat).toFixed(4)}, ${parseFloat(selPickup.lng).toFixed(4)}`}  accent={C.green} />}
-              {selDropoff && <DetailRow label="Your drop-off point" val={selDropoff.label || `${parseFloat(selDropoff.lat).toFixed(4)}, ${parseFloat(selDropoff.lng).toFixed(4)}`} accent={C.blue} />}
-              <DetailRow label="Pickup time"       val={selTrip.pickup_time} accent={C.green} />
-              <DetailRow label="Price per seat"    val={`${selTrip.price} EGP`} accent={C.green} />
-              <DetailRow label="Driver"            val={selTrip.driver_name} />
-              <DetailRow label="License plate"     val={selTrip.driver_plate} />
+              <DetailRow label="Pickup area"    val={selTrip.from_loc} />
+              {selPickup  && <DetailRow label="Your pickup"   val={selPickup.label  || `${parseFloat(selPickup.lat).toFixed(4)}, ${parseFloat(selPickup.lng).toFixed(4)}`}  accent={C.green} />}
+              {selDropoff && <DetailRow label="Your drop-off" val={selDropoff.label || `${parseFloat(selDropoff.lat).toFixed(4)}, ${parseFloat(selDropoff.lng).toFixed(4)}`} accent={C.blue} />}
+              <DetailRow label="Pickup time"   val={selTrip.pickup_time} accent={C.green} />
+              <DetailRow label="Price/seat"    val={`${selTrip.price} EGP`} accent={C.green} />
+              <DetailRow label="Driver"        val={selTrip.driver_name} />
+              <DetailRow label="Plate"         val={selTrip.driver_plate} />
               <div style={{ display:'flex', justifyContent:'space-between', padding:'10px 0' }}>
                 <span style={{ color:C.text2, fontSize:13 }}>Driver rating</span>
                 <span style={{ color:C.amber }}><Stars n={parseFloat(selTrip.avg_rating)} /> {parseFloat(selTrip.avg_rating).toFixed(1)}</span>
@@ -392,15 +396,15 @@ export default function PassengerDash() {
             <div style={{ ...card, marginBottom:14 }}>
               <p style={sectSt}>Reserve seats</p>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:20, padding:'12px 0' }}>
-                <button onClick={() => setSeats(s => Math.max(1,s-1))} style={{ ...btnSm, width:40, height:40, borderRadius:8, fontSize:18 }}>−</button>
+                <button onClick={() => setSeats(s=>Math.max(1,s-1))} style={{ ...btnSm, width:40, height:40, borderRadius:8, fontSize:18 }}>−</button>
                 <span style={{ fontSize:28, fontWeight:300, minWidth:40, textAlign:'center' }}>{seats}</span>
-                <button onClick={() => setSeats(s => Math.min(3, Math.min(selTrip.total_seats - selTrip.booked_seats, s+1)))} style={{ ...btnSm, width:40, height:40, borderRadius:8, fontSize:18 }}>+</button>
+                <button onClick={() => setSeats(s=>Math.min(3,Math.min(selTrip.total_seats-selTrip.booked_seats,s+1)))} style={{ ...btnSm, width:40, height:40, borderRadius:8, fontSize:18 }}>+</button>
               </div>
               <p style={{ fontSize:11, color:C.text3, textAlign:'center' }}>Max 3 · {selTrip.total_seats - selTrip.booked_seats} available</p>
             </div>
             <button onClick={confirmBook} disabled={booking || selTrip.total_seats <= selTrip.booked_seats}
-              style={{ ...btnPrimary, opacity: (booking || selTrip.total_seats <= selTrip.booked_seats) ? .4:1 }}>
-              {booking ? 'Booking…' : selTrip.total_seats <= selTrip.booked_seats ? 'Trip is full' : 'Confirm reservation'}
+              style={{ ...btnPrimary, opacity:(booking||selTrip.total_seats<=selTrip.booked_seats)?.4:1 }}>
+              {booking ? 'Booking…' : selTrip.total_seats<=selTrip.booked_seats ? 'Trip is full' : 'Confirm reservation'}
             </button>
           </div>
         )}
@@ -410,7 +414,7 @@ export default function PassengerDash() {
           <div style={{ textAlign:'center', padding:'20px 0' }}>
             <div style={{ width:64, height:64, borderRadius:'50%', background:C.greenDim, border:`1px solid ${C.greenBorder}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, margin:'0 auto 20px' }}>✓</div>
             <h2 style={{ fontSize:22, fontWeight:400, marginBottom:8 }}>Booking confirmed!</h2>
-            <p style={{ color:C.text2, fontSize:13, marginBottom:28 }}>You'll get a notification when the driver arrives</p>
+            <p style={{ color:C.text2, fontSize:13, marginBottom:28 }}>You'll get a notification when the driver arrives at your pickup point</p>
             <div style={{ ...card, textAlign:'left', marginBottom:20 }}>
               <DetailRow label="Route"       val={`${confirmedBooking.from_loc} → ${confirmedBooking.to_loc}`} />
               <DetailRow label="Date"        val={fmtDate(confirmedBooking.date)} />
@@ -428,7 +432,7 @@ export default function PassengerDash() {
         {tab === 'bookings' && (
           <div>
             {loadingB && <Spinner />}
-            {!loadingB && activeBookings.length === 0 && <p style={{ color:C.text2, fontSize:13 }}>No active bookings. Search for a trip above.</p>}
+            {!loadingB && activeBookings.length === 0 && <p style={{ color:C.text2, fontSize:13 }}>No active bookings.</p>}
             {activeBookings.map(b => (
               <div key={b.id} style={{ ...card, marginBottom:12 }}>
                 <div style={{ display:'flex', alignItems:'center', marginBottom:10 }}>
@@ -444,11 +448,12 @@ export default function PassengerDash() {
                   <span style={{ color:C.text2, fontSize:13 }}>Total</span>
                   <span style={{ color:C.green, fontWeight:500 }}>{b.seats * b.price} EGP</span>
                 </div>
-
-                {/* Checkin status banner */}
                 {b.checkin_status === 'picked' && (
-                  <div style={{ marginTop:10, padding:'10px 14px', background:C.greenDim, border:`1px solid ${C.greenBorder}`, borderRadius:8, fontSize:13, color:C.green }}>
+                  <div style={{ marginTop:10, padding:'12px 14px', background:C.greenDim, border:`1px solid ${C.greenBorder}`, borderRadius:8, fontSize:13, color:C.green }}>
                     ✅ You've been picked up — driver is heading to your drop-off
+                    {(b.stops||[]).find(s=>s.type==='dropoff') && (
+                      <div style={{ marginTop:4, fontSize:11, color:C.text2 }}>Drop-off: <b>{(b.stops||[]).find(s=>s.type==='dropoff').label || 'Drop-off point'}</b></div>
+                    )}
                   </div>
                 )}
                 {b.checkin_status === 'dropped' && (
@@ -456,19 +461,10 @@ export default function PassengerDash() {
                     🏁 You've been dropped off
                   </div>
                 )}
-
-                {/* Live map */}
                 <div style={{ marginTop:14 }}>
-                  <TripMap
-                    tripId={b.trip_id}
-                    stops={b.stops || []}
-                    pickupLat={b.pickup_lat}   pickupLng={b.pickup_lng}
-                    dropoffLat={b.dropoff_lat} dropoffLng={b.dropoff_lng}
-                    checkinStatus={b.checkin_status}
-                    height={220}
-                  />
+                  <TripMap tripId={b.trip_id} stops={b.stops||[]} pickupLat={b.pickup_lat} pickupLng={b.pickup_lng}
+                    dropoffLat={b.dropoff_lat} dropoffLng={b.dropoff_lng} checkinStatus={b.checkin_status} height={220} />
                 </div>
-
                 <button style={{ ...btnDanger, marginTop:10 }} onClick={() => cancelBooking(b.id)}>Cancel booking</button>
               </div>
             ))}
@@ -483,7 +479,7 @@ export default function PassengerDash() {
             {historyBookings.map(b => (
               <div key={b.id} style={{ ...card, marginBottom:12 }}>
                 <div style={{ display:'flex', alignItems:'center', marginBottom:8 }}>
-                  <Badge type={b.status === 'completed' ? 'blue' : 'red'}>{b.status}</Badge>
+                  <Badge type={b.status==='completed'?'blue':'red'}>{b.status}</Badge>
                   <span style={{ marginLeft:'auto', fontSize:11, color:C.text3 }}>{fmtDate(b.date)}</span>
                 </div>
                 <div style={{ fontFamily:'monospace', marginBottom:4 }}>{b.from_loc} → {b.to_loc}</div>
@@ -497,7 +493,7 @@ export default function PassengerDash() {
           </div>
         )}
 
-        {/* ── RATE DRIVER ── */}
+        {/* ── RATE ── */}
         {tab === 'history' && rateTrip && (
           <div style={{ textAlign:'center', padding:'20px 0' }}>
             <button onClick={() => setRateTrip(null)} style={{ ...btnSm, display:'block', margin:'0 auto 20px' }}>← Back</button>
