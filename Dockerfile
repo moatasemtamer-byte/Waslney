@@ -1,17 +1,15 @@
-#Sample Dockerfile for NodeJS Apps
-
-FROM node:24
-
-ENV NODE_ENV=production
+FROM node:18-alpine
 
 WORKDIR /app
 
-COPY ["package.json", "package-lock.json*", "./"]
-
-RUN npm install --production
-
+# Copy everything
 COPY . .
 
-EXPOSE 8080
+# Install and build frontend
+RUN cd frontend && npm install && npm run build
 
-CMD [ "node", "index.js" ]
+# Install backend dependencies
+RUN cd backend && npm install
+
+# Start the server
+CMD ["node", "backend/server.js"]
