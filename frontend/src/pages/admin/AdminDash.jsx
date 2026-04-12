@@ -112,6 +112,8 @@ export default function AdminDash() {
   const [editTrip, setEditTrip] = useState(null);
   const [stops,   setStops]   = useState([]);
   const [editStops, setEditStops] = useState([]);
+  const [mapCenter, setMapCenter] = useState(null);       // pans StopPicker when area chosen
+  const [editMapCenter, setEditMapCenter] = useState(null);
 
   const [form, setForm] = useState({
     from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:''
@@ -224,8 +226,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>New trip</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area" value={form.from_loc} onChangeName={v => setForm({...form, from_loc:v})} onChangeCoord={coord => setForm(f => ({...f, from_loc: coord.name}))} />
-                <AreaSearch label="🏁 Drop-off area" value={form.to_loc} onChangeName={v => setForm({...form, to_loc:v})} onChangeCoord={coord => setForm(f => ({...f, to_loc: coord.name}))} />
+                <AreaSearch label="📍 Pickup area" value={form.from_loc} onChangeName={v => setForm({...form, from_loc:v})} onChangeCoord={coord => { setForm(f => ({...f, from_loc: coord.name})); setMapCenter(coord); }} />
+                <AreaSearch label="🏁 Drop-off area" value={form.to_loc} onChangeName={v => setForm({...form, to_loc:v})} onChangeCoord={coord => { setForm(f => ({...f, to_loc: coord.name})); setMapCenter(coord); }} />
                 <Inp label="📅 Date"              type="date" value={form.date}          onChange={f('date')} />
                 <Inp label="🕐 Pickup time"       type="time" value={form.pickup_time}   onChange={f('pickup_time')} />
                 <Inp label="🕐 Est. drop-off"     type="time" value={form.dropoff_time}  onChange={f('dropoff_time')} />
@@ -239,7 +241,7 @@ export default function AdminDash() {
 
               <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
               <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to alternate between pickup 🟢 and drop-off 🔵 points. Add as many as needed.</p>
-              <StopPicker stops={stops} onChange={setStops} height={340} />
+              <StopPicker stops={stops} onChange={setStops} height={340} centerOn={mapCenter} />
 
               <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
             </div>
@@ -288,8 +290,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area" value={editTrip.from_loc} onChangeName={v => setEditTrip({...editTrip, from_loc:v})} />
-                <AreaSearch label="🏁 Drop-off area" value={editTrip.to_loc} onChangeName={v => setEditTrip({...editTrip, to_loc:v})} />
+                <AreaSearch label="📍 Pickup area" value={editTrip.from_loc} onChangeName={v => setEditTrip({...editTrip, from_loc:v})} onChangeCoord={coord => setEditMapCenter(coord)} />
+                <AreaSearch label="🏁 Drop-off area" value={editTrip.to_loc} onChangeName={v => setEditTrip({...editTrip, to_loc:v})} onChangeCoord={coord => setEditMapCenter(coord)} />
                 <Inp label="Date" type="date" value={editTrip.date?.slice(0,10)} onChange={e => setEditTrip({...editTrip, date:e.target.value})} />
                 <Inp label="Pickup time" type="time" value={editTrip.pickup_time} onChange={e => setEditTrip({...editTrip, pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time" value={editTrip.dropoff_time||''} onChange={e => setEditTrip({...editTrip, dropoff_time:e.target.value})} />
@@ -299,7 +301,7 @@ export default function AdminDash() {
                 {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
               </Sel>
               <p style={{ ...sectSt, marginTop:16 }}>🗺️ Edit stops on map</p>
-              <StopPicker stops={editStops} onChange={setEditStops} height={300} />
+              <StopPicker stops={editStops} onChange={setEditStops} height={300} centerOn={editMapCenter} />
               <button onClick={handleSaveEdit} style={btnPrimary}>Save changes</button>
             </div>
           </div>

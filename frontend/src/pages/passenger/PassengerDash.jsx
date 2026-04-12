@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, Tabs, Topbar, Badge, DetailRow, CapBar, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt } from '../../components/UI.jsx';
-import TripMap from '../../components/TripMap.jsx';
+import TripMap, { ProximityMap } from '../../components/TripMap.jsx';
 
 const SEARCH_RADIUS_M = 3000; // 3 km
 
@@ -422,7 +422,16 @@ export default function PassengerDash() {
             <h2 style={{ fontSize:20, fontWeight:400, marginBottom:4 }}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
             <p style={{ color:C.text2, fontSize:13, marginBottom:20 }}>{fmtDate(selTrip.date)}</p>
             <TripMap tripId={selTrip.id} pickupLat={selPickup?.lat} pickupLng={selPickup?.lng}
-              dropoffLat={selDropoff?.lat} dropoffLng={selDropoff?.lng} stops={selTrip.stops||[]} height={240} />
+              dropoffLat={selDropoff?.lat} dropoffLng={selDropoff?.lng} stops={selTrip.stops||[]}
+              passengerLat={userLocation?.lat} passengerLng={userLocation?.lng}
+              height={240} />
+            {/* Show proximity line from user to pickup */}
+            {userLocation && selPickup?.lat && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:12, color:C.text3, marginBottom:6 }}>📍 Your location → nearest pickup point</div>
+                <ProximityMap passengerLat={userLocation.lat} passengerLng={userLocation.lng} pickupStop={selPickup} height={180} />
+              </div>
+            )}
 
             {(selTrip.stops||[]).filter(s=>s.type==='pickup').length > 1 && (
               <div style={{ ...card, marginBottom:14 }}>
@@ -548,6 +557,7 @@ export default function PassengerDash() {
                 )}
                 <div style={{ marginTop:14 }}>
                   <TripMap tripId={b.trip_id} stops={b.stops||[]} pickupLat={b.pickup_lat} pickupLng={b.pickup_lng}
+                    passengerLat={userLocation?.lat} passengerLng={userLocation?.lng}
                     dropoffLat={b.dropoff_lat} dropoffLng={b.dropoff_lng} checkinStatus={b.checkin_status} height={200} />
                 </div>
                 <button style={{ ...btnDanger, marginTop:10 }} onClick={() => cancelBooking(b.id)}>Cancel booking</button>
