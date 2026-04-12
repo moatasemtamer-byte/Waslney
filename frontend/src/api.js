@@ -51,6 +51,7 @@ export const getTripBookings = (tid) => get(`/bookings/trip/${tid}`);
 
 // ── CHECKINS ──────────────────────────────────────────────
 export const updateCheckin   = (bookingId, status) => put(`/checkins/${bookingId}`, { status });
+export const markStopArrived = (trip_id, stop_index) => post('/checkins/stop-arrived', { trip_id, stop_index });
 
 // ── RATINGS ───────────────────────────────────────────────
 export const submitRating    = (b)   => post('/ratings', b);

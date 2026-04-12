@@ -16,3 +16,6 @@ CREATE TABLE IF NOT EXISTS trip_stops (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
 );
+
+-- Add arrived column to trip_stops (run this if not already added)
+ALTER TABLE trip_stops ADD COLUMN IF NOT EXISTS arrived TINYINT(1) DEFAULT 0;
