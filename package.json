@@ -1,13 +1,1 @@
-{
-  "name": "shuttle",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "cd backend && node server.js",
-    "client": "cd frontend && npx vite --port 5173",
-    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
-  },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
-  }
-}
+{"name":"shuttle","version":"1.0.0","scripts":{"build":"npm install --prefix backend","start":"node backend/server.js"},"dependencies":{}}
