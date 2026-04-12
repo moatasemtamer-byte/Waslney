@@ -5,8 +5,28 @@ import { C, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Sta
 import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
 
 
-// ── Nominatim autocomplete for admin area fields ─────────────────────────────
-function NominatimAreaSearch({ label, value, onChange }) {
+// ── Photon geocoder (CORS-enabled, no key, OSM-backed) ─────────────────────
+async function photonSearch(q) {
+  if (!q || q.trim().length < 2) return [];
+  try {
+    const url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(q) +
+      '&limit=7&lang=en&bbox=24.6,22.0,36.9,31.7';
+    const r = await fetch(url);
+    const data = await r.json();
+    if (!data.features || !data.features.length) return [];
+    return data.features.map(f => {
+      const p = f.properties;
+      const parts = [p.name, p.street ? (p.housenumber ? p.housenumber+' '+p.street : p.street) : null,
+        p.district||p.suburb||p.neighbourhood, p.city||p.town||p.county].filter(Boolean);
+      const seen = new Set();
+      const name = parts.filter(x => { if(seen.has(x)) return false; seen.add(x); return true; }).slice(0,3).join(', ');
+      return { place_id: p.osm_id, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], name, type: p.type||p.osm_key||'', city: p.city||p.town||p.county||'' };
+    });
+  } catch { return []; }
+}
+
+// ── Area search with autocomplete — used in Create/Edit trip ────────────────
+function AreaSearch({ label, value, onChangeName, onChangeCoord }) {
   const [query,   setQuery]   = useState(value || '');
   const [results, setResults] = useState([]);
   const [open,    setOpen]    = useState(false);
@@ -14,76 +34,73 @@ function NominatimAreaSearch({ label, value, onChange }) {
   const debRef   = React.useRef(null);
   const inputRef = React.useRef(null);
   const listRef  = React.useRef(null);
-  const [dropPos, setDropPos] = useState({ top:0, left:0, width:0 });
+  const [pos, setPos] = useState({ top:0, left:0, width:300 });
+
+  React.useEffect(() => { setQuery(value || ''); }, [value]);
 
   React.useEffect(() => {
     const fn = (e) => {
       if (inputRef.current && !inputRef.current.contains(e.target) &&
-          listRef.current && !listRef.current.contains(e.target)) setOpen(false);
+          listRef.current  && !listRef.current.contains(e.target)) setOpen(false);
     };
     document.addEventListener('mousedown', fn);
     return () => document.removeEventListener('mousedown', fn);
   }, []);
 
-  function calcPos() {
+  function measure() {
     if (!inputRef.current) return;
     const r = inputRef.current.getBoundingClientRect();
-    setDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: r.width });
+    setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: r.width });
   }
 
   function onInput(e) {
     const q = e.target.value;
-    setQuery(q);
-    onChange(q);
+    setQuery(q); onChangeName(q);
     clearTimeout(debRef.current);
     if (q.length < 2) { setResults([]); setOpen(false); return; }
     debRef.current = setTimeout(async () => {
       setLoading(true);
-      try {
-        const r = await fetch(`/api/geocode/search?q=${encodeURIComponent(q)}`);
-        const d = await r.json();
-        const list = Array.isArray(d) ? d : [];
-        setResults(list);
-        if (list.length > 0) { calcPos(); setOpen(true); } else setOpen(false);
-      } catch (err) { console.error('Geocode error:', err); setResults([]); } finally { setLoading(false); }
-    }, 400);
+      const list = await photonSearch(q);
+      setLoading(false);
+      setResults(list);
+      if (list.length > 0) { measure(); setOpen(true); } else setOpen(false);
+    }, 350);
   }
 
   function pick(item) {
-    const addr = item.address || {};
-    const name = [addr.neighbourhood||addr.suburb||addr.city_district||item.name, addr.city||addr.town||addr.county].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
-    setQuery(name); setResults([]); setOpen(false);
-    onChange(name);
+    setQuery(item.name); setResults([]); setOpen(false);
+    onChangeName(item.name);
+    onChangeCoord && onChangeCoord({ lat: item.lat, lng: item.lng, name: item.name });
   }
 
   return (
     <div style={{ position:'relative' }}>
-      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:\"'Sora',sans-serif\" }}>{label}</label>
+      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:"'Sora',sans-serif" }}>{label}</label>
       <div ref={inputRef} style={{ position:'relative' }}>
-        <input value={query} onChange={onInput} onFocus={() => { if (results.length) { calcPos(); setOpen(true); } }}
+        <input value={query} onChange={onInput} onFocus={() => { if(results.length){measure();setOpen(true);} }}
           placeholder="Type to search area…"
-          style={{ width:'100%', boxSizing:'border-box', background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, padding:'10px 36px 10px 14px', color:C.text, fontFamily:\"'Sora',sans-serif\", fontSize:14, outline:'none' }} />
-        {loading && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:`2px solid ${C.border}`, borderTopColor:C.green, borderRadius:'50%', animation:'spin .6s linear infinite' }} />}
+          style={{ width:'100%', boxSizing:'border-box', background:C.bg3, border:'1px solid '+C.border, borderRadius:8, padding:'10px 36px 10px 14px', color:C.text, fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none' }} />
+        {loading && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:'2px solid '+C.border, borderTopColor:C.green, borderRadius:'50%', animation:'spin .6s linear infinite' }} />}
       </div>
       {open && results.length > 0 && (
-        <div ref={listRef} style={{ position:'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex:99999, background:C.bg3, border:`1px solid ${C.greenBorder}`, borderRadius:8, boxShadow:'0 12px 40px rgba(0,0,0,.7)', maxHeight:240, overflowY:'auto' }}>
-          {results.map((item, i) => {
-            const addr = item.address || {};
-            const main = [addr.neighbourhood||addr.suburb||addr.city_district||item.name, addr.city||addr.town].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
-            return (
-              <div key={item.place_id||i} onMouseDown={(e) => { e.preventDefault(); pick(item); }}
-                style={{ padding:'10px 14px', cursor:'pointer', borderBottom:`1px solid ${C.border}`, fontFamily:\"'Sora',sans-serif\" }}
-                onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                <div style={{ fontSize:13, color:C.text }}>{main}</div>
-                <div style={{ fontSize:10, color:C.text3, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.display_name.split(',').slice(1,4).join(',')}</div>
+        <div ref={listRef} style={{ position:'fixed', top:pos.top, left:pos.left, width:pos.width, zIndex:99999, background:C.bg3, border:'1px solid '+C.greenBorder, borderRadius:8, boxShadow:'0 12px 40px rgba(0,0,0,.8)', maxHeight:240, overflowY:'auto' }}>
+          {results.map((item, i) => (
+            <div key={item.place_id||i} onMouseDown={(e)=>{e.preventDefault();pick(item);}}
+              style={{ padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid '+C.border, fontFamily:"'Sora',sans-serif" }}
+              onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <span style={{ fontSize:13, color:C.text, flex:1 }}>{item.name}</span>
+                {item.type && <span style={{ fontSize:9, color:C.text3, background:C.bg4, border:'1px solid '+C.border, borderRadius:3, padding:'1px 5px' }}>{item.type}</span>}
               </div>
-            );
-          })}
+              {item.city && <div style={{ fontSize:10, color:C.text3, marginTop:1 }}>{item.city}</div>}
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
+
 
 export default function AdminDash() {
   const { user, logout, notify } = useAuth();
@@ -207,8 +224,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>New trip</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <NominatimAreaSearch label="📍 Pickup area" value={form.from_loc} onChange={v => setForm({...form, from_loc:v})} />
-                <NominatimAreaSearch label="🏁 Drop-off area" value={form.to_loc} onChange={v => setForm({...form, to_loc:v})} />
+                <AreaSearch label="📍 Pickup area" value={form.from_loc} onChangeName={v => setForm({...form, from_loc:v})} onChangeCoord={coord => setForm(f => ({...f, from_loc: coord.name}))} />
+                <AreaSearch label="🏁 Drop-off area" value={form.to_loc} onChangeName={v => setForm({...form, to_loc:v})} onChangeCoord={coord => setForm(f => ({...f, to_loc: coord.name}))} />
                 <Inp label="📅 Date"              type="date" value={form.date}          onChange={f('date')} />
                 <Inp label="🕐 Pickup time"       type="time" value={form.pickup_time}   onChange={f('pickup_time')} />
                 <Inp label="🕐 Est. drop-off"     type="time" value={form.dropoff_time}  onChange={f('dropoff_time')} />
@@ -271,8 +288,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <NominatimAreaSearch label="Pickup area" value={editTrip.from_loc} onChange={v => setEditTrip({...editTrip, from_loc:v})} />
-                <NominatimAreaSearch label="Drop-off area" value={editTrip.to_loc} onChange={v => setEditTrip({...editTrip, to_loc:v})} />
+                <AreaSearch label="📍 Pickup area" value={editTrip.from_loc} onChangeName={v => setEditTrip({...editTrip, from_loc:v})} />
+                <AreaSearch label="🏁 Drop-off area" value={editTrip.to_loc} onChangeName={v => setEditTrip({...editTrip, to_loc:v})} />
                 <Inp label="Date" type="date" value={editTrip.date?.slice(0,10)} onChange={e => setEditTrip({...editTrip, date:e.target.value})} />
                 <Inp label="Pickup time" type="time" value={editTrip.pickup_time} onChange={e => setEditTrip({...editTrip, pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time" value={editTrip.dropoff_time||''} onChange={e => setEditTrip({...editTrip, dropoff_time:e.target.value})} />
