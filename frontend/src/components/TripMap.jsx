@@ -301,17 +301,29 @@ export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
   useEffect(() => { nextTypeRef.current = nextType; }, [nextType]);
 
   // When admin selects area from autocomplete, pan map to that location
+  // Uses retry loop because Leaflet loads asynchronously
   useEffect(() => {
-    if (!centerOn || !leafletMap.current || !window.L) return;
-    leafletMap.current.flyTo([parseFloat(centerOn.lat), parseFloat(centerOn.lng)], 15, { duration: 1 });
-    // Show a temporary area marker
-    const L = window.L;
-    const areaIcon = L.divIcon({
-      html: `<div style="background:#fbbf2444;border:2px solid #fbbf24;border-radius:8px;padding:3px 8px;font-size:11px;color:#fbbf24;white-space:nowrap;font-family:'Sora',sans-serif">📍 ${centerOn.name || 'Selected area'}</div>`,
-      className:'', iconAnchor:[0,0],
-    });
-    const m = L.marker([parseFloat(centerOn.lat), parseFloat(centerOn.lng)], { icon: areaIcon }).addTo(leafletMap.current);
-    setTimeout(() => { if (leafletMap.current) try { leafletMap.current.removeLayer(m); } catch(_){} }, 4000);
+    if (!centerOn) return;
+    let attempts = 0;
+    const tryPan = () => {
+      attempts++;
+      if (leafletMap.current && window.L) {
+        const L = window.L;
+        const lat = parseFloat(centerOn.lat), lng = parseFloat(centerOn.lng);
+        leafletMap.current.flyTo([lat, lng], 15, { duration: 1 });
+        // Temporary area label marker
+        const areaIcon = L.divIcon({
+          html: `<div style="background:#fbbf2444;border:2px solid #fbbf24;border-radius:8px;padding:4px 10px;font-size:12px;color:#fbbf24;white-space:nowrap;font-family:'Sora',sans-serif;font-weight:600">📍 ${centerOn.name || 'Selected area'}</div>`,
+          className:'', iconAnchor:[0, 0],
+        });
+        const m = L.marker([lat, lng], { icon: areaIcon }).addTo(leafletMap.current);
+        setTimeout(() => { if (leafletMap.current) try { leafletMap.current.removeLayer(m); } catch(_){} }, 5000);
+      } else if (attempts < 20) {
+        // Retry every 200ms until map is ready (max 4 seconds)
+        setTimeout(tryPan, 200);
+      }
+    };
+    tryPan();
   }, [centerOn]);
 
   useEffect(() => {
