@@ -149,6 +149,45 @@ export default function DriverDash() {
               height={260}
             />
 
+            {/* ── All stops Google Maps links ── */}
+            {(tripDetail?.stops || selTrip.stops || []).length > 0 && (() => {
+              const allStops = tripDetail?.stops || selTrip.stops || [];
+              const pickups  = allStops.filter(s => s.type === 'pickup');
+              const dropoffs = allStops.filter(s => s.type === 'dropoff');
+              const gmLink = (s) => `https://www.google.com/maps/search/?api=1&query=${parseFloat(s.lat).toFixed(6)},${parseFloat(s.lng).toFixed(6)}`;
+              return (
+                <div style={{ ...card, marginBottom:16 }}>
+                  <p style={sectSt}>🗺️ Open stops in Google Maps</p>
+                  {pickups.length > 0 && (
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:11, color:C.text3, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Pickup points</div>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                        {pickups.map((s, i) => (
+                          <a key={i} href={gmLink(s)} target="_blank" rel="noopener noreferrer"
+                            style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, color:C.green, background:C.greenDim, border:`1px solid ${C.greenBorder}`, borderRadius:6, padding:'5px 12px', textDecoration:'none', fontFamily:"'Sora',sans-serif" }}>
+                            🟢 {s.label || `Pickup ${i+1}`}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {dropoffs.length > 0 && (
+                    <div>
+                      <div style={{ fontSize:11, color:C.text3, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Drop-off points</div>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                        {dropoffs.map((s, i) => (
+                          <a key={i} href={gmLink(s)} target="_blank" rel="noopener noreferrer"
+                            style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, color:C.blue, background:C.blueDim, border:`1px solid ${C.blueBorder}`, borderRadius:6, padding:'5px 12px', textDecoration:'none', fontFamily:"'Sora',sans-serif" }}>
+                            🔵 {s.label || `Drop-off ${i+1}`}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {!tripDetail && <Spinner />}
             {tripDetail && (
               <>

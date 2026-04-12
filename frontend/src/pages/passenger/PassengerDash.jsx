@@ -274,7 +274,14 @@ export default function PassengerDash() {
 
                 {/* Live map for active/upcoming trip */}
                 <div style={{ marginTop:14 }}>
-                  <TripMap tripId={b.trip_id} stops={[]} checkinStatus={b.checkin_status} height={200} />
+                  <TripMap
+                    tripId={b.trip_id}
+                    stops={b.stops || []}
+                    pickupLat={b.pickup_lat}   pickupLng={b.pickup_lng}
+                    dropoffLat={b.dropoff_lat} dropoffLng={b.dropoff_lng}
+                    checkinStatus={b.checkin_status}
+                    height={220}
+                  />
                 </div>
 
                 <button style={{ ...btnDanger, marginTop:10 }} onClick={() => cancelBooking(b.id)}>Cancel booking</button>
