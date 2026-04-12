@@ -45,11 +45,16 @@ function NominatimSearch({ label, placeholder, icon, value, onChange }) {
     debRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&countrycodes=eg&addressdetails=1`, { headers: { 'Accept-Language': 'en' } });
+        // Use our backend proxy — avoids browser CORS + adds proper User-Agent
+        const r = await fetch(`/api/geocode/search?q=${encodeURIComponent(q)}`);
         const d = await r.json();
-        setResults(d); setOpen(d.length > 0);
-      } catch { setResults([]); } finally { setLoading(false); }
-    }, 320);
+        const results = Array.isArray(d) ? d : [];
+        setResults(results); setOpen(results.length > 0);
+      } catch (err) {
+        console.error('Geocode error:', err);
+        setResults([]);
+      } finally { setLoading(false); }
+    }, 400);
   }
 
   function pick(item) {

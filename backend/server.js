@@ -24,6 +24,7 @@ app.use('/api/ratings',       require('./routes/ratings'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/location',      require('./routes/location'));
 app.use('/api/users',         require('./routes/users'));
+app.use('/api/geocode',        require('./routes/geocode'));
 
 // ── SOCKET.IO REAL-TIME TRACKING ──────────────────────────
 require('./socket/tracking')(io);
@@ -42,8 +43,15 @@ app.get('*', (req, res) => {
 
 // ── START ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`\n🚐  Shuttle running on http://localhost:${PORT}`);
   console.log(`🔌  Socket.io ready for real-time tracking`);
   console.log(`📦  API: http://localhost:${PORT}/api/health\n`);
+
+  // Run DB migrations after server starts
+  try {
+    await require('./migrate')();
+  } catch (e) {
+    console.error('Migration error:', e.message);
+  }
 });
