@@ -4,7 +4,7 @@ import * as api from '../../api.js';
 import { C, Tabs, Topbar, Badge, DetailRow, CapBar, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt } from '../../components/UI.jsx';
 import TripMap, { ProximityMap } from '../../components/TripMap.jsx';
 
-const SEARCH_RADIUS_M = 3000; // 3 km
+const SEARCH_RADIUS_M = 10000; // 10 km — wide enough for city-level matching
 
 function haversineDistance(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -219,28 +219,59 @@ export default function PassengerDash() {
       const all = await api.getTrips();
       const enriched = [];
 
+      // Helper: normalize text for loose matching
+      const norm = s => (s||'').toLowerCase().replace(/[,،\-]/g,' ').replace(/\s+/g,' ').trim();
+      const fromName = norm(fromCoord?.name || '');
+      const toName   = norm(toCoord?.name   || '');
+
       for (const trip of all) {
         const stops        = trip.stops || [];
         const pickupStops  = stops.filter(s => s.type === 'pickup');
         const dropoffStops = stops.filter(s => s.type === 'dropoff');
 
-        // Find pickup stop within SEARCH_RADIUS_M of user's from location
+        // ── PICKUP: find best stop by GPS distance ──
         let bestPickup = null, bestPickupDist = Infinity;
         if (effectiveFrom) {
           for (const ps of pickupStops) {
             const d = haversineDistance(effectiveFrom.lat, effectiveFrom.lng, parseFloat(ps.lat), parseFloat(ps.lng));
             if (d < bestPickupDist && d <= SEARCH_RADIUS_M) { bestPickupDist = d; bestPickup = { ...ps, distFromUser: d }; }
           }
-        } else {
-          // No user location — use first pickup stop
+        }
+        // Fallback: if no GPS match, check trip from_loc name contains searched area word
+        if (!bestPickup && fromName.length > 2) {
+          const tripFrom = norm(trip.from_loc);
+          const words = fromName.split(' ').filter(w => w.length > 2);
+          const nameMatch = words.some(w => tripFrom.includes(w));
+          if (nameMatch) {
+            bestPickup = pickupStops[0] || null;
+            bestPickupDist = bestPickup && effectiveFrom
+              ? haversineDistance(effectiveFrom.lat, effectiveFrom.lng, parseFloat(bestPickup.lat), parseFloat(bestPickup.lng))
+              : 0;
+          }
+        }
+        // Last resort: no location at all, just show first pickup
+        if (!bestPickup && !effectiveFrom) {
           bestPickup = pickupStops[0] || null;
+          bestPickupDist = 0;
         }
 
-        // Find dropoff stop within SEARCH_RADIUS_M of destination
+        // ── DROPOFF: find best stop by GPS distance ──
         let bestDropoff = null, bestDropoffDist = Infinity;
         for (const ds of dropoffStops) {
           const d = haversineDistance(toCoord.lat, toCoord.lng, parseFloat(ds.lat), parseFloat(ds.lng));
           if (d < bestDropoffDist && d <= SEARCH_RADIUS_M) { bestDropoffDist = d; bestDropoff = { ...ds, distFromDest: d }; }
+        }
+        // Fallback: check trip to_loc name contains searched destination word
+        if (!bestDropoff && toName.length > 2) {
+          const tripTo = norm(trip.to_loc);
+          const words = toName.split(' ').filter(w => w.length > 2);
+          const nameMatch = words.some(w => tripTo.includes(w));
+          if (nameMatch) {
+            bestDropoff = dropoffStops[0] || null;
+            bestDropoffDist = bestDropoff
+              ? haversineDistance(toCoord.lat, toCoord.lng, parseFloat(bestDropoff.lat), parseFloat(bestDropoff.lng))
+              : 0;
+          }
         }
 
         if (bestPickup && bestDropoff) {
@@ -249,7 +280,7 @@ export default function PassengerDash() {
       }
       enriched.sort((a, b) => (a.bestPickupDist||0) - (b.bestPickupDist||0));
       setMatchedTrips(enriched);
-      if (!enriched.length) notify('No trips found', 'No trips have stops within 3km of those locations.', 'info');
+      if (!enriched.length) notify('No trips found', 'Try a broader area or different destination.', 'info');
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setSearching(false); }
   }
@@ -357,7 +388,7 @@ export default function PassengerDash() {
               />
 
               <p style={{ fontSize:11, color:C.text3, marginBottom:14 }}>
-                📏 Finds trips with pickup &amp; drop-off stops within <b style={{ color:C.amber }}>3km</b> of your locations
+                📏 Finds trips with stops within <b style={{ color:C.amber }}>10km</b> · also matches by area name
               </p>
 
               <button onClick={searchTrips} disabled={searching || !toCoord}
