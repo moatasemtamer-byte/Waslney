@@ -11,19 +11,30 @@ function NominatimAreaSearch({ label, value, onChange }) {
   const [results, setResults] = useState([]);
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState(false);
-  const debRef  = React.useRef(null);
-  const wrapRef = React.useRef(null);
+  const debRef   = React.useRef(null);
+  const inputRef = React.useRef(null);
+  const listRef  = React.useRef(null);
+  const [dropPos, setDropPos] = useState({ top:0, left:0, width:0 });
 
   React.useEffect(() => {
-    const fn = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const fn = (e) => {
+      if (inputRef.current && !inputRef.current.contains(e.target) &&
+          listRef.current && !listRef.current.contains(e.target)) setOpen(false);
+    };
     document.addEventListener('mousedown', fn);
     return () => document.removeEventListener('mousedown', fn);
   }, []);
 
+  function calcPos() {
+    if (!inputRef.current) return;
+    const r = inputRef.current.getBoundingClientRect();
+    setDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: r.width });
+  }
+
   function onInput(e) {
     const q = e.target.value;
     setQuery(q);
-    onChange(q); // update text value immediately
+    onChange(q);
     clearTimeout(debRef.current);
     if (q.length < 2) { setResults([]); setOpen(false); return; }
     debRef.current = setTimeout(async () => {
@@ -31,35 +42,36 @@ function NominatimAreaSearch({ label, value, onChange }) {
       try {
         const r = await fetch(`/api/geocode/search?q=${encodeURIComponent(q)}`);
         const d = await r.json();
-        const results = Array.isArray(d) ? d : [];
-        setResults(results); setOpen(results.length > 0);
+        const list = Array.isArray(d) ? d : [];
+        setResults(list);
+        if (list.length > 0) { calcPos(); setOpen(true); } else setOpen(false);
       } catch (err) { console.error('Geocode error:', err); setResults([]); } finally { setLoading(false); }
-    }, 320);
+    }, 400);
   }
 
   function pick(item) {
     const addr = item.address || {};
-    const name = [addr.neighbourhood || addr.suburb || addr.city_district || item.name, addr.city || addr.town || addr.county].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
+    const name = [addr.neighbourhood||addr.suburb||addr.city_district||item.name, addr.city||addr.town||addr.county].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
     setQuery(name); setResults([]); setOpen(false);
     onChange(name);
   }
 
   return (
-    <div ref={wrapRef} style={{ position:'relative' }}>
+    <div style={{ position:'relative' }}>
       <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:\"'Sora',sans-serif\" }}>{label}</label>
-      <div style={{ position:'relative' }}>
-        <input value={query} onChange={onInput} onFocus={() => results.length && setOpen(true)}
+      <div ref={inputRef} style={{ position:'relative' }}>
+        <input value={query} onChange={onInput} onFocus={() => { if (results.length) { calcPos(); setOpen(true); } }}
           placeholder="Type to search area…"
           style={{ width:'100%', boxSizing:'border-box', background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, padding:'10px 36px 10px 14px', color:C.text, fontFamily:\"'Sora',sans-serif\", fontSize:14, outline:'none' }} />
         {loading && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:`2px solid ${C.border}`, borderTopColor:C.green, borderRadius:'50%', animation:'spin .6s linear infinite' }} />}
       </div>
       {open && results.length > 0 && (
-        <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:9999, background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, boxShadow:'0 8px 32px rgba(0,0,0,.55)', overflow:'hidden' }}>
+        <div ref={listRef} style={{ position:'fixed', top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex:99999, background:C.bg3, border:`1px solid ${C.greenBorder}`, borderRadius:8, boxShadow:'0 12px 40px rgba(0,0,0,.7)', maxHeight:240, overflowY:'auto' }}>
           {results.map((item, i) => {
             const addr = item.address || {};
             const main = [addr.neighbourhood||addr.suburb||addr.city_district||item.name, addr.city||addr.town].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
             return (
-              <div key={item.place_id||i} onMouseDown={() => pick(item)}
+              <div key={item.place_id||i} onMouseDown={(e) => { e.preventDefault(); pick(item); }}
                 style={{ padding:'10px 14px', cursor:'pointer', borderBottom:`1px solid ${C.border}`, fontFamily:\"'Sora',sans-serif\" }}
                 onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                 <div style={{ fontSize:13, color:C.text }}>{main}</div>

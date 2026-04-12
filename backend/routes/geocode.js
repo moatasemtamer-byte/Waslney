@@ -1,39 +1,47 @@
-// Backend proxy for Nominatim — avoids browser CORS/User-Agent issues
+// Backend proxy for Nominatim — uses Node built-in https (no extra deps needed)
 const router = require('express').Router();
+const https  = require('https');
+
+function httpsGet(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'WaslneyShuttleApp/1.0 contact@waslney.com',
+        'Accept-Language': 'en',
+        'Accept': 'application/json',
+      }
+    }, (res) => {
+      let raw = '';
+      res.on('data', chunk => raw += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(raw)); }
+        catch { resolve([]); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(8000, () => { req.destroy(); reject(new Error('timeout')); });
+  });
+}
 
 router.get('/search', async (req, res) => {
   const { q } = req.query;
   if (!q || q.trim().length < 2) return res.json([]);
+
   try {
-    // Dynamic import of node-fetch or use built-in fetch (Node 18+)
-    const fetchFn = globalThis.fetch || (await import('node-fetch').then(m => m.default).catch(() => null));
-    if (!fetchFn) return res.status(500).json({ error: 'fetch not available' });
-
+    // Egypt-restricted search first
     const egUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&countrycodes=eg&addressdetails=1&accept-language=en`;
-    let r = await fetchFn(egUrl, {
-      headers: {
-        'User-Agent': 'WaslneyShuttleApp/1.0 contact@waslney.com',
-        'Accept-Language': 'en',
-      }
-    });
-    let data = await r.json();
+    let data = await httpsGet(egUrl);
 
-    // Fallback: append "Egypt" if no results
-    if (!data.length) {
-      const globalUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ' Egypt')}&format=json&limit=6&addressdetails=1&accept-language=en`;
-      r = await fetchFn(globalUrl, {
-        headers: {
-          'User-Agent': 'WaslneyShuttleApp/1.0 contact@waslney.com',
-          'Accept-Language': 'en',
-        }
-      });
-      data = await r.json();
+    // Fallback: append Egypt to query if no results
+    if (!Array.isArray(data) || !data.length) {
+      const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ' Egypt')}&format=json&limit=6&addressdetails=1&accept-language=en`;
+      data = await httpsGet(fallbackUrl);
     }
 
-    res.json(data);
+    res.json(Array.isArray(data) ? data : []);
   } catch (err) {
     console.error('Geocode proxy error:', err.message);
-    res.status(500).json({ error: 'Geocode failed', details: err.message });
+    res.json([]); // return empty array, not 500 — frontend handles gracefully
   }
 });
 

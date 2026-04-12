@@ -21,73 +21,127 @@ function formatDist(m) { return m < 1000 ? `${Math.round(m)}m` : `${(m/1000).toF
 
 // ── Nominatim autocomplete ─────────────────────────────────────────────────────
 function NominatimSearch({ label, placeholder, icon, value, onChange }) {
-  const [query,    setQuery]    = useState(value?.name || '');
-  const [results,  setResults]  = useState([]);
-  const [open,     setOpen]     = useState(false);
-  const [loading,  setLoading]  = useState(false);
-  const debRef  = useRef(null);
-  const wrapRef = useRef(null);
+  const [query,   setQuery]   = useState(value?.name || '');
+  const [results, setResults] = useState([]);
+  const [open,    setOpen]    = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [noRes,   setNoRes]   = useState(false);
+  const debRef   = useRef(null);
+  const inputRef = useRef(null);
+  const listRef  = useRef(null);
+  const [dropPos, setDropPos] = useState({ top:0, left:0, width:300 });
 
   useEffect(() => { if (!value) setQuery(''); }, [value]);
 
   useEffect(() => {
-    const fn = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const fn = (e) => {
+      if (inputRef.current && !inputRef.current.contains(e.target) &&
+          listRef.current && !listRef.current.contains(e.target)) setOpen(false);
+    };
     document.addEventListener('mousedown', fn);
     return () => document.removeEventListener('mousedown', fn);
   }, []);
+
+  function calcPos() {
+    if (!inputRef.current) return;
+    const r = inputRef.current.getBoundingClientRect();
+    setDropPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: r.width });
+  }
 
   function onInput(e) {
     const q = e.target.value;
     setQuery(q);
     onChange(null);
+    setNoRes(false);
     clearTimeout(debRef.current);
     if (q.length < 2) { setResults([]); setOpen(false); return; }
     debRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        // Use our backend proxy — avoids browser CORS + adds proper User-Agent
-        const r = await fetch(`/api/geocode/search?q=${encodeURIComponent(q)}`);
+        const r = await fetch('/api/geocode/search?q=' + encodeURIComponent(q));
         const d = await r.json();
-        const results = Array.isArray(d) ? d : [];
-        setResults(results); setOpen(results.length > 0);
+        const list = Array.isArray(d) ? d : [];
+        setResults(list);
+        setNoRes(list.length === 0);
+        if (list.length > 0) { calcPos(); setOpen(true); } else setOpen(false);
       } catch (err) {
         console.error('Geocode error:', err);
-        setResults([]);
+        setResults([]); setNoRes(true);
       } finally { setLoading(false); }
     }, 400);
   }
 
+  function onFocus() {
+    if (results.length > 0) { calcPos(); setOpen(true); }
+  }
+
   function pick(item) {
-    const name = [item.address?.neighbourhood || item.address?.suburb || item.address?.city_district || item.name, item.address?.city || item.address?.town, item.address?.state].filter(Boolean).slice(0,3).join(', ') || item.display_name.split(',').slice(0,3).join(',');
-    const coord = { lat: parseFloat(item.lat), lng: parseFloat(item.lon), name };
-    setQuery(name); setResults([]); setOpen(false);
-    onChange(coord);
+    const addr = item.address || {};
+    const name = [
+      addr.neighbourhood || addr.suburb || addr.city_district || item.name,
+      addr.city || addr.town || addr.county,
+    ].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
+    setQuery(name); setResults([]); setOpen(false); setNoRes(false);
+    onChange({ lat: parseFloat(item.lat), lng: parseFloat(item.lon), name });
   }
 
   return (
-    <div ref={wrapRef} style={{ position:'relative', marginBottom:14 }}>
-      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:"'Sora',sans-serif" }}>{icon} {label}</label>
-      <div style={{ position:'relative' }}>
+    <div style={{ marginBottom:14 }}>
+      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:"'Sora',sans-serif" }}>
+        {icon} {label}
+      </label>
+      <div ref={inputRef} style={{ position:'relative' }}>
         <input
-          value={query} onChange={onInput} onFocus={() => results.length && setOpen(true)}
+          value={query} onChange={onInput} onFocus={onFocus}
           placeholder={placeholder}
-          style={{ width:'100%', boxSizing:'border-box', background:C.bg3, border:`1px solid ${value ? C.greenBorder : C.border}`, borderRadius:8, padding:'10px 36px 10px 14px', color:C.text, fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none' }}
+          style={{ width:'100%', boxSizing:'border-box', background:C.bg3,
+            border:'1px solid ' + (value ? C.greenBorder : C.border),
+            borderRadius:8, padding:'11px 42px 11px 14px', color:C.text,
+            fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none' }}
         />
-        {loading && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:`2px solid ${C.border}`, borderTopColor:C.green, borderRadius:'50%', animation:'spin .6s linear infinite' }} />}
-        {!loading && value && <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', color:C.green, fontSize:14 }}>✓</span>}
+        {loading && (
+          <div style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)',
+            width:14, height:14, border:'2px solid ' + C.border, borderTopColor:C.green,
+            borderRadius:'50%', animation:'spin .6s linear infinite' }} />
+        )}
+        {!loading && value && (
+          <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', color:C.green, fontSize:14 }}>✓</span>
+        )}
+        {!loading && !value && noRes && query.length >= 2 && (
+          <span style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', color:C.red, fontSize:10 }}>no results</span>
+        )}
       </div>
       {open && results.length > 0 && (
-        <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, right:0, zIndex:9999, background:C.bg3, border:`1px solid ${C.border}`, borderRadius:8, boxShadow:'0 8px 32px rgba(0,0,0,.55)', overflow:'hidden' }}>
+        <div
+          ref={listRef}
+          style={{
+            position:'fixed',
+            top: dropPos.top,
+            left: dropPos.left,
+            width: dropPos.width,
+            zIndex: 99999,
+            background: C.bg3,
+            border: '1px solid ' + C.greenBorder,
+            borderRadius: 8,
+            boxShadow: '0 12px 40px rgba(0,0,0,.75)',
+            maxHeight: 260,
+            overflowY: 'auto',
+          }}
+        >
           {results.map((item, i) => {
             const addr = item.address || {};
-            const main = [addr.neighbourhood || addr.suburb || addr.city_district || item.name, addr.city || addr.town].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
-            const sub  = item.display_name.split(',').slice(1,4).join(',');
+            const main = [addr.neighbourhood||addr.suburb||addr.city_district||item.name, addr.city||addr.town].filter(Boolean).slice(0,2).join(', ') || item.display_name.split(',').slice(0,2).join(',');
+            const sub  = item.display_name.split(',').slice(2,5).join(',').trim();
             return (
-              <div key={item.place_id || i} onMouseDown={() => pick(item)}
-                style={{ padding:'10px 14px', cursor:'pointer', borderBottom:`1px solid ${C.border}`, fontFamily:"'Sora',sans-serif" }}
-                onMouseEnter={e => e.currentTarget.style.background=C.bg4} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+              <div
+                key={item.place_id || i}
+                onMouseDown={(e) => { e.preventDefault(); pick(item); }}
+                style={{ padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid ' + C.border, fontFamily:"'Sora',sans-serif" }}
+                onMouseEnter={e => e.currentTarget.style.background = C.bg4}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
                 <div style={{ fontSize:13, color:C.text }}>{main}</div>
-                <div style={{ fontSize:10, color:C.text3, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sub}</div>
+                {sub && <div style={{ fontSize:10, color:C.text3, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sub}</div>}
               </div>
             );
           })}
