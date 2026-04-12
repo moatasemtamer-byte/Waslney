@@ -44,10 +44,10 @@ function haversineDistance(lat1, lng1, lat2, lng2) {
 export default function TripMap({
   tripId,
   pickupLat, pickupLng, dropoffLat, dropoffLng,
-  stops = [],           // array of {type, lat, lng, label}
+  stops = [],
   isDriver = false,
   passengerBookingId = null,
-  checkinStatus = null, // 'pending' | 'picked' | 'dropped'
+  checkinStatus = null,
   height = 280,
 }) {
   const mapRef           = useRef(null);
@@ -60,7 +60,7 @@ export default function TripMap({
   const [error,      setError]      = useState(null);
   const [status,     setStatus]     = useState('Loading map...');
   const [driverPos,  setDriverPos]  = useState(null);
-  const [navInfo,    setNavInfo]    = useState(null); // { dist, target }
+  const [navInfo,    setNavInfo]    = useState(null);
 
   const initMap = useCallback(() => {
     if (!mapRef.current || leafletMap.current) return;
@@ -77,17 +77,11 @@ export default function TripMap({
     }).addTo(map);
     leafletMap.current = map;
 
-    // Draw stops
     drawStops(stops, map, L);
 
-    // Fallback single pickup/dropoff
     if (!stops.length) {
-      if (pickupLat && pickupLng) {
-        addStopMarker(L, map, parseFloat(pickupLat), parseFloat(pickupLng), 'pickup', 'Pickup');
-      }
-      if (dropoffLat && dropoffLng) {
-        addStopMarker(L, map, parseFloat(dropoffLat), parseFloat(dropoffLng), 'dropoff', 'Drop-off');
-      }
+      if (pickupLat && pickupLng) addStopMarker(L, map, parseFloat(pickupLat), parseFloat(pickupLng), 'pickup', 'Pickup');
+      if (dropoffLat && dropoffLng) addStopMarker(L, map, parseFloat(dropoffLat), parseFloat(dropoffLng), 'dropoff', 'Drop-off');
       if (pickupLat && dropoffLat) {
         drawNavLine(L, map,
           [parseFloat(pickupLat), parseFloat(pickupLng)],
@@ -97,7 +91,6 @@ export default function TripMap({
       }
     }
 
-    // Live driver location
     if (tripId) {
       getTripLocation(tripId)
         .then(loc => { if (loc?.lat) updateDriverMarker(loc.lat, loc.lng, map, L); })
@@ -127,22 +120,18 @@ export default function TripMap({
     };
   }, [initMap]);
 
-  // Update nav line when driver moves (passenger view)
+  // Passenger nav line update
   useEffect(() => {
     if (!driverPos || !leafletMap.current || !window.L || isDriver) return;
     const L = window.L;
     const map = leafletMap.current;
-
     if (navLine.current) { map.removeLayer(navLine.current); navLine.current = null; }
 
     let targetLat, targetLng, targetLabel;
-
     if (checkinStatus === 'picked' || checkinStatus === 'dropped') {
-      // Navigate to dropoff
       const dropoff = stops.find(s => s.type === 'dropoff') || (dropoffLat ? { lat: dropoffLat, lng: dropoffLng } : null);
       if (dropoff) { targetLat = parseFloat(dropoff.lat); targetLng = parseFloat(dropoff.lng); targetLabel = 'Your drop-off'; }
     } else {
-      // Navigate to passenger pickup
       if (pickupLat) { targetLat = parseFloat(pickupLat); targetLng = parseFloat(pickupLng); targetLabel = 'Your pickup'; }
     }
 
@@ -151,7 +140,6 @@ export default function TripMap({
         [[driverPos.lat, driverPos.lng], [targetLat, targetLng]],
         { color: checkinStatus === 'picked' ? '#60a5fa' : '#fbbf24', weight: 3, opacity: 0.8, dashArray: '8,5' }
       ).addTo(map);
-
       const dist = haversineDistance(driverPos.lat, driverPos.lng, targetLat, targetLng);
       setNavInfo({
         dist: dist < 1000 ? `${Math.round(dist)}m` : `${(dist/1000).toFixed(1)}km`,
@@ -173,7 +161,6 @@ export default function TripMap({
         [[driverPos.lat, driverPos.lng], [parseFloat(nextPickup.lat), parseFloat(nextPickup.lng)]],
         { color: '#4ade80', weight: 4, opacity: 0.9, dashArray: '10,5' }
       ).addTo(map);
-
       const dist = haversineDistance(driverPos.lat, driverPos.lng, parseFloat(nextPickup.lat), parseFloat(nextPickup.lng));
       setNavInfo({
         dist: dist < 1000 ? `${Math.round(dist)}m` : `${(dist/1000).toFixed(1)}km`,
@@ -186,15 +173,12 @@ export default function TripMap({
     stopMarkers.current.forEach(m => map.removeLayer(m));
     stopMarkers.current = [];
     if (!stopsArr.length) return;
-
     const bounds = [];
     stopsArr.forEach((s, i) => {
       const m = addStopMarker(L, map, parseFloat(s.lat), parseFloat(s.lng), s.type, s.label || (s.type === 'pickup' ? `Pickup ${i+1}` : `Drop-off ${i+1}`));
       stopMarkers.current.push(m);
       bounds.push([parseFloat(s.lat), parseFloat(s.lng)]);
     });
-
-    // Draw route line through all stops in order
     if (bounds.length > 1) {
       const line = L.polyline(bounds, { color: '#4ade80', weight: 3, opacity: 0.5, dashArray: '8,6' }).addTo(map);
       stopMarkers.current.push(line);
@@ -294,7 +278,13 @@ export function StopPicker({ stops, onChange, height = 340 }) {
   const mapRef     = useRef(null);
   const leafletMap = useRef(null);
   const markers    = useRef([]);
+  const stopsRef   = useRef(stops);   // ← FIX: always-current ref avoids stale closure
   const [status, setStatus] = useState('Loading map...');
+
+  // Keep ref in sync with prop
+  useEffect(() => {
+    stopsRef.current = stops;
+  }, [stops]);
 
   useEffect(() => {
     loadLeaflet(() => {
@@ -309,11 +299,11 @@ export function StopPicker({ stops, onChange, height = 340 }) {
 
       map.on('click', (e) => {
         const { lat, lng } = e.latlng;
-        // Alternate between pickup and dropoff
-        const lastType = stops.length > 0 ? stops[stops.length - 1].type : 'dropoff';
-        const newType = lastType === 'dropoff' ? 'pickup' : 'dropoff';
-        const newStop = { type: newType, lat: lat.toFixed(6), lng: lng.toFixed(6), label: '' };
-        onChange([...stops, newStop]);
+        const current = stopsRef.current;          // ← always fresh
+        const lastType = current.length > 0 ? current[current.length - 1].type : 'dropoff';
+        const newType  = lastType === 'dropoff' ? 'pickup' : 'dropoff';
+        const newStop  = { type: newType, lat: lat.toFixed(6), lng: lng.toFixed(6), label: '' };
+        onChange([...current, newStop]);           // ← spread fresh array
       });
 
       setTimeout(() => map.invalidateSize(), 300);
@@ -322,7 +312,7 @@ export function StopPicker({ stops, onChange, height = 340 }) {
     return () => {
       if (leafletMap.current) { leafletMap.current.remove(); leafletMap.current = null; }
     };
-  }, []);
+  }, []);   // runs once — map.on('click') now uses ref, not closure
 
   // Redraw markers when stops change
   useEffect(() => {
@@ -354,11 +344,13 @@ export function StopPicker({ stops, onChange, height = 340 }) {
     }
   }, [stops]);
 
+  const nextType = stops.length === 0 || stops[stops.length-1]?.type === 'dropoff' ? 'Pickup 🟢' : 'Drop-off 🔵';
+
   return (
     <div style={{ borderRadius:12, overflow:'hidden', border:`1px solid ${C.border}`, marginBottom:14 }}>
       <div style={{ background:C.bg4, padding:'8px 14px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
         <span style={{ fontSize:12, color:C.text2 }}>🗺️ Click map to add stops</span>
-        <span style={{ fontSize:11, color:C.green }}>🟢 Next click = {stops.length === 0 || stops[stops.length-1]?.type === 'dropoff' ? 'Pickup' : 'Drop-off'}</span>
+        <span style={{ fontSize:11, color:C.green }}>Next click = {nextType}</span>
         <span style={{ fontSize:11, color:C.text3 }}>{stops.length} stop{stops.length !== 1 ? 's' : ''} added</span>
         {stops.length > 0 && (
           <button onClick={() => onChange(stops.slice(0,-1))}

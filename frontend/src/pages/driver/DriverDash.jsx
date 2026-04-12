@@ -178,30 +178,64 @@ export default function DriverDash() {
                 {tripDetail.bookings?.map(b => {
                   const st = b.checkin_status || 'pending';
                   const rowBg = st==='picked'?C.greenDim : st==='noshow'?C.redDim : st==='dropped'?C.blueDim : 'transparent';
+
+                  // Find the matching pickup/dropoff stop for this passenger
+                  const allStops = tripDetail?.stops || selTrip.stops || [];
+                  const passengerPickup  = b.pickup_stop_index  != null ? allStops[b.pickup_stop_index]  : allStops.find(s => s.type === 'pickup');
+                  const passengerDropoff = b.dropoff_stop_index != null ? allStops[b.dropoff_stop_index] : allStops.find(s => s.type === 'dropoff');
+
+                  const gmapsLink = (stop) => {
+                    if (!stop?.lat || !stop?.lng) return null;
+                    const q = `${parseFloat(stop.lat).toFixed(6)},${parseFloat(stop.lng).toFixed(6)}`;
+                    return `https://www.google.com/maps/search/?api=1&query=${q}`;
+                  };
+
+                  const pickupLink  = gmapsLink(passengerPickup);
+                  const dropoffLink = gmapsLink(passengerDropoff);
+
                   return (
-                    <div key={b.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:rowBg, borderRadius:8, marginBottom:8, border:`1px solid ${C.border}`, transition:'background .2s' }}>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:14, fontWeight:500 }}>{b.passenger_name}</div>
-                        <div style={{ fontSize:12, color:C.text2 }}>{b.seats} seat{b.seats>1?'s':''} · {b.pickup_note || '—'}</div>
-                        <div style={{ marginTop:6 }}>
-                          {st==='pending' && <Badge type="amber">Pending</Badge>}
-                          {st==='picked'  && <Badge type="green">Picked up</Badge>}
-                          {st==='noshow'  && <Badge type="red">No-show</Badge>}
-                          {st==='dropped' && <Badge type="blue">Dropped off</Badge>}
+                    <div key={b.id} style={{ padding:'13px 16px', background:rowBg, borderRadius:8, marginBottom:8, border:`1px solid ${C.border}`, transition:'background .2s' }}>
+                      <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:14, fontWeight:500 }}>{b.passenger_name}</div>
+                          <div style={{ fontSize:12, color:C.text2 }}>{b.seats} seat{b.seats>1?'s':''} · {b.pickup_note || '—'}</div>
+                          <div style={{ marginTop:6 }}>
+                            {st==='pending' && <Badge type="amber">Pending</Badge>}
+                            {st==='picked'  && <Badge type="green">Picked up</Badge>}
+                            {st==='noshow'  && <Badge type="red">No-show</Badge>}
+                            {st==='dropped' && <Badge type="blue">Dropped off</Badge>}
+                          </div>
+                          {/* Google Maps links */}
+                          <div style={{ display:'flex', gap:8, marginTop:8, flexWrap:'wrap' }}>
+                            {pickupLink && (
+                              <a href={pickupLink} target="_blank" rel="noopener noreferrer"
+                                style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, color:C.green, background:C.greenDim, border:`1px solid ${C.greenBorder}`, borderRadius:5, padding:'3px 9px', textDecoration:'none', fontFamily:"'Sora',sans-serif" }}>
+                                🗺️ Open pickup in Maps
+                              </a>
+                            )}
+                            {dropoffLink && (
+                              <a href={dropoffLink} target="_blank" rel="noopener noreferrer"
+                                style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, color:C.blue, background:C.blueDim, border:`1px solid ${C.blueBorder}`, borderRadius:5, padding:'3px 9px', textDecoration:'none', fontFamily:"'Sora',sans-serif" }}>
+                                🗺️ Open drop-off in Maps
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end' }}>
+                          {selTrip.status === 'active' && st === 'pending' && (
+                            <div style={{ display:'flex', gap:6 }}>
+                              <button onClick={() => handleCheckin(b.id, 'picked')}
+                                style={{ width:36, height:36, borderRadius:6, border:`1px solid ${C.greenBorder}`, background:'transparent', color:C.green, fontSize:16, cursor:'pointer' }}>✓</button>
+                              <button onClick={() => handleCheckin(b.id, 'noshow')}
+                                style={{ width:36, height:36, borderRadius:6, border:`1px solid ${C.redBorder}`, background:'transparent', color:C.red, fontSize:16, cursor:'pointer' }}>✗</button>
+                            </div>
+                          )}
+                          {selTrip.status === 'active' && st === 'picked' && (
+                            <button onClick={() => handleCheckin(b.id, 'dropped')}
+                              style={{ ...btnSm, color:C.blue, borderColor:C.blueBorder, whiteSpace:'nowrap' }}>Drop off</button>
+                          )}
                         </div>
                       </div>
-                      {selTrip.status === 'active' && st === 'pending' && (
-                        <div style={{ display:'flex', gap:6 }}>
-                          <button onClick={() => handleCheckin(b.id, 'picked')}
-                            style={{ width:36, height:36, borderRadius:6, border:`1px solid ${C.greenBorder}`, background:'transparent', color:C.green, fontSize:16, cursor:'pointer' }}>✓</button>
-                          <button onClick={() => handleCheckin(b.id, 'noshow')}
-                            style={{ width:36, height:36, borderRadius:6, border:`1px solid ${C.redBorder}`, background:'transparent', color:C.red, fontSize:16, cursor:'pointer' }}>✗</button>
-                        </div>
-                      )}
-                      {selTrip.status === 'active' && st === 'picked' && (
-                        <button onClick={() => handleCheckin(b.id, 'dropped')}
-                          style={{ ...btnSm, color:C.blue, borderColor:C.blueBorder, whiteSpace:'nowrap' }}>Drop off</button>
-                      )}
                     </div>
                   );
                 })}
