@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { emitTripStarted, emitTripCompleted, emitCheckinUpdate } from '../../socket.js';
@@ -18,9 +18,70 @@ export default function DriverDash() {
   const [notifOpen,  setNotifOpen] = useState(false);
   const [activeStop, setActiveStop] = useState(null); // index of currently expanded stop
 
+  // Pool
+  const [poolInvitations,  setPoolInvitations]  = useState([]);
+  const [poolLoading,      setPoolLoading]      = useState(false);
+  const [poolChat,         setPoolChat]         = useState(null); // {tripId, messages}
+  const [chatInput,        setChatInput]        = useState('');
+  const [sendingChat,      setSendingChat]      = useState(false);
+  const [editingStops,     setEditingStops]     = useState(null); // {tripId, stops}
+  const chatEndRef = useRef(null);
+
   const unread = notifs.filter(n => !n.is_read).length;
 
-  useEffect(() => { loadTrips(); loadRatings(); loadNotifs(); }, []);
+  useEffect(() => { loadTrips(); loadRatings(); loadNotifs(); loadPoolInvitations(); }, []);
+
+  async function loadPoolInvitations() {
+    setPoolLoading(true);
+    try { setPoolInvitations(await api.getPoolInvitations()); } catch {}
+    finally { setPoolLoading(false); }
+  }
+
+  async function handleAcceptPool(invId) {
+    try {
+      const result = await api.acceptPoolInvitation(invId);
+      notify('Pool trip accepted!', `Trip #${result.tripId} created with ${result.stops?.filter(s=>s.type==='pickup').length} passengers.`);
+      loadPoolInvitations(); loadTrips();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
+  async function handleDeclinePool(invId) {
+    try {
+      await api.declinePoolInvitation(invId);
+      notify('Declined', 'Pool invitation declined.');
+      loadPoolInvitations();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
+  async function openPoolChat(tripId) {
+    try {
+      const messages = await api.getPoolChat(tripId);
+      setPoolChat({ tripId, messages });
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior:'smooth' }), 100);
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
+  async function sendChatMessage() {
+    if (!chatInput.trim() || !poolChat) return;
+    setSendingChat(true);
+    try {
+      await api.sendPoolMessage(poolChat.tripId, chatInput.trim());
+      setChatInput('');
+      const messages = await api.getPoolChat(poolChat.tripId);
+      setPoolChat(prev => ({ ...prev, messages }));
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior:'smooth' }), 100);
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setSendingChat(false); }
+  }
+
+  async function saveEditedStops() {
+    if (!editingStops) return;
+    try {
+      await api.updatePoolStops(editingStops.tripId, editingStops.stops);
+      notify('Stops updated', 'Passengers have been notified.');
+      setEditingStops(null); loadTrips();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
 
   async function loadTrips() {
     setLoading(true);
@@ -119,7 +180,7 @@ export default function DriverDash() {
           </div>
         )}
 
-        <Tabs tabs={[{ id:'trips', label:'My trips' }, { id:'history', label:'History' }, { id:'profile', label:'Profile' }]}
+        <Tabs tabs={[{ id:'trips', label:'My trips' }, { id:'pool', label:`🚗 Pool${poolInvitations.filter(i=>i.response==='pending').length>0?' ('+poolInvitations.filter(i=>i.response==='pending').length+')':''}`  }, { id:'history', label:'History' }, { id:'profile', label:'Profile' }]}
           active={tab} onSet={goTab} />
 
         {/* ── TRIPS LIST ── */}
@@ -374,6 +435,208 @@ export default function DriverDash() {
                 })}
               </>
             )}
+          </div>
+        )}
+
+
+        {/* ── POOL INVITATIONS TAB ── */}
+        {tab === 'pool' && (
+          <div style={{ paddingTop:8 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+              <div>
+                <h2 style={{ fontSize:20, fontWeight:800, color:'#fff', margin:0 }}>Pool Ride Invitations</h2>
+                <p style={{ fontSize:12, color:'#4b7ab5', margin:'4px 0 0' }}>Passengers requesting a shared ride near you</p>
+              </div>
+              <button onClick={loadPoolInvitations} style={{ background:'#111', border:'1px solid #1e3a5f', borderRadius:8, padding:'6px 12px', color:'#60a5fa', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                ↻ Refresh
+              </button>
+            </div>
+
+            {poolLoading && <Spinner />}
+
+            {!poolLoading && poolInvitations.length === 0 && (
+              <div style={{ textAlign:'center', paddingTop:60 }}>
+                <div style={{ fontSize:44, marginBottom:14 }}>🚗</div>
+                <p style={{ color:'#555', fontSize:14 }}>No pool invitations yet.</p>
+                <p style={{ color:'#333', fontSize:12, marginTop:6 }}>When passengers near you request a pool ride, you'll see it here.</p>
+              </div>
+            )}
+
+            {poolInvitations.map(inv => (
+              <div key={inv.id} style={{ background:'#0d1117', borderRadius:16, padding:'20px', marginBottom:14, border:`1px solid ${inv.response==='pending'?'#1e3a5f':'#1a1a1a'}` }}>
+                {/* Header */}
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+                  <div style={{ fontSize:12, fontWeight:700, padding:'3px 10px', borderRadius:20,
+                    color: inv.response==='pending'?'#60a5fa':inv.response==='accepted'?'#4ade80':'#f87171',
+                    background: inv.response==='pending'?'rgba(96,165,250,0.1)':inv.response==='accepted'?'rgba(74,222,128,0.1)':'rgba(248,113,113,0.1)' }}>
+                    {inv.response==='pending'?'⏳ Pending':inv.response==='accepted'?'✅ Accepted':'❌ Declined'}
+                  </div>
+                  <span style={{ fontSize:11, color:'#555' }}>{inv.desired_date} · {inv.desired_time}</span>
+                </div>
+
+                {/* Destination */}
+                <div style={{ fontSize:15, fontWeight:700, color:'#fff', marginBottom:4 }}>
+                  → {inv.dest_label || 'Destination'}
+                </div>
+
+                {/* Members */}
+                {inv.members && inv.members.length > 0 && (
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ fontSize:11, color:'#4b7ab5', marginBottom:8, textTransform:'uppercase', letterSpacing:'.08em' }}>
+                      {inv.members.length} Passenger{inv.members.length>1?'s':''}
+                    </div>
+                    {inv.members.map((m, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0', borderTop:'1px solid #111' }}>
+                        <div style={{ width:32, height:32, borderRadius:'50%', background:'#1e3a5f', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#60a5fa', flexShrink:0 }}>
+                          {m.passenger_name?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:13, fontWeight:600, color:'#fff' }}>{m.passenger_name}</div>
+                          <div style={{ fontSize:11, color:'#4b7ab5', marginTop:2 }}>
+                            📍 {m.origin_label || 'Origin'} · {m.seats} seat{m.seats>1?'s':''}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Smart routing note */}
+                {inv.response === 'pending' && inv.members && inv.members.length > 0 && (
+                  <div style={{ background:'rgba(30,58,95,0.3)', borderRadius:10, padding:'10px 14px', fontSize:12, color:'#4b7ab5', marginBottom:14, lineHeight:1.5 }}>
+                    🗺️ If you accept: the app will auto-assign pickup points for each passenger along your route. You can edit these after accepting.
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                {inv.response === 'pending' && (
+                  <div style={{ display:'flex', gap:10 }}>
+                    <button onClick={() => handleAcceptPool(inv.id)}
+                      style={{ flex:2, background:'#1d4ed8', color:'#fff', border:'none', borderRadius:10, padding:'12px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      ✅ Accept Trip
+                    </button>
+                    <button onClick={() => handleDeclinePool(inv.id)}
+                      style={{ flex:1, background:'transparent', color:'#f87171', border:'1px solid #f8717144', borderRadius:10, padding:'12px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      ✕ Decline
+                    </button>
+                  </div>
+                )}
+
+                {/* Accepted: show chat + edit stops */}
+                {inv.response === 'accepted' && inv.group_trip_id && (
+                  <div style={{ display:'flex', gap:10, marginTop:4 }}>
+                    <button onClick={() => openPoolChat(inv.group_trip_id || inv.trip_id)}
+                      style={{ flex:1, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'11px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      💬 Group Chat
+                    </button>
+                    <button onClick={async () => {
+                        try {
+                          const tripDetail = await api.getTrip(inv.group_trip_id);
+                          setEditingStops({ tripId: inv.group_trip_id, stops: tripDetail.stops || [] });
+                        } catch(e) { notify('Error', e.message, 'error'); }
+                      }}
+                      style={{ flex:1, background:'rgba(251,191,36,0.1)', border:'1px solid #fbbf2444', borderRadius:10, padding:'11px', fontSize:13, fontWeight:600, color:'#fbbf24', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      📍 Edit Stops
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── POOL CHAT MODAL ── */}
+        {poolChat && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.95)', zIndex:500, display:'flex', flexDirection:'column' }}>
+            <div style={{ background:'#0d1117', borderBottom:'1px solid #1e3a5f', padding:'16px 20px', display:'flex', alignItems:'center' }}>
+              <button onClick={() => setPoolChat(null)} style={{ background:'transparent', border:'none', color:'#fff', fontSize:22, cursor:'pointer', marginRight:12 }}>←</button>
+              <div>
+                <div style={{ fontSize:15, fontWeight:700, color:'#fff' }}>Pool Trip Chat</div>
+                <div style={{ fontSize:11, color:'#4b7ab5' }}>Trip #{poolChat.tripId} · You are the <strong style={{color:'#fbbf24'}}>Driver</strong></div>
+              </div>
+            </div>
+            <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', display:'flex', flexDirection:'column', gap:10 }}>
+              {poolChat.messages.length === 0 && (
+                <div style={{ textAlign:'center', color:'#333', fontSize:13, marginTop:40 }}>No messages yet. Greet your passengers! 🚗</div>
+              )}
+              {poolChat.messages.map((m, i) => {
+                const isMe = m.user_id === user.id;
+                const isDriver = m.sender_role === 'driver';
+                return (
+                  <div key={i} style={{ display:'flex', flexDirection:'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ fontSize:11, color:'#444', marginBottom:3 }}>
+                      {isDriver ? `🚗 ${m.sender_name} (Driver)` : m.sender_name}
+                    </div>
+                    <div style={{ background: isMe ? '#fbbf24' : '#111', color: isMe ? '#000' : '#fff', borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding:'10px 14px', maxWidth:'75%', fontSize:13, lineHeight:1.5 }}>
+                      {m.message}
+                    </div>
+                    <div style={{ fontSize:10, color:'#333', marginTop:2 }}>{new Date(m.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+                  </div>
+                );
+              })}
+              <div ref={chatEndRef} />
+            </div>
+            <div style={{ padding:'12px 16px 32px', background:'#0d1117', borderTop:'1px solid #1a1a1a', display:'flex', gap:8 }}>
+              <input value={chatInput} onChange={e=>setChatInput(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&sendChatMessage()}
+                placeholder="Message to passengers…"
+                style={{ flex:1, background:'#111', border:'1px solid #1e3a5f', borderRadius:12, padding:'12px 16px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none' }} />
+              <button onClick={sendChatMessage} disabled={sendingChat || !chatInput.trim()}
+                style={{ background:'#fbbf24', border:'none', borderRadius:12, padding:'12px 18px', color:'#000', fontSize:16, cursor:'pointer', fontWeight:700 }}>
+                {sendingChat ? '…' : '➤'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── EDIT STOPS MODAL ── */}
+        {editingStops && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.92)', zIndex:500, display:'flex', flexDirection:'column' }}>
+            <div style={{ background:'#0d1117', borderBottom:'1px solid #1e3a5f', padding:'16px 20px', display:'flex', alignItems:'center' }}>
+              <button onClick={() => setEditingStops(null)} style={{ background:'transparent', border:'none', color:'#fff', fontSize:22, cursor:'pointer', marginRight:12 }}>←</button>
+              <div>
+                <div style={{ fontSize:15, fontWeight:700, color:'#fff' }}>Edit Pickup & Dropoff Points</div>
+                <div style={{ fontSize:11, color:'#4b7ab5' }}>Passengers will be notified of any changes</div>
+              </div>
+            </div>
+            <div style={{ flex:1, overflowY:'auto', padding:'20px' }}>
+              <div style={{ background:'rgba(30,58,95,0.3)', borderRadius:10, padding:'10px 14px', fontSize:12, color:'#4b7ab5', marginBottom:20, lineHeight:1.5 }}>
+                ℹ️ Edit labels to update where each passenger will be picked up or dropped off. A notification will be sent to each affected passenger.
+              </div>
+              {editingStops.stops.map((stop, i) => (
+                <div key={i} style={{ background:'#111', borderRadius:12, padding:'16px', marginBottom:12, border:`1px solid ${stop.type==='pickup'?'#fbbf2433':'#3b82f633'}` }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                    <span style={{ fontSize:16 }}>{stop.type==='pickup'?'🟢':'🏁'}</span>
+                    <span style={{ fontSize:12, fontWeight:700, color: stop.type==='pickup'?'#fbbf24':'#60a5fa', textTransform:'uppercase', letterSpacing:'.06em' }}>
+                      {stop.type} {i+1}
+                    </span>
+                    {stop.passenger_id && <span style={{ fontSize:11, color:'#555' }}>— passenger stop</span>}
+                  </div>
+                  <input
+                    value={stop.label || ''}
+                    onChange={e => setEditingStops(prev => ({
+                      ...prev,
+                      stops: prev.stops.map((s, idx) => idx===i ? {...s, label: e.target.value} : s)
+                    }))}
+                    placeholder="Location name / description"
+                    style={{ width:'100%', boxSizing:'border-box', background:'#1a1a1a', border:'1px solid #333', borderRadius:8, padding:'10px 14px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none' }}
+                  />
+                  <div style={{ fontSize:11, color:'#333', marginTop:6 }}>
+                    Coords: {parseFloat(stop.lat).toFixed(5)}, {parseFloat(stop.lng).toFixed(5)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding:'12px 20px 32px', background:'#0d1117', borderTop:'1px solid #1a1a1a', display:'flex', gap:10 }}>
+              <button onClick={() => setEditingStops(null)}
+                style={{ flex:1, background:'transparent', border:'1px solid #333', borderRadius:12, padding:'13px', color:'#555', fontSize:14, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                Cancel
+              </button>
+              <button onClick={saveEditedStops}
+                style={{ flex:2, background:'#fbbf24', border:'none', borderRadius:12, padding:'13px', color:'#000', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                💾 Save & Notify Passengers
+              </button>
+            </div>
           </div>
         )}
 

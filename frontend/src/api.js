@@ -68,3 +68,15 @@ export const getAllLocations   = ()   => get('/location/all');
 // ── USERS (admin) ─────────────────────────────────────────
 export const getUsers         = ()   => get('/users');
 export const getDrivers       = ()   => get('/users/drivers');
+
+// ── POOL RIDES ────────────────────────────────────────────
+export const submitPoolRequest    = (b)       => post('/pool/requests', b);
+export const getMyPoolRequests    = ()        => get('/pool/requests/mine');
+export const getPoolInvitations   = ()        => get('/pool/invitations');
+export const acceptPoolInvitation = (id)      => post(`/pool/invitations/${id}/accept`);
+export const declinePoolInvitation= (id)      => post(`/pool/invitations/${id}/decline`);
+export const updatePoolStops      = (tid, s)  => put(`/pool/trips/${tid}/stops`, { stops: s });
+export const getPoolChat          = (tid)     => get(`/pool/chat/${tid}`);
+export const sendPoolMessage      = (tid, msg)=> post(`/pool/chat/${tid}`, { message: msg });
+export const getNearbyPoolGroups  = (q)       => get(`/pool/groups/nearby?${new URLSearchParams(q)}`);
+

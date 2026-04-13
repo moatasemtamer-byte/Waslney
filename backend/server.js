@@ -25,6 +25,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/location',      require('./routes/location'));
 app.use('/api/users',         require('./routes/users'));
 app.use('/api/geocode',        require('./routes/geocode'));
+app.use('/api/pool',           require('./routes/pool'));
 
 // ── SOCKET.IO REAL-TIME TRACKING ──────────────────────────
 require('./socket/tracking')(io);
