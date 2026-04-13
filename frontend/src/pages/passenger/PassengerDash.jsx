@@ -185,6 +185,19 @@ export default function PassengerDash() {
   const [notifOpen, setNotifOpen] = useState(false);
   const unread = notifs.filter(n => !n.is_read).length;
 
+  const pollRef = useRef(null);
+
+  // Start 3s polling when on bookings tab, stop when leaving
+  useEffect(() => {
+    if (tab === 'bookings') {
+      loadBookings();
+      pollRef.current = setInterval(() => loadBookings(), 3000);
+    } else {
+      clearInterval(pollRef.current);
+    }
+    return () => clearInterval(pollRef.current);
+  }, [tab]);
+
   useEffect(() => { loadNotifs(); requestLocation(); }, []);
 
   async function loadNotifs() { try { setNotifs(await api.getNotifications()); } catch {} }
@@ -337,10 +350,14 @@ export default function PassengerDash() {
   }
 
   async function loadBookings() {
-    setLoadingB(true);
+    // Only show spinner on first load, not on every 3s poll
+    if (myBookings.length === 0) setLoadingB(true);
     try {
       const bks = await api.getMyBookings();
+      // Fetch trip stops only for bookings that don't have them yet
       const enriched = await Promise.all(bks.map(async b => {
+        const existing = myBookings.find(x => x.id === b.id);
+        if (existing?.stops?.length) return { ...b, stops: existing.stops };
         try { const d = await api.getTrip(b.trip_id); return { ...b, stops: d.stops || [] }; }
         catch { return { ...b, stops: [] }; }
       }));
@@ -348,7 +365,7 @@ export default function PassengerDash() {
     } catch {} finally { setLoadingB(false); }
   }
 
-  useEffect(() => { if (tab === 'bookings' || tab === 'history') loadBookings(); }, [tab]);
+  useEffect(() => { if (tab === 'history') loadBookings(); }, [tab]);
 
   function openTrip(trip) {
     setSelTrip(trip); setSelPickup(trip.bestPickup || null); setSelDropoff(trip.bestDropoff || null); setSeats(1); setSub('detail');

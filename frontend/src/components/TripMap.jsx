@@ -252,6 +252,39 @@ export default function TripMap({
 
   return (
     <div style={{ borderRadius:12, overflow:'hidden', border:`1px solid ${C.border}`, marginBottom:20 }}>
+
+      {/* ── ETA card ABOVE the map — always visible, never on top of map ── */}
+      {navInfo && !isDriver && (
+        <div style={{
+          background: isHeadingDropoff ? '#0d1f33' : '#1a0a0a',
+          borderBottom: `2px solid ${navColor}`,
+          padding: '14px 16px',
+          display: 'flex', alignItems: 'center', gap: 14,
+        }}>
+          {/* Left: icon + status text */}
+          <span style={{ fontSize: 30 }}>{isHeadingDropoff ? '🏁' : '🚐'}</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: navColor }}>
+              {isHeadingDropoff ? 'On the way to your drop-off' : 'Driver is coming to your pickup'}
+            </div>
+            <div style={{ fontSize: 12, color: C.text2, marginTop: 3 }}>
+              {driverName && <span style={{ color: '#fbbf24', fontWeight: 600 }}>{driverName} · </span>}
+              {navInfo.dist} away
+            </div>
+          </div>
+          {/* Right: big ETA */}
+          <div style={{
+            background: `${navColor}22`,
+            border: `2px solid ${navColor}`,
+            borderRadius: 12, padding: '8px 16px',
+            textAlign: 'center', minWidth: 80,
+          }}>
+            <div style={{ fontSize: 26, fontWeight: 900, color: navColor, lineHeight: 1 }}>~{navInfo.time}</div>
+            <div style={{ fontSize: 11, color: C.text3, marginTop: 2, fontWeight: 600 }}>ETA</div>
+          </div>
+        </div>
+      )}
+
       <div style={{ position:'relative', height, background:'#0f1923' }}>
         <div ref={mapRef} style={{ height:'100%', width:'100%' }} />
         {status && (
@@ -261,30 +294,7 @@ export default function TripMap({
             <span style={{ fontSize:12, color:C.text3 }}>{status}</span>
           </div>
         )}
-
-
       </div>
-
-      {/* Nav banner for passenger — clear ETA below map */}
-      {navInfo && !isDriver && (
-        <div style={{ background: isHeadingDropoff ? C.blueDim : 'rgba(239,68,68,0.13)', borderBottom:`1px solid ${navColor}55`, padding:'12px 16px', display:'flex', alignItems:'center', gap:14 }}>
-          <span style={{ fontSize:26 }}>{isHeadingDropoff ? '🏁' : '🚐'}</span>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:navColor, marginBottom:3 }}>
-              {isHeadingDropoff ? 'Heading to your drop-off' : 'Driver is on the way to your pickup'}
-            </div>
-            <div style={{ fontSize:12, color:C.text2 }}>
-              {driverName && <span style={{ color:'#fbbf24', fontWeight:600 }}>{driverName} · </span>}
-              {navInfo.dist} away
-            </div>
-          </div>
-          {/* Big ETA pill on the right */}
-          <div style={{ background:'rgba(0,0,0,0.5)', border:`2px solid ${navColor}`, borderRadius:10, padding:'6px 14px', textAlign:'center', minWidth:70 }}>
-            <div style={{ fontSize:22, fontWeight:900, color:navColor, lineHeight:1 }}>~{navInfo.time}</div>
-            <div style={{ fontSize:10, color:C.text3, marginTop:2 }}>ETA</div>
-          </div>
-        </div>
-      )}
 
       <div style={{ background:C.bg3, padding:'10px 14px', display:'flex', gap:16, flexWrap:'wrap', alignItems:'center', borderTop:`1px solid ${C.border}` }}>
         <span style={{ fontSize:12, color:C.text2, display:'flex', alignItems:'center', gap:5 }}><span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', background:C.green }} /> Pickup</span>
