@@ -1,110 +1,17 @@
 import React, { useState, useEffect } from 'react';
+import { PlaceSearch as AreaSearch } from '../../components/LeafletSearch.jsx';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
 
 
-// ── Photon geocoder (CORS-enabled, no key, OSM-backed) ─────────────────────
-async function photonSearch(q) {
-  if (!q || q.trim().length < 2) return [];
-  try {
-    const url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(q) +
-      '&limit=7&lang=en&bbox=24.6,22.0,36.9,31.7';
-    const r = await fetch(url);
-    const data = await r.json();
-    if (!data.features || !data.features.length) return [];
-    return data.features.map(f => {
-      const p = f.properties;
-      const parts = [p.name, p.street ? (p.housenumber ? p.housenumber+' '+p.street : p.street) : null,
-        p.district||p.suburb||p.neighbourhood, p.city||p.town||p.county].filter(Boolean);
-      const seen = new Set();
-      const name = parts.filter(x => { if(seen.has(x)) return false; seen.add(x); return true; }).slice(0,3).join(', ');
-      return { place_id: p.osm_id, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], name, type: p.type||p.osm_key||'', city: p.city||p.town||p.county||'' };
-    });
-  } catch { return []; }
-}
-
-// ── Area search with autocomplete — used in Create/Edit trip ────────────────
-function AreaSearch({ label, value, onChangeName, onChangeCoord }) {
-  const [query,   setQuery]   = useState(value || '');
-  const [results, setResults] = useState([]);
-  const [open,    setOpen]    = useState(false);
-  const [loading, setLoading] = useState(false);
-  const debRef   = React.useRef(null);
-  const inputRef = React.useRef(null);
-  const listRef  = React.useRef(null);
-  const [pos, setPos] = useState({ top:0, left:0, width:300 });
-
-  React.useEffect(() => { setQuery(value || ''); }, [value]);
-
-  React.useEffect(() => {
-    const fn = (e) => {
-      if (inputRef.current && !inputRef.current.contains(e.target) &&
-          listRef.current  && !listRef.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', fn);
-    return () => document.removeEventListener('mousedown', fn);
-  }, []);
-
-  function measure() {
-    if (!inputRef.current) return;
-    const r = inputRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + window.scrollY + 4, left: r.left + window.scrollX, width: r.width });
-  }
-
-  function onInput(e) {
-    const q = e.target.value;
-    setQuery(q); onChangeName(q);
-    clearTimeout(debRef.current);
-    if (q.length < 2) { setResults([]); setOpen(false); return; }
-    debRef.current = setTimeout(async () => {
-      setLoading(true);
-      const list = await photonSearch(q);
-      setLoading(false);
-      setResults(list);
-      if (list.length > 0) { measure(); setOpen(true); } else setOpen(false);
-    }, 350);
-  }
-
-  function pick(item) {
-    setQuery(item.name); setResults([]); setOpen(false);
-    onChangeName(item.name);
-    onChangeCoord && onChangeCoord({ lat: item.lat, lng: item.lng, name: item.name });
-  }
-
-  return (
-    <div style={{ position:'relative' }}>
-      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:"'Sora',sans-serif" }}>{label}</label>
-      <div ref={inputRef} style={{ position:'relative' }}>
-        <input value={query} onChange={onInput} onFocus={() => { if(results.length){measure();setOpen(true);} }}
-          placeholder="Type to search area…"
-          style={{ width:'100%', boxSizing:'border-box', background:C.bg3, border:'1px solid '+C.border, borderRadius:8, padding:'10px 36px 10px 14px', color:C.text, fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none' }} />
-        {loading && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:'2px solid '+C.border, borderTopColor:C.green, borderRadius:'50%', animation:'spin .6s linear infinite' }} />}
-      </div>
-      {open && results.length > 0 && (
-        <div ref={listRef} style={{ position:'fixed', top:pos.top, left:pos.left, width:pos.width, zIndex:99999, background:C.bg3, border:'1px solid '+C.greenBorder, borderRadius:8, boxShadow:'0 12px 40px rgba(0,0,0,.8)', maxHeight:240, overflowY:'auto' }}>
-          {results.map((item, i) => (
-            <div key={item.place_id||i} onMouseDown={(e)=>{e.preventDefault();pick(item);}}
-              style={{ padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid '+C.border, fontFamily:"'Sora',sans-serif" }}
-              onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <span style={{ fontSize:13, color:C.text, flex:1 }}>{item.name}</span>
-                {item.type && <span style={{ fontSize:9, color:C.text3, background:C.bg4, border:'1px solid '+C.border, borderRadius:3, padding:'1px 5px' }}>{item.type}</span>}
-              </div>
-              {item.city && <div style={{ fontSize:10, color:C.text3, marginTop:1 }}>{item.city}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 
 export default function AdminDash() {
   const { user, logout, notify } = useAuth();
-  const [tab,     setTab]     = useState('overview');
+  const [tab,     setTab]     = useState(() => sessionStorage.getItem('adm_tab') || 'overview');
+  const goTab = (t) => { sessionStorage.setItem('adm_tab', t); setTab(t); setEditTrip(null); };
   const [trips,   setTrips]   = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [users,   setUsers]   = useState([]);
@@ -112,8 +19,6 @@ export default function AdminDash() {
   const [editTrip, setEditTrip] = useState(null);
   const [stops,   setStops]   = useState([]);
   const [editStops, setEditStops] = useState([]);
-  const [mapCenter, setMapCenter] = useState(null);       // pans StopPicker when area chosen
-  const [editMapCenter, setEditMapCenter] = useState(null);
 
   const [form, setForm] = useState({
     from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:''
@@ -192,7 +97,7 @@ export default function AdminDash() {
           { id:'trips',      label:'Trips' },
           { id:'drivers',    label:'Drivers' },
           { id:'passengers', label:'Passengers' },
-        ]} active={tab} onSet={t => { setTab(t); setEditTrip(null); }} />
+        ]} active={tab} onSet={goTab} />
 
         {/* ── OVERVIEW ── */}
         {tab === 'overview' && (
@@ -226,8 +131,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>New trip</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area" value={form.from_loc} onChangeName={v => setForm({...form, from_loc:v})} onChangeCoord={coord => { setForm(f => ({...f, from_loc: coord.name})); setMapCenter(coord); }} />
-                <AreaSearch label="🏁 Drop-off area" value={form.to_loc} onChangeName={v => setForm({...form, to_loc:v})} onChangeCoord={coord => { setForm(f => ({...f, to_loc: coord.name})); setMapCenter(coord); }} />
+                <AreaSearch label="📍 Pickup area" placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc ? {name:form.from_loc} : null} onChange={coord => setForm({...form, from_loc: coord ? coord.name : ''})} />
+                <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…" icon="🏁" value={form.to_loc ? {name:form.to_loc} : null} onChange={coord => setForm({...form, to_loc: coord ? coord.name : ''})} />
                 <Inp label="📅 Date"              type="date" value={form.date}          onChange={f('date')} />
                 <Inp label="🕐 Pickup time"       type="time" value={form.pickup_time}   onChange={f('pickup_time')} />
                 <Inp label="🕐 Est. drop-off"     type="time" value={form.dropoff_time}  onChange={f('dropoff_time')} />
@@ -241,7 +146,7 @@ export default function AdminDash() {
 
               <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
               <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to alternate between pickup 🟢 and drop-off 🔵 points. Add as many as needed.</p>
-              <StopPicker stops={stops} onChange={setStops} height={340} centerOn={mapCenter} />
+              <StopPicker stops={stops} onChange={setStops} height={340} />
 
               <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
             </div>
@@ -290,8 +195,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area" value={editTrip.from_loc} onChangeName={v => setEditTrip({...editTrip, from_loc:v})} onChangeCoord={coord => setEditMapCenter(coord)} />
-                <AreaSearch label="🏁 Drop-off area" value={editTrip.to_loc} onChangeName={v => setEditTrip({...editTrip, to_loc:v})} onChangeCoord={coord => setEditMapCenter(coord)} />
+                <AreaSearch label="📍 Pickup area" placeholder="e.g. Nasr City…" icon="📍" value={editTrip.from_loc ? {name:editTrip.from_loc} : null} onChange={coord => setEditTrip({...editTrip, from_loc: coord ? coord.name : ''})} />
+                <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…" icon="🏁" value={editTrip.to_loc ? {name:editTrip.to_loc} : null} onChange={coord => setEditTrip({...editTrip, to_loc: coord ? coord.name : ''})} />
                 <Inp label="Date" type="date" value={editTrip.date?.slice(0,10)} onChange={e => setEditTrip({...editTrip, date:e.target.value})} />
                 <Inp label="Pickup time" type="time" value={editTrip.pickup_time} onChange={e => setEditTrip({...editTrip, pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time" value={editTrip.dropoff_time||''} onChange={e => setEditTrip({...editTrip, dropoff_time:e.target.value})} />
@@ -301,7 +206,7 @@ export default function AdminDash() {
                 {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
               </Sel>
               <p style={{ ...sectSt, marginTop:16 }}>🗺️ Edit stops on map</p>
-              <StopPicker stops={editStops} onChange={setEditStops} height={300} centerOn={editMapCenter} />
+              <StopPicker stops={editStops} onChange={setEditStops} height={300} />
               <button onClick={handleSaveEdit} style={btnPrimary}>Save changes</button>
             </div>
           </div>

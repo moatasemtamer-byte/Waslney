@@ -7,7 +7,8 @@ import TripMap from '../../components/TripMap.jsx';
 
 export default function DriverDash() {
   const { user, logout, notify } = useAuth();
-  const [tab,        setTab]       = useState('trips');
+  const [tab,        setTab]       = useState(() => sessionStorage.getItem('drv_tab') || 'trips');
+  const goTab = (t) => { sessionStorage.setItem('drv_tab', t); setTab(t); setSelTrip(null); setTripDetail(null); };
   const [trips,      setTrips]     = useState([]);
   const [selTrip,    setSelTrip]   = useState(null);
   const [tripDetail, setTripDetail] = useState(null);
@@ -119,7 +120,7 @@ export default function DriverDash() {
         )}
 
         <Tabs tabs={[{ id:'trips', label:'My trips' }, { id:'history', label:'History' }, { id:'profile', label:'Profile' }]}
-          active={tab} onSet={t => { setTab(t); setSelTrip(null); setTripDetail(null); }} />
+          active={tab} onSet={goTab} />
 
         {/* ── TRIPS LIST ── */}
         {tab === 'trips' && !selTrip && (
