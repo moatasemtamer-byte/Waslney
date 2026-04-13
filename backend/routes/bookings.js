@@ -42,8 +42,14 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
     if (!tripRows.length) return res.status(404).json({ error: 'Trip not found or not available' });
     const trip = tripRows[0];
 
-    // FIX: Only count CONFIRMED bookings on ACTIVE/UPCOMING trips
-    // Completed/cancelled trip bookings should NOT count against available seats
+    // Check duplicate booking FIRST — before checking seats
+    const [existing] = await db.query(
+      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
+      [trip_id, req.user.id]
+    );
+    if (existing.length) return res.status(409).json({ error: 'already_reserved' });
+
+    // Only count CONFIRMED bookings on ACTIVE/UPCOMING trips
     const [[{ booked }]] = await db.query(`
       SELECT COALESCE(SUM(b.seats), 0) AS booked
       FROM bookings b
@@ -58,13 +64,6 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
         error: `Not enough seats available. ${trip.total_seats - booked} seat${trip.total_seats - booked !== 1 ? 's' : ''} left.`
       });
     }
-
-    // Prevent duplicate booking on the same trip
-    const [existing] = await db.query(
-      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
-      [trip_id, req.user.id]
-    );
-    if (existing.length) return res.status(409).json({ error: 'You already have an active reservation on this trip. Cancel it first to book again.' });
 
     const [result] = await db.query(
       'INSERT INTO bookings (trip_id, passenger_id, seats, pickup_note) VALUES (?,?,?,?)',

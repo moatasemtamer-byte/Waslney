@@ -289,8 +289,8 @@ export default function PassengerDash() {
       notify('Booking confirmed!',`Pickup at ${selTrip.pickup_time}`);
     } catch(e) {
       const msg = e.message || '';
-      if (msg.toLowerCase().includes('already')) {
-        notify('Already reserved', msg, 'warning');
+      if (msg === 'already_reserved' || msg.toLowerCase().includes('already')) {
+        notify('Already reserved', 'You already have an active booking on this trip. Go to your bookings to cancel it first.', 'warning');
       } else {
         notify('Error', msg, 'error');
       }
