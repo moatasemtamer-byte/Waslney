@@ -12,7 +12,7 @@ router.get('/', requireAuth, async (req, res) => {
              u.plate AS driver_plate,
              COALESCE(AVG(r.stars),0) AS avg_rating,
              COUNT(DISTINCT r.id) AS rating_count,
-             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status!='cancelled') AS booked_seats
+             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status='confirmed') AS booked_seats
       FROM trips t
       LEFT JOIN users   u ON u.id = t.driver_id
       LEFT JOIN ratings r ON r.driver_id = t.driver_id
@@ -39,7 +39,7 @@ router.get('/driver', requireAuth, requireRole('driver'), async (req, res) => {
   try {
     const [trips] = await db.query(`
       SELECT t.*,
-             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status!='cancelled') AS booked_seats
+             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status='confirmed') AS booked_seats
       FROM trips t WHERE t.driver_id=?
       ORDER BY t.date ASC, t.pickup_time ASC
     `, [req.user.id]);

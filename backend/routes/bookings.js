@@ -27,25 +27,47 @@ router.get('/mine', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/bookings  — passenger books seats
+// POST /api/bookings — passenger books seats
 router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
   const { trip_id, seats, pickup_note } = req.body;
   if (!trip_id || !seats) return res.status(400).json({ error: 'trip_id and seats required' });
   if (seats < 1 || seats > 3) return res.status(400).json({ error: 'You can reserve 1–3 seats' });
 
   try {
-    // Check availability
-    const [tripRows] = await db.query("SELECT * FROM trips WHERE id=? AND status IN ('upcoming','active')", [trip_id]);
+    // Trip must be upcoming or active
+    const [tripRows] = await db.query(
+      "SELECT * FROM trips WHERE id=? AND status IN ('upcoming','active')",
+      [trip_id]
+    );
     if (!tripRows.length) return res.status(404).json({ error: 'Trip not found or not available' });
     const trip = tripRows[0];
 
-    const [[{ booked }]] = await db.query(
-      "SELECT COALESCE(SUM(seats),0) AS booked FROM bookings WHERE trip_id=? AND status!='cancelled'", [trip_id]
+    // FIX: Only count CONFIRMED bookings on ACTIVE/UPCOMING trips
+    // Completed/cancelled trip bookings should NOT count against available seats
+    const [[{ booked }]] = await db.query(`
+      SELECT COALESCE(SUM(b.seats), 0) AS booked
+      FROM bookings b
+      JOIN trips t ON t.id = b.trip_id
+      WHERE b.trip_id = ?
+        AND b.status = 'confirmed'
+        AND t.status IN ('upcoming', 'active')
+    `, [trip_id]);
+
+    if (booked + seats > trip.total_seats) {
+      return res.status(409).json({
+        error: `Not enough seats available. ${trip.total_seats - booked} seat${trip.total_seats - booked !== 1 ? 's' : ''} left.`
+      });
+    }
+
+    // Prevent duplicate booking on the same trip
+    const [existing] = await db.query(
+      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
+      [trip_id, req.user.id]
     );
-    if (booked + seats > trip.total_seats) return res.status(409).json({ error: 'Not enough seats available' });
+    if (existing.length) return res.status(409).json({ error: 'You already have a confirmed booking on this trip' });
 
     const [result] = await db.query(
-      'INSERT INTO bookings (trip_id,passenger_id,seats,pickup_note) VALUES (?,?,?,?)',
+      'INSERT INTO bookings (trip_id, passenger_id, seats, pickup_note) VALUES (?,?,?,?)',
       [trip_id, req.user.id, seats, pickup_note || null]
     );
     const bookingId = result.insertId;
@@ -54,18 +76,20 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
     await db.query('INSERT INTO checkins (booking_id) VALUES (?)', [bookingId]);
 
     // Notify passenger
-    await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
+    await db.query('INSERT INTO notifications (user_id, message) VALUES (?,?)',
       [req.user.id, `Booking confirmed: ${trip.from_loc} → ${trip.to_loc} on ${trip.date}`]);
 
     // Notify driver
-    await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
-      [trip.driver_id, `New booking: ${req.user.name} reserved ${seats} seat${seats>1?'s':''} on ${trip.from_loc}→${trip.to_loc}`]);
+    await db.query('INSERT INTO notifications (user_id, message) VALUES (?,?)',
+      [trip.driver_id, `New booking: ${seats} seat${seats > 1 ? 's' : ''} reserved on ${trip.from_loc} → ${trip.to_loc}`]);
 
     const [booking] = await db.query(`
       SELECT b.*, t.from_loc, t.to_loc, t.pickup_time, t.date, t.price,
              u.name AS driver_name, u.car AS driver_car, u.plate AS driver_plate
-      FROM bookings b JOIN trips t ON t.id=b.trip_id JOIN users u ON u.id=t.driver_id
-      WHERE b.id=?
+      FROM bookings b
+      JOIN trips t ON t.id = b.trip_id
+      JOIN users u ON u.id = t.driver_id
+      WHERE b.id = ?
     `, [bookingId]);
 
     res.status(201).json(booking[0]);
@@ -89,16 +113,16 @@ router.put('/:id/cancel', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/bookings/trip/:tripId  — admin/driver sees all bookings for a trip
+// GET /api/bookings/trip/:tripId — admin/driver sees all bookings for a trip
 router.get('/trip/:tripId', requireAuth, async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT b.*, u.name AS passenger_name, u.phone AS passenger_phone,
              c.status AS checkin_status
       FROM bookings b
-      JOIN users u ON u.id=b.passenger_id
-      LEFT JOIN checkins c ON c.booking_id=b.id
-      WHERE b.trip_id=? AND b.status!='cancelled'
+      JOIN users u ON u.id = b.passenger_id
+      LEFT JOIN checkins c ON c.booking_id = b.id
+      WHERE b.trip_id = ? AND b.status != 'cancelled'
     `, [req.params.tripId]);
     res.json(rows);
   } catch (err) {
