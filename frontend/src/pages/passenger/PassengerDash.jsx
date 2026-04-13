@@ -3,6 +3,7 @@ import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, Tabs, Topbar, Badge, DetailRow, CapBar, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt } from '../../components/UI.jsx';
 import TripMap, { ProximityMap } from '../../components/TripMap.jsx';
+import socket, { connectSocket, watchTrip } from '../../socket.js';
 
 const SEARCH_RADIUS_M = 10000; // 10 km — wide enough for city-level matching
 
@@ -197,34 +198,36 @@ export default function PassengerDash() {
   const [notifOpen, setNotifOpen] = useState(false);
   const unread = notifs.filter(n => !n.is_read).length;
 
-  const pollRef = useRef(null);
-
-  // Silent background refresh every 5s — no spinner, no flicker
-  // Uses a ref flag so state update only happens if data actually changed
+  // Socket: listen for checkin updates in real-time (no polling needed)
   useEffect(() => {
-    if (tab === 'bookings') {
-      loadBookings();
-      pollRef.current = setInterval(async () => {
-        try {
-          const bks = await api.getMyBookings();
-          setMyBookings(prev => {
-            // Only update if checkin_status changed — avoids unnecessary re-renders
-            const changed = bks.some(b => {
-              const old = prev.find(x => x.id === b.id);
-              return !old || old.checkin_status !== b.checkin_status;
-            });
-            if (!changed) return prev;
-            return bks.map(b => {
-              const existing = prev.find(x => x.id === b.id);
-              return existing ? { ...existing, ...b } : b;
-            });
-          });
-        } catch {}
-      }, 5000);
-    } else {
-      clearInterval(pollRef.current);
-    }
-    return () => clearInterval(pollRef.current);
+    connectSocket(user.id, 'passenger');
+
+    // When driver marks picked/dropped — update booking status instantly
+    socket.on('checkin:update', ({ bookingId, status }) => {
+      setMyBookings(prev => prev.map(b =>
+        b.id === bookingId ? { ...b, checkin_status: status } : b
+      ));
+      // Also update selBooking if it's open
+      setSelBooking(prev => prev?.id === bookingId ? { ...prev, checkin_status: status } : prev);
+    });
+
+    // Watch all active trip rooms
+    return () => {
+      socket.off('checkin:update');
+    };
+  }, [user.id]);
+
+  // Watch trip rooms when bookings load
+  useEffect(() => {
+    myBookings.forEach(b => {
+      if (b.trip_id) watchTrip(b.trip_id);
+    });
+  }, [myBookings.length]);
+
+  // Load bookings once when tab opens (no polling)
+  useEffect(() => {
+    if (tab === 'bookings') loadBookings();
+    if (tab === 'history')  loadBookings();
   }, [tab]);
 
   useEffect(() => { loadNotifs(); requestLocation(); }, []);
@@ -394,7 +397,7 @@ export default function PassengerDash() {
     } catch {} finally { setLoadingB(false); }
   }
 
-  useEffect(() => { if (tab === 'history') loadBookings(); }, [tab]);
+
 
   function openTrip(trip) {
     setSelTrip(trip); setSelPickup(trip.bestPickup || null); setSelDropoff(trip.bestDropoff || null); setSeats(1); setSub('detail');
