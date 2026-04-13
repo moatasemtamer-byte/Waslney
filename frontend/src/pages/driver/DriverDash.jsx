@@ -163,6 +163,7 @@ export default function DriverDash() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes poolGlow{0%,100%{opacity:.5}50%{opacity:1}} @keyframes fadeInUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Topbar role="driver" name={user.name} onLogout={logout} notifCount={unread} onNotif={openNotifs} />
       <div style={{ maxWidth:860, margin:'0 auto', padding:'28px 20px' }}>
 
@@ -455,46 +456,69 @@ export default function DriverDash() {
             {poolLoading && <Spinner />}
 
             {!poolLoading && poolInvitations.length === 0 && (
-              <div style={{ textAlign:'center', paddingTop:60 }}>
-                <div style={{ fontSize:44, marginBottom:14 }}>🚗</div>
-                <p style={{ color:'#555', fontSize:14 }}>No pool invitations yet.</p>
-                <p style={{ color:'#333', fontSize:12, marginTop:6 }}>When passengers near you request a pool ride, you'll see it here.</p>
+              <div style={{ textAlign:'center', paddingTop:48 }}>
+                <div style={{ position:'relative', width:100, height:100, margin:'0 auto 20px', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <div style={{ position:'absolute', inset:0, borderRadius:'50%', border:'2px solid rgba(59,130,246,0.1)', animation:'poolGlow 2s ease-in-out infinite' }}/>
+                  <div style={{ position:'absolute', inset:12, borderRadius:'50%', border:'2px solid rgba(59,130,246,0.2)', animation:'poolGlow 2s ease-in-out infinite', animationDelay:'0.4s' }}/>
+                  <div style={{ fontSize:36 }}>🚗</div>
+                </div>
+                <div style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:8, fontFamily:"'Sora',sans-serif" }}>Waiting for pool rides</div>
+                <p style={{ color:'#4b7ab5', fontSize:13, lineHeight:1.6 }}>When passengers near you request a<br/>Smart Pool ride, you'll see it here.</p>
+                <div style={{ marginTop:20, background:'rgba(30,58,95,0.3)', borderRadius:14, padding:'14px 16px', textAlign:'left', border:'1px solid rgba(96,165,250,0.1)', fontSize:12, color:'#60a5fa', lineHeight:1.7 }}>
+                  <div style={{ fontWeight:700, marginBottom:6, color:'#93c5fd' }}>💡 Tips to get pool invites</div>
+                  <div>✅ Keep your location updated</div>
+                  <div>✅ Stay online &amp; active</div>
+                  <div>✅ Accept invites within 30 min</div>
+                </div>
               </div>
             )}
 
-            {poolInvitations.map(inv => (
-              <div key={inv.id} style={{ background:'#0d1117', borderRadius:16, padding:'20px', marginBottom:14, border:`1px solid ${inv.response==='pending'?'#1e3a5f':'#1a1a1a'}` }}>
+            {poolInvitations.map((inv, cardIdx) => (
+              <div key={inv.id} style={{ background:'#0d1117', borderRadius:20, padding:'20px', marginBottom:14, border:`2px solid ${inv.response==='pending'?'rgba(59,130,246,0.35)':'#1a1a1a'}`, animation:`fadeInUp 0.3s ease-out ${cardIdx*0.07}s both`, boxShadow: inv.response==='pending'?'0 4px 24px rgba(59,130,246,0.1)':'none' }}>
                 {/* Header */}
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-                  <div style={{ fontSize:12, fontWeight:700, padding:'3px 10px', borderRadius:20,
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+                  <div style={{ fontSize:12, fontWeight:700, padding:'4px 12px', borderRadius:20,
                     color: inv.response==='pending'?'#60a5fa':inv.response==='accepted'?'#4ade80':'#f87171',
-                    background: inv.response==='pending'?'rgba(96,165,250,0.1)':inv.response==='accepted'?'rgba(74,222,128,0.1)':'rgba(248,113,113,0.1)' }}>
-                    {inv.response==='pending'?'⏳ Pending':inv.response==='accepted'?'✅ Accepted':'❌ Declined'}
+                    background: inv.response==='pending'?'rgba(96,165,250,0.12)':inv.response==='accepted'?'rgba(74,222,128,0.12)':'rgba(248,113,113,0.12)',
+                    border: `1px solid ${inv.response==='pending'?'rgba(96,165,250,0.3)':inv.response==='accepted'?'rgba(74,222,128,0.3)':'rgba(248,113,113,0.3)'}` }}>
+                    {inv.response==='pending'?'🟡 New Invite':inv.response==='accepted'?'✅ Accepted':'❌ Declined'}
                   </div>
                   <span style={{ fontSize:11, color:'#555' }}>{inv.desired_date} · {inv.desired_time}</span>
                 </div>
 
                 {/* Destination */}
-                <div style={{ fontSize:15, fontWeight:700, color:'#fff', marginBottom:4 }}>
-                  → {inv.dest_label || 'Destination'}
+                <div style={{ fontSize:16, fontWeight:800, color:'#fff', marginBottom:12, fontFamily:"'Sora',sans-serif" }}>
+                  🏁 {inv.dest_label || 'Destination'}
                 </div>
 
-                {/* Members */}
+                {/* Earnings preview */}
+                {inv.price_preview && (
+                  <div style={{ background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:12, padding:'10px 14px', marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <span style={{ fontSize:12, color:'#fbbf24', fontWeight:600 }}>💰 Est. earnings</span>
+                    <span style={{ fontSize:18, fontWeight:800, color:'#fbbf24', fontFamily:"'Sora',sans-serif" }}>{inv.price_preview} EGP</span>
+                  </div>
+                )}
+
+                {/* Members listed under each other */}
                 {inv.members && inv.members.length > 0 && (
-                  <div style={{ marginBottom:14 }}>
-                    <div style={{ fontSize:11, color:'#4b7ab5', marginBottom:8, textTransform:'uppercase', letterSpacing:'.08em' }}>
-                      {inv.members.length} Passenger{inv.members.length>1?'s':''}
+                  <div style={{ marginBottom:14, background:'rgba(30,58,95,0.2)', borderRadius:14, padding:'12px 14px', border:'1px solid rgba(96,165,250,0.1)' }}>
+                    <div style={{ fontSize:11, color:'#4b7ab5', marginBottom:10, textTransform:'uppercase', letterSpacing:'.08em', fontFamily:"'Sora',sans-serif" }}>
+                      👥 {inv.members.length} Passenger{inv.members.length>1?'s':''} · {inv.total_seats||inv.members.reduce((s,m)=>s+(m.seats||1),0)} total seats
                     </div>
                     {inv.members.map((m, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0', borderTop:'1px solid #111' }}>
-                        <div style={{ width:32, height:32, borderRadius:'50%', background:'#1e3a5f', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:'#60a5fa', flexShrink:0 }}>
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderTop: i>0?'1px solid rgba(96,165,250,0.07)':'none', animation:`fadeInUp 0.25s ease-out ${i*0.06}s both` }}>
+                        <div style={{ width:38, height:38, borderRadius:'50%', background:'linear-gradient(135deg,#1e3a5f,#1d4ed8)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:'#93c5fd', flexShrink:0, border:'2px solid rgba(96,165,250,0.2)' }}>
                           {m.passenger_name?.[0]?.toUpperCase() || '?'}
                         </div>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:13, fontWeight:600, color:'#fff' }}>{m.passenger_name}</div>
-                          <div style={{ fontSize:11, color:'#4b7ab5', marginTop:2 }}>
-                            📍 {m.origin_label || 'Origin'} · {m.seats} seat{m.seats>1?'s':''}
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:14, fontWeight:700, color:'#fff', fontFamily:"'Sora',sans-serif" }}>{m.passenger_name}</div>
+                          <div style={{ fontSize:11, color:'#4b7ab5', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                            📍 {m.origin_label || 'Origin'} → {m.dest_label || 'Destination'}
                           </div>
+                        </div>
+                        <div style={{ textAlign:'right', flexShrink:0 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>{m.seats} seat{m.seats>1?'s':''}</div>
+                          <div style={{ width:8, height:8, borderRadius:'50%', background:'#4ade80', margin:'4px auto 0', boxShadow:'0 0 6px #4ade80' }}/>
                         </div>
                       </div>
                     ))}
@@ -504,7 +528,7 @@ export default function DriverDash() {
                 {/* Smart routing note */}
                 {inv.response === 'pending' && inv.members && inv.members.length > 0 && (
                   <div style={{ background:'rgba(30,58,95,0.3)', borderRadius:10, padding:'10px 14px', fontSize:12, color:'#4b7ab5', marginBottom:14, lineHeight:1.5 }}>
-                    🗺️ If you accept: the app will auto-assign pickup points for each passenger along your route. You can edit these after accepting.
+                    🗺️ Accept to auto-assign optimised pickup stops for each passenger. You can edit them after.
                   </div>
                 )}
 
@@ -512,11 +536,11 @@ export default function DriverDash() {
                 {inv.response === 'pending' && (
                   <div style={{ display:'flex', gap:10 }}>
                     <button onClick={() => handleAcceptPool(inv.id)}
-                      style={{ flex:2, background:'#1d4ed8', color:'#fff', border:'none', borderRadius:10, padding:'12px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      style={{ flex:2, background:'linear-gradient(135deg,#1d4ed8,#3b82f6)', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", boxShadow:'0 4px 14px rgba(59,130,246,0.35)' }}>
                       ✅ Accept Trip
                     </button>
                     <button onClick={() => handleDeclinePool(inv.id)}
-                      style={{ flex:1, background:'transparent', color:'#f87171', border:'1px solid #f8717144', borderRadius:10, padding:'12px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      style={{ flex:1, background:'transparent', color:'#f87171', border:'1px solid rgba(248,113,113,0.3)', borderRadius:12, padding:'14px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
                       ✕ Decline
                     </button>
                   </div>

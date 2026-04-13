@@ -81,24 +81,54 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
   try{
     const[r]=await db.query(`INSERT INTO pool_requests(passenger_id,origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats)VALUES(?,?,?,?,?,?,?,?,?,?)`,[req.user.id,origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,desired_date,seatsN]);
     const reqId=r.insertId;
-    const[candidates]=await db.query(`SELECT pr.*,u.name AS passenger_name FROM pool_requests pr JOIN users u ON u.id=pr.passenger_id WHERE pr.id!=? AND pr.status='pending' AND pr.desired_date=? AND pr.passenger_id!=? AND ABS(TIME_TO_SEC(TIMEDIFF(pr.desired_time,?)))<=900`,[reqId,desired_date,req.user.id,desired_time]);
-    const compatible=candidates.filter(c=>haversine(+c.origin_lat,+c.origin_lng,+origin_lat,+origin_lng)<=15000&&haversine(+c.dest_lat,+c.dest_lng,+dest_lat,+dest_lng)<=10000&&matchScore(c,{origin_lat,origin_lng,dest_lat,dest_lng,desired_time})<0.7);
-    let groupId=null,matched=false;
+    // Find candidates: same date, ±30 min window (relaxed from 15), not same user
+    const[candidates]=await db.query(
+      `SELECT pr.*,u.name AS passenger_name FROM pool_requests pr
+       JOIN users u ON u.id=pr.passenger_id
+       WHERE pr.id!=? AND pr.status='pending' AND pr.desired_date=?
+       AND pr.passenger_id!=?
+       AND ABS(TIME_TO_SEC(TIMEDIFF(pr.desired_time,?)))<=1800`,
+      [reqId,desired_date,req.user.id,desired_time]
+    );
+    // Filter: origin within 15km, dest within 10km, score < 0.85 (relaxed)
+    const compatible=candidates.filter(c=>{
+      const od=haversine(+c.origin_lat,+c.origin_lng,+origin_lat,+origin_lng);
+      const dd=haversine(+c.dest_lat,+c.dest_lng,+dest_lat,+dest_lng);
+      const score=matchScore(c,{origin_lat,origin_lng,dest_lat,dest_lng,desired_time});
+      return od<=15000 && dd<=10000 && score<0.85;
+    });
+    let groupId=null,matched=false,groupMembers=[];
     if(compatible.length>0){
       matched=true;
       const wg=compatible.find(c=>c.pool_group_id);
-      if(wg){groupId=wg.pool_group_id;}
-      else{
-        const[grp]=await db.query(`INSERT INTO pool_groups(desired_date,desired_time,dest_lat,dest_lng,dest_label,status)VALUES(?,?,?,?,?,'pending')`,[desired_date,desired_time,dest_lat,dest_lng,dest_label||'']);
+      if(wg){
+        groupId=wg.pool_group_id;
+      } else {
+        const[grp]=await db.query(
+          `INSERT INTO pool_groups(desired_date,desired_time,dest_lat,dest_lng,dest_label,status)VALUES(?,?,?,?,?,'pending')`,
+          [desired_date,desired_time,dest_lat,dest_lng,dest_label||'']
+        );
         groupId=grp.insertId;
-        for(const c of compatible.filter(x=>!x.pool_group_id))await db.query('UPDATE pool_requests SET pool_group_id=? WHERE id=?',[groupId,c.id]);
+        for(const c of compatible.filter(x=>!x.pool_group_id)){
+          await db.query('UPDATE pool_requests SET pool_group_id=? WHERE id=?',[groupId,c.id]);
+        }
       }
       await db.query('UPDATE pool_requests SET pool_group_id=? WHERE id=?',[groupId,reqId]);
       const[[nr]]=await db.query('SELECT pr.*,u.name AS passenger_name FROM pool_requests pr JOIN users u ON u.id=pr.passenger_id WHERE pr.id=?',[reqId]);
-      for(const c of compatible)await notify(c.passenger_id,`👥 ${nr.passenger_name} joined your Smart Pool group! ${compatible.length+1} passengers now going to ${dest_label||'destination'}.`);
+      for(const c of compatible){
+        await notify(c.passenger_id,`👥 ${nr.passenger_name} joined your Smart Pool group! ${compatible.length+1} passengers now going to ${dest_label||'destination'}.`);
+      }
+      // Fetch all group members to return in response
+      const[allMembers]=await db.query(
+        `SELECT pr.id,pr.passenger_id,pr.origin_label,pr.dest_label,pr.seats,u.name AS passenger_name
+         FROM pool_requests pr JOIN users u ON u.id=pr.passenger_id
+         WHERE pr.pool_group_id=? AND pr.status='pending'`,
+        [groupId]
+      );
+      groupMembers=allMembers;
       await suggestDrivers(groupId);
     }
-    res.status(201).json({id:reqId,group_id:groupId,matched,compatible_count:compatible.length});
+    res.status(201).json({id:reqId,group_id:groupId,matched,compatible_count:compatible.length,group_members:groupMembers});
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
 

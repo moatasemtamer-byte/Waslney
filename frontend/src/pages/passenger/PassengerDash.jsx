@@ -159,6 +159,7 @@ export default function PassengerDash(){
   const[poolTime,setPoolTime]=useState('');
   const[poolSeats,setPoolSeats]=useState(1);
   const[poolSubmitting,setPoolSubmitting]=useState(false);
+  const[poolWaiting,setPoolWaiting]=useState(false);
   const[poolResult,setPoolResult]=useState(null);
   const[myPoolRequests,setMyPoolRequests]=useState([]);
 
@@ -292,12 +293,15 @@ export default function PassengerDash(){
   async function submitPoolRequest(){
     if(!fromCoord||!toCoord){notify('Location needed','Set your pickup and destination first.','error');return;}
     if(!poolDate||!poolTime){notify('Set date & time','Pick your desired travel date and time.','error');return;}
-    setPoolSubmitting(true);
+    setPoolSubmitting(true);setPoolWaiting(true);setPoolResult(null);
     try{
-      const result=await api.submitPoolRequest({origin_lat:fromCoord.lat,origin_lng:fromCoord.lng,origin_label:fromCoord.name,dest_lat:toCoord.lat,dest_lng:toCoord.lng,dest_label:toCoord.name,desired_date:poolDate,desired_time:poolTime,seats:poolSeats});
-      setPoolResult(result);
+      const[result]=await Promise.all([
+        api.submitPoolRequest({origin_lat:fromCoord.lat,origin_lng:fromCoord.lng,origin_label:fromCoord.name,dest_lat:toCoord.lat,dest_lng:toCoord.lng,dest_label:toCoord.name,desired_date:poolDate,desired_time:poolTime,seats:poolSeats}),
+        new Promise(r=>setTimeout(r,2500))
+      ]);
+      setPoolWaiting(false);setPoolResult(result);
       loadMyPoolRequests();
-    }catch(e){notify('Error',e.message,'error');}
+    }catch(e){setPoolWaiting(false);notify('Error',e.message,'error');}
     finally{setPoolSubmitting(false);}
   }
 
@@ -319,7 +323,7 @@ export default function PassengerDash(){
   // ═══════════════════════════════════════════════════════════
   return(
     <div style={{minHeight:'100vh',background:'#000',paddingBottom:80}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes poolGlow{0%,100%{opacity:.6}50%{opacity:1;}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes poolGlow{0%,100%{opacity:.6}50%{opacity:1;}} @keyframes poolPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:0.85}} @keyframes poolScan{0%{transform:translateY(-100%)}100%{transform:translateY(400%)}} @keyframes fadeInUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
       {/* Top bar */}
       <div style={{background:'#000',borderBottom:'1px solid #1a1a1a',padding:'14px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:100}}>
@@ -446,36 +450,80 @@ export default function PassengerDash(){
                     <button onClick={()=>setShowPool(false)} style={{background:'rgba(255,255,255,0.06)',border:'none',color:'#888',fontSize:18,cursor:'pointer',width:32,height:32,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                   </div>
 
-                  {poolResult?(
-                    /* ── Success state ── */
-                    <div style={{textAlign:'center',padding:'8px 0'}}>
-                      <div style={{fontSize:52,marginBottom:16}}>{poolResult.matched?'🎉':'✅'}</div>
-                      <div style={{fontSize:19,fontWeight:800,color:'#fff',marginBottom:10,fontFamily:"'Sora',sans-serif"}}>
-                        {poolResult.matched?`Matched! ${poolResult.compatible_count+1} passengers grouped`:'Request submitted!'}
+                  {poolWaiting?(
+                    /* ── Waiting / Scanning Animation ── */
+                    <div style={{textAlign:'center',padding:'20px 0 32px'}}>
+                      {/* Big pulsing radar */}
+                      <div style={{position:'relative',width:140,height:140,margin:'0 auto 28px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        <div style={{position:'absolute',inset:0,borderRadius:'50%',border:'2px solid rgba(59,130,246,0.15)',animation:'poolGlow 1.8s ease-in-out infinite'}}/>
+                        <div style={{position:'absolute',inset:10,borderRadius:'50%',border:'2px solid rgba(59,130,246,0.25)',animation:'poolGlow 1.8s ease-in-out infinite',animationDelay:'0.3s'}}/>
+                        <div style={{position:'absolute',inset:22,borderRadius:'50%',border:'2px solid rgba(59,130,246,0.4)',animation:'poolGlow 1.8s ease-in-out infinite',animationDelay:'0.6s'}}/>
+                        <div style={{width:60,height:60,borderRadius:'50%',background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,animation:'poolPulse 1.4s ease-in-out infinite',boxShadow:'0 0 30px rgba(59,130,246,0.5)'}}>🚀</div>
+                        {/* scan line */}
+                        <div style={{position:'absolute',inset:0,borderRadius:'50%',overflow:'hidden',pointerEvents:'none'}}>
+                          <div style={{position:'absolute',left:0,right:0,height:2,background:'linear-gradient(90deg,transparent,rgba(96,165,250,0.8),transparent)',animation:'poolScan 1.6s linear infinite'}}/>
+                        </div>
                       </div>
-                      <div style={{fontSize:13,color:'#60a5fa',lineHeight:1.7,marginBottom:28,fontFamily:"'Sora',sans-serif"}}>
+                      <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>Searching for riders…</div>
+                      <div style={{fontSize:13,color:'#60a5fa',lineHeight:1.7,fontFamily:"'Sora',sans-serif"}}>Looking for passengers going<br/>the same way at the same time</div>
+                      <div style={{marginTop:24,display:'flex',justifyContent:'center',gap:6}}>
+                        {[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:'50%',background:'#3b82f6',animation:'poolGlow 1.2s ease-in-out infinite',animationDelay:i*0.2+'s'}}/>)}
+                      </div>
+                    </div>
+                  ):poolResult?(
+                    /* ── Success state ── */
+                    <div style={{textAlign:'center',padding:'8px 0',animation:'fadeInUp 0.4s ease-out'}}>
+                      <div style={{fontSize:56,marginBottom:14,animation:'poolPulse 0.6s ease-out'}}>{poolResult.matched?'🎉':'✅'}</div>
+                      <div style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>
+                        {poolResult.matched?`Matched! ${poolResult.compatible_count+1} riders grouped`:'Request submitted!'}
+                      </div>
+                      <div style={{fontSize:13,color:'#60a5fa',lineHeight:1.7,marginBottom:20,fontFamily:"'Sora',sans-serif"}}>
                         {poolResult.matched
-                          ?`You've been grouped with ${poolResult.compatible_count} other passenger${poolResult.compatible_count!==1?'s':''}. A nearby driver will be notified and can accept the trip.`
+                          ?`You've been grouped with ${poolResult.compatible_count} other passenger${poolResult.compatible_count!==1?'s':''}. A nearby driver will be notified.`
                           :"Your request is open. We'll notify you when others join and a driver accepts."}
                       </div>
-                      <div style={{background:'rgba(30,58,95,0.4)',borderRadius:14,padding:'16px',marginBottom:24,textAlign:'left',border:'1px solid rgba(96,165,250,0.1)'}}>
-                        <div style={{fontSize:11,color:'#4b7ab5',marginBottom:10,textTransform:'uppercase',letterSpacing:'.08em'}}>Your request</div>
-                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+
+                      {/* Matched members list */}
+                      {poolResult.matched && poolResult.group_members && poolResult.group_members.length>0 && (
+                        <div style={{background:'rgba(30,58,95,0.4)',borderRadius:16,padding:'16px',marginBottom:20,textAlign:'left',border:'1px solid rgba(96,165,250,0.2)'}}>
+                          <div style={{fontSize:11,color:'#4b7ab5',marginBottom:12,textTransform:'uppercase',letterSpacing:'.08em',fontFamily:"'Sora',sans-serif"}}>👥 Your group</div>
+                          {poolResult.group_members.map((m,i)=>(
+                            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderTop:i>0?'1px solid rgba(96,165,250,0.08)':'none',animation:`fadeInUp 0.3s ease-out ${i*0.08}s both`}}>
+                              <div style={{width:36,height:36,borderRadius:'50%',background:m.passenger_id===poolResult.id?'linear-gradient(135deg,#1d4ed8,#3b82f6)':'rgba(59,130,246,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'#fff',flexShrink:0,border:'2px solid rgba(96,165,250,0.3)'}}>
+                                {m.passenger_name?.[0]?.toUpperCase()||'?'}
+                              </div>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:13,fontWeight:700,color:'#fff',fontFamily:"'Sora',sans-serif"}}>
+                                  {m.passenger_name} {m.passenger_id===user.id&&<span style={{fontSize:10,color:'#3b82f6',background:'rgba(59,130,246,0.15)',padding:'2px 6px',borderRadius:8}}>You</span>}
+                                </div>
+                                <div style={{fontSize:11,color:'#4b7ab5',marginTop:2}}>📍 {m.origin_label||'Pickup'} · {m.seats} seat{m.seats>1?'s':''}</div>
+                              </div>
+                              <div style={{width:8,height:8,borderRadius:'50%',background:'#4ade80',boxShadow:'0 0 6px #4ade80'}}/>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Route summary */}
+                      <div style={{background:'rgba(30,58,95,0.3)',borderRadius:14,padding:'14px 16px',marginBottom:20,textAlign:'left',border:'1px solid rgba(96,165,250,0.1)'}}>
+                        <div style={{fontSize:11,color:'#4b7ab5',marginBottom:8,textTransform:'uppercase',letterSpacing:'.08em'}}>Your ride</div>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
                           <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
                             <div style={{width:8,height:8,borderRadius:'50%',background:'#fbbf24'}}/>
                             <div style={{width:1,height:14,background:'#333'}}/>
                             <div style={{width:8,height:8,borderRadius:2,background:'#60a5fa'}}/>
                           </div>
                           <div style={{flex:1}}>
-                            <div style={{fontSize:13,color:'#ccc',marginBottom:8}}>{fromCoord?.name||'Your location'}</div>
+                            <div style={{fontSize:13,color:'#ccc',marginBottom:6}}>{fromCoord?.name||'Your location'}</div>
                             <div style={{fontSize:13,color:'#fff',fontWeight:600}}>{toCoord?.name}</div>
                           </div>
                         </div>
-                        <div style={{fontSize:12,color:'#4b7ab5',marginTop:12,paddingTop:10,borderTop:'1px solid rgba(96,165,250,0.1)'}}>{poolDate} · {poolTime} · {poolSeats} seat{poolSeats>1?'s':''}</div>
+                        <div style={{fontSize:12,color:'#4b7ab5',marginTop:10,paddingTop:8,borderTop:'1px solid rgba(96,165,250,0.1)'}}>{poolDate} · {poolTime} · {poolSeats} seat{poolSeats>1?'s':''}</div>
                       </div>
+
                       <button onClick={()=>setShowPool(false)}
                         style={{background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',color:'#fff',border:'none',borderRadius:14,padding:'15px',fontSize:15,fontWeight:700,cursor:'pointer',width:'100%',fontFamily:"'Sora',sans-serif",boxShadow:'0 6px 20px rgba(59,130,246,0.35)'}}>
-                        Got it!
+                        {poolResult.matched?'🎉 Awesome, got it!':'Got it!'}
                       </button>
                     </div>
                   ):(
