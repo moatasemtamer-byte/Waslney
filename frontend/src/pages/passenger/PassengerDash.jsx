@@ -287,7 +287,14 @@ export default function PassengerDash() {
       const b=await api.bookTrip({trip_id:selTrip.id,seats,pickup_note:fromCoord?.name||selPickup?.label||''});
       setConfirmedBooking(b); setSelTrip(null); changeTab('activity');
       notify('Booking confirmed!',`Pickup at ${selTrip.pickup_time}`);
-    } catch(e) { notify('Error',e.message,'error'); }
+    } catch(e) {
+      const msg = e.message || '';
+      if (msg.toLowerCase().includes('already')) {
+        notify('Already reserved', msg, 'warning');
+      } else {
+        notify('Error', msg, 'error');
+      }
+    }
     finally { setBooking(false); }
   }
 
