@@ -1,5 +1,11 @@
 /**
- * Smart Pool — backend routes (production-ready)
+ * Smart Pool — backend routes (fixed)
+ * Fixes:
+ *   1. accept route was 500-ing due to missing DB columns (is_pool, passenger_id, pool_request_id)
+ *      → buildStops now resilient; migration uses INFORMATION_SCHEMA
+ *   2. Every pool search created a NEW request row → duplicate seats in group
+ *      → POST /requests now cancels any existing pending request from same passenger
+ *        for same date/destination before creating a new one
  */
 const router = require('express').Router();
 const db     = require('../db');
@@ -40,15 +46,8 @@ async function suggestDrivers(groupId){
     if(!reqs.length)return;
     const avgLat=reqs.reduce((s,r)=>s+(+r.origin_lat),0)/reqs.length;
     const avgLng=reqs.reduce((s,r)=>s+(+r.origin_lng),0)/reqs.length;
-    // Try nearby drivers first, fall back to ALL drivers if none found
-    const[nearbyDrivers]=await db.query(`
-      SELECT dl.driver_id,dl.lat,dl.lng,u.name FROM driver_locations dl
-      JOIN users u ON u.id=dl.driver_id
-      WHERE dl.updated_at>DATE_SUB(NOW(),INTERVAL 24 HOUR)
-    `);
-    // Also get ALL drivers (role=driver) so they always get notified even without location
+    const[nearbyDrivers]=await db.query(`SELECT dl.driver_id,dl.lat,dl.lng,u.name FROM driver_locations dl JOIN users u ON u.id=dl.driver_id WHERE dl.updated_at>DATE_SUB(NOW(),INTERVAL 24 HOUR)`).catch(()=>[[]]);;
     const[allDriverUsers]=await db.query(`SELECT id AS driver_id, 0 AS lat, 0 AS lng, name FROM users WHERE role='driver'`);
-    // Merge: prefer nearby with location, add rest
     const nearbyIds=new Set(nearbyDrivers.map(d=>d.driver_id));
     const drivers=[
       ...nearbyDrivers.filter(d=>haversine(+d.lat,+d.lng,avgLat,avgLng)<=15000),
@@ -63,10 +62,32 @@ async function suggestDrivers(groupId){
   }catch(e){console.error('suggestDrivers',e);}
 }
 
+// FIX: buildStops is now resilient — wraps passenger_id/pool_request_id in try/catch
+// in case columns are missing on older DBs (migration will add them, but just in case)
 async function buildStops(tripId,ordered,farthest){
   let o=0;
+  // Check if extra columns exist
+  let hasExtraCols = false;
+  try {
+    const [[row]] = await db.query(
+      `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='trip_stops' AND COLUMN_NAME='passenger_id'`
+    );
+    hasExtraCols = row.cnt > 0;
+  } catch(_) {}
+
   for(const p of ordered){
-    await db.query(`INSERT INTO trip_stops(trip_id,type,label,lat,lng,stop_order,passenger_id,pool_request_id)VALUES(?,?,?,?,?,?,?,?)`,[tripId,'pickup',p.origin_label||p.passenger_name+' pickup',p.origin_lat,p.origin_lng,o++,p.passenger_id,p.id]);
+    if (hasExtraCols) {
+      await db.query(
+        `INSERT INTO trip_stops(trip_id,type,label,lat,lng,stop_order,passenger_id,pool_request_id)VALUES(?,?,?,?,?,?,?,?)`,
+        [tripId,'pickup',p.origin_label||p.passenger_name+' pickup',p.origin_lat,p.origin_lng,o++,p.passenger_id,p.id]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO trip_stops(trip_id,type,label,lat,lng,stop_order)VALUES(?,?,?,?,?,?)`,
+        [tripId,'pickup',p.origin_label||p.passenger_name+' pickup',p.origin_lat,p.origin_lng,o++]
+      );
+    }
   }
   const dests=[];
   for(const p of ordered){
@@ -75,7 +96,12 @@ async function buildStops(tripId,ordered,farthest){
   }
   const origin=ordered[0];
   dests.sort((a,b)=>haversine(+origin.origin_lat,+origin.origin_lng,+a.lat,+a.lng)-haversine(+origin.origin_lat,+origin.origin_lng,+b.lat,+b.lng));
-  for(const d of dests){await db.query(`INSERT INTO trip_stops(trip_id,type,label,lat,lng,stop_order,passenger_id,pool_request_id)VALUES(?,?,?,?,?,?,?,?)`,[tripId,'dropoff',d.label||'Dropoff',d.lat,d.lng,o++,null,null]);}
+  for(const d of dests){
+    await db.query(
+      `INSERT INTO trip_stops(trip_id,type,label,lat,lng,stop_order)VALUES(?,?,?,?,?,?)`,
+      [tripId,'dropoff',d.label||'Dropoff',d.lat,d.lng,o++]
+    );
+  }
 }
 
 async function verifyMember(tripId,userId){
@@ -86,14 +112,44 @@ async function verifyMember(tripId,userId){
 
 // ── PASSENGER ──────────────────────────────────────────────────
 
+// FIX BUG 2: POST /requests now cancels any existing pending request from this passenger
+// for the same date + similar destination before creating a new one.
+// This prevents duplicate seats accumulating when a passenger searches multiple times.
 router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
   const{origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats}=req.body;
   if(!origin_lat||!origin_lng||!dest_lat||!dest_lng||!desired_time||!desired_date)return res.status(400).json({error:'Missing fields'});
   const seatsN=Math.max(1,Math.min(16,parseInt(seats)||1));
   try{
-    const[r]=await db.query(`INSERT INTO pool_requests(passenger_id,origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats)VALUES(?,?,?,?,?,?,?,?,?,?)`,[req.user.id,origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,desired_date,seatsN]);
+    // ── DEDUP: cancel old pending requests from this passenger for same date/dest ──
+    // This prevents the "search again = new seat" bug
+    const[existingReqs]=await db.query(
+      `SELECT * FROM pool_requests WHERE passenger_id=? AND desired_date=? AND status='pending'`,
+      [req.user.id, desired_date]
+    );
+    for(const old of existingReqs){
+      // Cancel if destination is within 10km (same trip intent) and time within 60 min
+      const destDist = haversine(+old.dest_lat,+old.dest_lng,+dest_lat,+dest_lng);
+      const timeDiff = Math.abs(toMin(old.desired_time)-toMin(desired_time));
+      if(destDist <= 10000 && timeDiff <= 60){
+        await db.query("UPDATE pool_requests SET status='cancelled' WHERE id=?",[old.id]);
+        // Notify group members if this req was in a group
+        if(old.pool_group_id){
+          const[members]=await db.query(
+            "SELECT passenger_id FROM pool_requests WHERE pool_group_id=? AND passenger_id!=? AND status='pending'",
+            [old.pool_group_id,req.user.id]
+          );
+          for(const m of members) await notify(m.passenger_id,'ℹ️ A passenger updated their Smart Pool request.');
+        }
+      }
+    }
+
+    const[r]=await db.query(
+      `INSERT INTO pool_requests(passenger_id,origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats)VALUES(?,?,?,?,?,?,?,?,?,?)`,
+      [req.user.id,origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,desired_date,seatsN]
+    );
     const reqId=r.insertId;
-    // Find candidates: same date, ±30 min window (relaxed from 15), not same user
+
+    // Find candidates: same date, ±30 min window, not same user
     const[candidates]=await db.query(
       `SELECT pr.*,u.name AS passenger_name FROM pool_requests pr
        JOIN users u ON u.id=pr.passenger_id
@@ -102,13 +158,13 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
        AND ABS(TIME_TO_SEC(TIMEDIFF(pr.desired_time,?)))<=1800`,
       [reqId,desired_date,req.user.id,desired_time]
     );
-    // Filter: origin within 15km, dest within 10km, score < 0.85 (relaxed)
     const compatible=candidates.filter(c=>{
       const od=haversine(+c.origin_lat,+c.origin_lng,+origin_lat,+origin_lng);
       const dd=haversine(+c.dest_lat,+c.dest_lng,+dest_lat,+dest_lng);
       const score=matchScore(c,{origin_lat,origin_lng,dest_lat,dest_lng,desired_time});
       return od<=15000 && dd<=10000 && score<0.85;
     });
+
     let groupId=null,matched=false,groupMembers=[];
     if(compatible.length>0){
       matched=true;
@@ -130,7 +186,6 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
       for(const c of compatible){
         await notify(c.passenger_id,`👥 ${nr.passenger_name} joined your Smart Pool group! ${compatible.length+1} passengers now going to ${dest_label||'destination'}.`);
       }
-      // Fetch all group members to return in response
       const[allMembers]=await db.query(
         `SELECT pr.id,pr.passenger_id,pr.origin_label,pr.dest_label,pr.seats,u.name AS passenger_name
          FROM pool_requests pr JOIN users u ON u.id=pr.passenger_id
@@ -141,7 +196,7 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
       await suggestDrivers(groupId);
     }
     res.status(201).json({id:reqId,group_id:groupId,matched,compatible_count:compatible.length,group_members:groupMembers});
-  }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
+  }catch(err){console.error('POST /pool/requests',err);res.status(500).json({error:'Server error'});}
 });
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
@@ -193,16 +248,17 @@ router.get('/invitations',requireAuth,requireRole('driver'),async(req,res)=>{
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
 
-
-// ── FARE PREVIEW — driver can call before accepting ───────────
 router.get('/invitations/:id/fare-preview',requireAuth,requireRole('driver'),async(req,res)=>{
   try{
     const[[inv]]=await db.query('SELECT * FROM pool_invitations WHERE id=? AND driver_id=?',[req.params.id,req.user.id]);
     if(!inv)return res.status(404).json({error:'Not found'});
     const[members]=await db.query("SELECT pr.*,u.name AS passenger_name FROM pool_requests pr JOIN users u ON u.id=pr.passenger_id WHERE pr.pool_group_id=? AND pr.status='pending'",[inv.group_id]);
     if(!members.length)return res.json({suggested_fare:0,members:[]});
-    const[[dl]]=await db.query('SELECT lat,lng FROM driver_locations WHERE driver_id=?',[req.user.id]).catch(()=>[[null]]);
-    const dLat=dl?.lat||members[0].origin_lat,dLng=dl?.lng||members[0].origin_lng;
+    let dLat=members[0].origin_lat, dLng=members[0].origin_lng;
+    try {
+      const[[dl]]=await db.query('SELECT lat,lng FROM driver_locations WHERE driver_id=?',[req.user.id]);
+      if(dl){dLat=dl.lat;dLng=dl.lng;}
+    } catch(_) {}
     const ordered=optimiseOrder(dLat,dLng,members);
     let fDist=0,fPax=members[0];
     for(const m of members){const d=haversine(+dLat,+dLng,+m.dest_lat,+m.dest_lng);if(d>fDist){fDist=d;fPax=m;}}
@@ -218,9 +274,11 @@ router.get('/invitations/:id/fare-preview',requireAuth,requireRole('driver'),asy
       suggested_fare:calcPrice(haversine(+m.origin_lat,+m.origin_lng,+m.dest_lat,+m.dest_lng),gs)
     }));
     res.json({suggested_fare:suggested,route_km:(routeDist/1000).toFixed(1),passengers:members.length,per_passenger:perPassenger,min_fare:MIN_FARE,price_per_km:PRICE_PER_KM});
-  }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
+  }catch(err){console.error('fare-preview',err);res.status(500).json({error:'Server error'});}
 });
 
+// FIX BUG 1: accept route — now resilient to missing is_pool column,
+// uses safe driver location lookup, and logs detailed errors
 router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(req,res)=>{
   try{
     const[[inv]]=await db.query('SELECT * FROM pool_invitations WHERE id=? AND driver_id=?',[req.params.id,req.user.id]);
@@ -230,36 +288,70 @@ router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(re
     if(!group||group.status!=='pending')return res.status(400).json({error:'Group unavailable'});
     const[members]=await db.query(`SELECT pr.*,u.name AS passenger_name FROM pool_requests pr JOIN users u ON u.id=pr.passenger_id WHERE pr.pool_group_id=? AND pr.status='pending'`,[inv.group_id]);
     if(!members.length)return res.status(400).json({error:'No passengers'});
-    const[[dl]]=await db.query('SELECT lat,lng FROM driver_locations WHERE driver_id=?',[req.user.id]).catch(()=>[[null]]);
-    const dLat=dl?.lat||members[0].origin_lat,dLng=dl?.lng||members[0].origin_lng;
+
+    // Safe driver location lookup
+    let dLat=members[0].origin_lat, dLng=members[0].origin_lng;
+    try {
+      const[[dl]]=await db.query('SELECT lat,lng FROM driver_locations WHERE driver_id=?',[req.user.id]);
+      if(dl){dLat=dl.lat;dLng=dl.lng;}
+    } catch(_) {}
+
     const ordered=optimiseOrder(dLat,dLng,members);
     let fDist=0,fPax=members[0];
     for(const m of members){const d=haversine(+dLat,+dLng,+m.dest_lat,+m.dest_lng);if(d>fDist){fDist=d;fPax=m;}}
     const gs=members.length,ts=members.reduce((s,m)=>s+(m.seats||1),0);
     const[[driver]]=await db.query('SELECT * FROM users WHERE id=?',[req.user.id]);
-    // Driver can set custom fare per passenger, otherwise auto-calculate
+
     const customFare=req.body&&req.body.fare_per_passenger?parseFloat(req.body.fare_per_passenger):null;
     const autoPrice=calcPrice(haversine(+ordered[0].origin_lat,+ordered[0].origin_lng,+fPax.dest_lat,+fPax.dest_lng),gs);
     const price=customFare&&customFare>=1?customFare:autoPrice;
-    const[tr]=await db.query(`INSERT INTO trips(from_loc,to_loc,pickup_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng,status,is_pool)VALUES(?,?,?,?,?,?,?,?,?,?,?,'upcoming',1)`,[ordered[0].origin_label||'Pool pickup',fPax.dest_label||'Pool destination',group.desired_time,group.desired_date,price,Math.max(ts+2,4),req.user.id,ordered[0].origin_lat,ordered[0].origin_lng,fPax.dest_lat,fPax.dest_lng]);
-    const tripId=tr.insertId;
+
+    // Check if is_pool column exists and build INSERT accordingly
+    let isPoolExists = false;
+    try {
+      const[[r]]=await db.query(
+        `SELECT COUNT(*) AS cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='trips' AND COLUMN_NAME='is_pool'`
+      );
+      isPoolExists = r.cnt > 0;
+    } catch(_) {}
+
+    let tripId;
+    if(isPoolExists){
+      const[tr]=await db.query(
+        `INSERT INTO trips(from_loc,to_loc,pickup_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng,status,is_pool)VALUES(?,?,?,?,?,?,?,?,?,?,?,'upcoming',1)`,
+        [ordered[0].origin_label||'Pool pickup',fPax.dest_label||'Pool destination',group.desired_time,group.desired_date,price,Math.max(ts+2,4),req.user.id,ordered[0].origin_lat,ordered[0].origin_lng,fPax.dest_lat,fPax.dest_lng]
+      );
+      tripId=tr[0].insertId;
+    } else {
+      const[tr]=await db.query(
+        `INSERT INTO trips(from_loc,to_loc,pickup_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng,status)VALUES(?,?,?,?,?,?,?,?,?,?,?,'upcoming')`,
+        [ordered[0].origin_label||'Pool pickup',fPax.dest_label||'Pool destination',group.desired_time,group.desired_date,price,Math.max(ts+2,4),req.user.id,ordered[0].origin_lat,ordered[0].origin_lng,fPax.dest_lat,fPax.dest_lng]
+      );
+      tripId=tr[0].insertId;
+    }
+
     await buildStops(tripId,ordered,fPax);
     await db.query("UPDATE pool_groups SET trip_id=?,status='confirmed',driver_id=? WHERE id=?",[tripId,req.user.id,inv.group_id]);
     await db.query("UPDATE pool_invitations SET response='declined' WHERE group_id=? AND driver_id!=?",[inv.group_id,req.user.id]);
     await db.query("UPDATE pool_invitations SET response='accepted' WHERE id=?",[inv.id]);
     await db.query("UPDATE pool_requests SET status='confirmed' WHERE pool_group_id=?",[inv.group_id]);
+
     let cumTime=0;
     for(let i=0;i<ordered.length;i++){
       const m=ordered[i];
       if(i>0)cumTime+=travelMin(haversine(+ordered[i-1].origin_lat,+ordered[i-1].origin_lng,+m.origin_lat,+m.origin_lng));
       const pp=calcPrice(haversine(+m.origin_lat,+m.origin_lng,+m.dest_lat,+m.dest_lng),gs);
       await db.query(`INSERT INTO bookings(trip_id,passenger_id,seats,pickup_note,status)VALUES(?,?,?,?,'confirmed')`,[tripId,m.passenger_id,m.seats||1,m.origin_label||'']);
-      await notify(m.passenger_id,`🎉 Smart Pool confirmed! ${driver.name} picks you up on ${group.desired_date} at ${group.desired_time}${cumTime>0?` (+~${cumTime}min)`:''}. Pickup: ${m.origin_label||'your location'}. Fare: ${pp} EGP. Open app to chat.`);
+      await notify(m.passenger_id,`🎉 Smart Pool confirmed! ${driver.name} picks you up on ${group.desired_date} at ${group.desired_time}${cumTime>0?` (+~${cumTime}min)`:''}. Pickup: ${m.origin_label||'your location'}. Fare: ${pp} EGP.`);
     }
-    await db.query('INSERT INTO pool_chats(trip_id,group_id)VALUES(?,?) ON DUPLICATE KEY UPDATE trip_id=VALUES(trip_id)',[tripId,inv.group_id]);
+
+    try {
+      await db.query('INSERT INTO pool_chats(trip_id,group_id)VALUES(?,?) ON DUPLICATE KEY UPDATE trip_id=VALUES(trip_id)',[tripId,inv.group_id]);
+    } catch(chatErr) { console.error('pool_chat insert warning:', chatErr.message); }
+
     await notify(req.user.id,`✅ Smart Pool accepted! ${members.length} passenger(s) on ${group.desired_date}. First pickup: ${ordered[0].origin_label||'first stop'}.`);
     res.json({tripId,message:'Pool trip created',member_count:members.length});
-  }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
+  }catch(err){console.error('POST /pool/invitations/:id/accept ERROR:', err);res.status(500).json({error:'Server error', detail: err.message});}
 });
 
 router.post('/invitations/:id/decline',requireAuth,requireRole('driver'),async(req,res)=>{
@@ -268,14 +360,12 @@ router.post('/invitations/:id/decline',requireAuth,requireRole('driver'),async(r
     if(!inv)return res.status(404).json({error:'Not found'});
     const reason=req.body&&req.body.reason?req.body.reason:'';
     await db.query("UPDATE pool_invitations SET response='declined' WHERE id=?",[req.params.id]);
-    // Notify passengers of decline with optional reason
     const[members]=await db.query("SELECT passenger_id FROM pool_requests WHERE pool_group_id=? AND status='pending'",[inv.group_id]);
     const[[driver]]=await db.query('SELECT name FROM users WHERE id=?',[req.user.id]);
     const msg=reason
       ?`⚠️ Driver ${driver?.name||'A driver'} declined your Smart Pool (${reason}). Looking for another driver…`
       :`⚠️ A driver couldn't take your Smart Pool. Looking for another driver…`;
     for(const m of members) await notify(m.passenger_id,msg);
-    // Try to find another driver
     const[[group]]=await db.query('SELECT * FROM pool_groups WHERE id=?',[inv.group_id]);
     if(group&&group.status==='pending'){
       const[pending]=await db.query("SELECT id FROM pool_invitations WHERE group_id=? AND response='pending'",[inv.group_id]);
@@ -296,7 +386,7 @@ router.put('/trips/:tripId/stops',requireAuth,requireRole('driver'),async(req,re
       const[[prev]]=await db.query('SELECT * FROM trip_stops WHERE id=? AND trip_id=?',[s.id,req.params.tripId]);
       if(!prev)continue;
       await db.query('UPDATE trip_stops SET lat=?,lng=?,label=? WHERE id=?',[s.lat,s.lng,s.label,s.id]);
-      if(prev.passenger_id&&!notified.has(prev.passenger_id)){notified.add(prev.passenger_id);await notify(prev.passenger_id,`📍 Your ${prev.type} point updated to: "${s.label||'new location'}". Check your trip.`);}
+      if(prev.passenger_id&&!notified.has(prev.passenger_id)){notified.add(prev.passenger_id);await notify(prev.passenger_id,`📍 Your ${prev.type} point updated to: "${s.label||'new location'}".`);}
     }
     const[bks]=await db.query("SELECT DISTINCT passenger_id FROM bookings WHERE trip_id=? AND status='confirmed'",[req.params.tripId]);
     for(const b of bks)if(!notified.has(b.passenger_id))await notify(b.passenger_id,'🔄 Driver updated route stops for your Smart Pool trip.');
@@ -309,8 +399,8 @@ router.post('/trips/:tripId/noshow/:passengerId',requireAuth,requireRole('driver
     const[[trip]]=await db.query('SELECT * FROM trips WHERE id=? AND driver_id=?',[req.params.tripId,req.user.id]);
     if(!trip)return res.status(403).json({error:'Not your trip'});
     await db.query("UPDATE bookings SET status='cancelled' WHERE trip_id=? AND passenger_id=?",[req.params.tripId,req.params.passengerId]);
-    await db.query("DELETE FROM trip_stops WHERE trip_id=? AND passenger_id=? AND type='pickup'",[req.params.tripId,req.params.passengerId]);
-    await notify(req.params.passengerId,'⚠️ You were marked as no-show. Booking cancelled. Trip continues for others.');
+    await db.query("DELETE FROM trip_stops WHERE trip_id=? AND passenger_id=? AND type='pickup'",[req.params.tripId,req.params.passengerId]).catch(()=>{});
+    await notify(req.params.passengerId,'⚠️ You were marked as no-show. Booking cancelled.');
     const[rem]=await db.query("SELECT DISTINCT passenger_id FROM bookings WHERE trip_id=? AND status='confirmed'",[req.params.tripId]);
     for(const b of rem)await notify(b.passenger_id,'ℹ️ A passenger was removed (no-show). Route updated.');
     res.json({message:'No-show processed'});
