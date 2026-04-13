@@ -64,7 +64,7 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
       "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
       [trip_id, req.user.id]
     );
-    if (existing.length) return res.status(409).json({ error: 'You already have a confirmed booking on this trip' });
+    if (existing.length) return res.status(409).json({ error: 'You already have an active reservation on this trip. Cancel it first to book again.' });
 
     const [result] = await db.query(
       'INSERT INTO bookings (trip_id, passenger_id, seats, pickup_note) VALUES (?,?,?,?)',
