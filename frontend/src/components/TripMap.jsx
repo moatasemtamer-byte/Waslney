@@ -74,11 +74,12 @@ export default function TripMap({
   const passengerMarker  = useRef(null);
   const stopMarkers      = useRef([]);
   const locationInterval = useRef(null);
-  const [sharing,   setSharing]   = useState(false);
-  const [error,     setError]     = useState(null);
-  const [status,    setStatus]    = useState('Loading map...');
-  const [driverPos, setDriverPos] = useState(null);
-  const [navInfo,   setNavInfo]   = useState(null);
+  const [sharing,       setSharing]       = useState(false);
+  const [error,         setError]         = useState(null);
+  const [status,        setStatus]        = useState('Loading map...');
+  const [driverPos,     setDriverPos]     = useState(null);
+  const [navInfo,       setNavInfo]       = useState(null);
+  const [liveDriverName, setLiveDriverName] = useState(null);
 
   const initMap = useCallback(() => {
     if (!mapRef.current || leafletMap.current) return;
@@ -119,8 +120,9 @@ export default function TripMap({
     if (tripId) {
       getTripLocation(tripId).then(loc => { if (loc?.lat) updateDriverMarker(loc.lat, loc.lng, map, L); }).catch(() => {});
       watchTrip(tripId);
-      socket.on('driver:location', ({ lat, lng }) => {
-        updateDriverMarker(lat, lng, map, L);
+      socket.on('driver:location', ({ lat, lng, driverName: liveName }) => {
+        if (liveName) setLiveDriverName(liveName);
+        updateDriverMarker(lat, lng, map, L, liveName);
         setDriverPos({ lat: parseFloat(lat), lng: parseFloat(lng) });
       });
     }
@@ -216,9 +218,9 @@ export default function TripMap({
     return L.marker([lat, lng], { icon }).addTo(map).bindPopup(`<b>${label}</b><br/>${type==='pickup'?'🟢 Pickup':'🔵 Drop-off'}`);
   }
 
-  function updateDriverMarker(lat, lng, map, L) {
+  function updateDriverMarker(lat, lng, map, L, liveName) {
     const pos = [parseFloat(lat), parseFloat(lng)];
-    const name = driverName || 'Driver';
+    const name = liveName || liveDriverName || driverName || 'Driver';
     const icon = L.divIcon({
       html: `<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
         <div style="width:48px;height:48px;border-radius:50%;background:#fbbf24;border:3px solid #fff;box-shadow:0 0 18px rgba(251,191,36,.95);display:flex;align-items:center;justify-content:center;font-size:24px">🚐</div>
@@ -244,7 +246,7 @@ export default function TripMap({
         pos => {
           const { latitude: lat, longitude: lng } = pos.coords;
           import('../socket.js').then(({ sendLocation }) => sendLocation(tripId, lat, lng));
-          if (leafletMap.current && window.L) updateDriverMarker(lat, lng, leafletMap.current, window.L);
+          if (leafletMap.current && window.L) updateDriverMarker(lat, lng, leafletMap.current, window.L, null);
           setDriverPos({ lat, lng });
         },
         err => setError('GPS error: ' + err.message),
@@ -290,8 +292,8 @@ export default function TripMap({
               {isHeadingDropoff ? '🏁 Heading to your drop-off' : '🚐 Driver is on the way'}
             </div>
             <div style={{ fontSize: 13, color: C.text2 }}>
-              {driverName && <span style={{ color: '#fbbf24', fontWeight: 700 }}>{driverName}</span>}
-              {driverName && ' · '}
+              {(liveDriverName || driverName) && <span style={{ color: '#fbbf24', fontWeight: 700 }}>{liveDriverName || driverName}</span>}
+              {(liveDriverName || driverName) && ' · '}
               <span style={{ fontWeight: 600, color: C.text }}>{navInfo.dist} away</span>
             </div>
           </div>
