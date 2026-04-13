@@ -17,6 +17,9 @@ module.exports = function setupTracking(io) {
 
       connections.set(socket.id, { userId, role, tripId, name });
 
+      // Join personal room so we can send targeted events (e.g. pool:confirmed)
+      socket.join(`user:${userId}`);
+
       if (tripId) {
         socket.join(`trip:${tripId}`);
         console.log(`🔌  ${role} ${name} joined room trip:${tripId}`);
@@ -70,6 +73,15 @@ module.exports = function setupTracking(io) {
     // ── TRIP EVENTS ───────────────────────────────────────
     socket.on('trip:started',   ({ tripId }) => { io.to(`trip:${tripId}`).emit('trip:started',   { tripId }); });
     socket.on('trip:completed', ({ tripId }) => { io.to(`trip:${tripId}`).emit('trip:completed', { tripId }); });
+
+    // ── POOL CONFIRMED — notify passengers instantly ──────
+    // Driver emits this after accepting; each passenger in their user room gets it
+    socket.on('pool:confirmed', ({ tripId, passengerIds }) => {
+      if (!Array.isArray(passengerIds)) return;
+      passengerIds.forEach(pid => {
+        io.to(`user:${pid}`).emit('pool:confirmed', { tripId });
+      });
+    });
 
     // ── CHECKIN UPDATE ────────────────────────────────────
     socket.on('checkin:update', ({ tripId, bookingId, status }) => {

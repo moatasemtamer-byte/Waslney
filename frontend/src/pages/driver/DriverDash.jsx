@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-import { emitTripStarted, emitTripCompleted, emitCheckinUpdate } from '../../socket.js';
+import { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed } from '../../socket.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import TripMap from '../../components/TripMap.jsx';
 
@@ -22,6 +22,7 @@ export default function DriverDash() {
   const [poolInvitations,  setPoolInvitations]  = useState([]);
   const [poolLoading,      setPoolLoading]      = useState(false);
   const [poolChat,         setPoolChat]         = useState(null); // {tripId, messages}
+  const [poolChatStops,    setPoolChatStops]    = useState([]); // stops for map in chat
   const [fareEditor,       setFareEditor]       = useState(null); // {inv, suggested, custom}
   const [declineModal,     setDeclineModal]     = useState(null); // {invId}
   const [declineReason,    setDeclineReason]    = useState('');
@@ -58,6 +59,17 @@ export default function DriverDash() {
       const result = await api.acceptPoolInvitation(invId, body);
       notify('Pool trip accepted!', `Trip #${result.tripId} created with ${result.member_count} passengers.`);
       setFareEditor(null);
+      // Optimistically update the invitation so chat button appears immediately
+      setPoolInvitations(prev => prev.map(inv =>
+        inv.id === invId
+          ? { ...inv, response: 'accepted', group_trip_id: result.tripId }
+          : inv
+      ));
+      // Notify passengers via socket so their chat button appears instantly
+      const inv = poolInvitations.find(i => i.id === invId);
+      if (inv?.members?.length) {
+        emitPoolConfirmed(result.tripId, inv.members.map(m => m.passenger_id));
+      }
       loadPoolInvitations(); loadTrips();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -75,8 +87,12 @@ export default function DriverDash() {
 
   async function openPoolChat(tripId) {
     try {
-      const messages = await api.getPoolChat(tripId);
+      const [messages, tripDetail] = await Promise.all([
+        api.getPoolChat(tripId),
+        api.getTrip(tripId).catch(() => null)
+      ]);
       setPoolChat({ tripId, messages });
+      setPoolChatStops(tripDetail?.stops || []);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior:'smooth' }), 100);
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -722,12 +738,29 @@ export default function DriverDash() {
         {poolChat && (
           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.95)', zIndex:500, display:'flex', flexDirection:'column' }}>
             <div style={{ background:'#0d1117', borderBottom:'1px solid #1e3a5f', padding:'16px 20px', display:'flex', alignItems:'center' }}>
-              <button onClick={() => setPoolChat(null)} style={{ background:'transparent', border:'none', color:'#fff', fontSize:22, cursor:'pointer', marginRight:12 }}>←</button>
+              <button onClick={() => { setPoolChat(null); setPoolChatStops([]); }} style={{ background:'transparent', border:'none', color:'#fff', fontSize:22, cursor:'pointer', marginRight:12 }}>←</button>
               <div>
                 <div style={{ fontSize:15, fontWeight:700, color:'#fff' }}>Pool Trip Chat</div>
                 <div style={{ fontSize:11, color:'#4b7ab5' }}>Trip #{poolChat.tripId} · You are the <strong style={{color:'#fbbf24'}}>Driver</strong></div>
               </div>
             </div>
+            {/* Leaflet map showing all pickup/dropoff stops + live driver location */}
+            {poolChatStops.length > 0 && (
+              <div style={{ flexShrink:0, borderBottom:'1px solid #1e3a5f' }}>
+                <TripMap
+                  tripId={poolChat.tripId}
+                  stops={poolChatStops}
+                  pickupLat={poolChatStops.find(s=>s.type==='pickup')?.lat}
+                  pickupLng={poolChatStops.find(s=>s.type==='pickup')?.lng}
+                  dropoffLat={poolChatStops.find(s=>s.type==='dropoff')?.lat}
+                  dropoffLng={poolChatStops.find(s=>s.type==='dropoff')?.lng}
+                  height={200}
+                />
+                <div style={{ background:'#0d1117', padding:'6px 16px', display:'flex', gap:16, fontSize:11, color:'#4b7ab5' }}>
+                  <span>🟢 Pickup stops</span><span>🏁 Dropoff</span><span>📍 Your route</span>
+                </div>
+              </div>
+            )}
             <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', display:'flex', flexDirection:'column', gap:10 }}>
               {poolChat.messages.length === 0 && (
                 <div style={{ textAlign:'center', color:'#333', fontSize:13, marginTop:40 }}>No messages yet. Greet your passengers! 🚗</div>

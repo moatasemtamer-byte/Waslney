@@ -166,9 +166,11 @@ export default function PassengerDash(){
 
   // Pool chat
   const[poolChat,setPoolChat]=useState(null);
+  const[poolChatStops,setPoolChatStops]=useState([]); // stops for map in chat
   const[chatInput,setChatInput]=useState('');
   const[sendingChat,setSendingChat]=useState(false);
   const chatEndRef=useRef(null);
+  const poolChatRef=useRef(null); // track current poolChat to avoid stale closure
 
   // Bookings
   const[myBookings,setMyBookings]=useState([]);
@@ -194,10 +196,29 @@ export default function PassengerDash(){
     loadNotifs();requestLocation();
     connectSocket(user.id,'passenger');
     socket.on('checkin:update',({bookingId,status})=>{setMyBookings(prev=>prev.map(b=>b.id===bookingId?{...b,checkin_status:status}:b));setSelBooking(prev=>prev?.id===bookingId?{...prev,checkin_status:status}:prev);});
-    return()=>socket.off('checkin:update');
+    // Instant notification when driver confirms pool — open chat immediately
+    socket.on('pool:confirmed',({tripId})=>{
+      openPoolChat(tripId);
+      loadMyPoolRequests();
+    });
+    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');};
   },[user.id]);
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
-  useEffect(()=>{if(tab==='activity'){loadBookings();loadMyPoolRequests();}},[tab]);
+  useEffect(()=>{
+    if(tab!=='activity')return;
+    loadBookings();loadMyPoolRequests();
+    const interval=setInterval(async()=>{
+      try{
+        const reqs=await api.getMyPoolRequests();
+        setMyPoolRequests(reqs);
+        if(!poolChatRef.current){
+          const confirmed=reqs.find(r=>r.status==='confirmed'&&r.group_trip_id&&r.group_status==='confirmed');
+          if(confirmed)openPoolChat(confirmed.group_trip_id);
+        }
+      }catch{}
+    },8000);
+    return()=>clearInterval(interval);
+  },[tab]);
   useEffect(()=>{if(tab==='home'){loadActivePoolGroup();}},[tab]);
 
   async function loadNotifs(){try{setNotifs(await api.getNotifications());}catch{}}
@@ -319,7 +340,17 @@ export default function PassengerDash(){
   }
 
   async function openPoolChat(tripId){
-    try{const messages=await api.getPoolChat(tripId);setPoolChat({tripId,messages});setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);}
+    try{
+      const [messages, tripDetail] = await Promise.all([
+        api.getPoolChat(tripId),
+        api.getTrip(tripId).catch(()=>null)
+      ]);
+      const chatState={tripId,messages};
+      setPoolChat(chatState);
+      poolChatRef.current=chatState;
+      setPoolChatStops(tripDetail?.stops||[]);
+      setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);
+    }
     catch(e){notify('Error',e.message,'error');}
   }
 
@@ -641,7 +672,7 @@ export default function PassengerDash(){
             {poolChat&&(
               <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:500,display:'flex',flexDirection:'column'}}>
                 <div style={{background:'#0d1117',borderBottom:'1px solid rgba(96,165,250,0.15)',padding:'16px 20px',display:'flex',alignItems:'center'}}>
-                  <button onClick={()=>setPoolChat(null)} style={{background:'transparent',border:'none',color:'#fff',fontSize:22,cursor:'pointer',marginRight:12}}>←</button>
+                  <button onClick={()=>{setPoolChat(null);poolChatRef.current=null;setPoolChatStops([]);}} style={{background:'transparent',border:'none',color:'#fff',fontSize:22,cursor:'pointer',marginRight:12}}>←</button>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
                     <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>💬</div>
                     <div>
@@ -650,6 +681,24 @@ export default function PassengerDash(){
                     </div>
                   </div>
                 </div>
+                {poolChatStops.length>0&&(
+                  <div style={{flexShrink:0,borderBottom:'1px solid rgba(96,165,250,0.1)'}}>
+                    <TripMap
+                      tripId={poolChat.tripId}
+                      stops={poolChatStops}
+                      pickupLat={poolChatStops.find(s=>s.type==='pickup')?.lat}
+                      pickupLng={poolChatStops.find(s=>s.type==='pickup')?.lng}
+                      dropoffLat={poolChatStops.find(s=>s.type==='dropoff')?.lat}
+                      dropoffLng={poolChatStops.find(s=>s.type==='dropoff')?.lng}
+                      passengerLat={userLocation?.lat}
+                      passengerLng={userLocation?.lng}
+                      height={200}
+                    />
+                    <div style={{background:'#0d1117',padding:'6px 16px',display:'flex',gap:16,fontSize:11,color:'#4b7ab5'}}>
+                      <span>🟢 Pickup stops</span><span>🏁 Dropoff</span><span>🚗 Driver (live)</span>
+                    </div>
+                  </div>
+                )}
                 <div style={{flex:1,overflowY:'auto',padding:'16px 20px',display:'flex',flexDirection:'column',gap:10}}>
                   {poolChat.messages.length===0&&<div style={{textAlign:'center',color:'#333',fontSize:13,marginTop:40}}>No messages yet. Say hi! 👋</div>}
                   {poolChat.messages.map((m,i)=>{
