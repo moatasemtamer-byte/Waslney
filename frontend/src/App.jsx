@@ -42,14 +42,17 @@ export default function App() {
   };
 
   if (loading) return (
-    <div style={{ minHeight:'100vh', background:'#09090b', display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ color:'#4ade80', fontFamily:'Sora,sans-serif', fontSize:14, letterSpacing:'.1em' }}>LOADING…</div>
+    <div style={{ minHeight:'100vh', background:'#000', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:16 }}>
+      <div style={{ fontSize:36 }}>🚐</div>
+      <div style={{ color:'#fbbf24', fontFamily:"'Sora',sans-serif", fontSize:13, letterSpacing:'.15em', fontWeight:700 }}>WASLNEY</div>
+      <div style={{ width:24, height:24, border:'2px solid #1a1a1a', borderTopColor:'#fbbf24', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 
   return (
     <AuthContext.Provider value={{ user, login, logout, notify }}>
-      <div style={{ minHeight:'100vh', background:'#09090b', color:'#fafafa', fontFamily:"'Sora',sans-serif" }}>
+      <div style={{ minHeight:'100vh', background:'#000', color:'#fff', fontFamily:"'Sora',sans-serif" }}>
         {!user                       && <Landing />}
         {user?.role === 'passenger'  && <PassengerDash />}
         {user?.role === 'driver'     && <DriverDash />}
