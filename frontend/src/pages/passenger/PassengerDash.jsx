@@ -493,7 +493,8 @@ export default function PassengerDash() {
             <TripMap tripId={selTrip.id} pickupLat={selPickup?.lat} pickupLng={selPickup?.lng}
               dropoffLat={selDropoff?.lat} dropoffLng={selDropoff?.lng} stops={selTrip.stops||[]}
               passengerLat={userLocation?.lat} passengerLng={userLocation?.lng}
-              height={240} />
+              driverName={selTrip.driver_name}
+              height={280} />
             {/* Show proximity line from user to pickup */}
             {userLocation && selPickup?.lat && (
               <div style={{ marginBottom:14 }}>
@@ -627,6 +628,7 @@ export default function PassengerDash() {
                 <div style={{ marginTop:14 }}>
                   <TripMap tripId={b.trip_id} stops={b.stops||[]} pickupLat={b.pickup_lat} pickupLng={b.pickup_lng}
                     passengerLat={userLocation?.lat} passengerLng={userLocation?.lng}
+                    driverName={b.driver_name}
                     dropoffLat={b.dropoff_lat} dropoffLng={b.dropoff_lng} checkinStatus={b.checkin_status} height={200} />
                 </div>
                 <button style={{ ...btnDanger, marginTop:10 }} onClick={() => cancelBooking(b.id)}>Cancel booking</button>

@@ -52,7 +52,8 @@ export default function TripMap({
   stops = [],
   isDriver = false,
   checkinStatus = null,
-  passengerLat = null, passengerLng = null,  // passenger's real location for nav line
+  passengerLat = null, passengerLng = null,
+  driverName = null,   // shown on driver marker and ETA overlay
   height = 280,
 }) {
   const mapRef           = useRef(null);
@@ -152,9 +153,10 @@ export default function TripMap({
     }
 
     if (targetLat) {
+      // RED solid line when approaching pickup, blue when heading to dropoff
       navLine.current = L.polyline(
         [[driverPos.lat, driverPos.lng], [targetLat, targetLng]],
-        { color: checkinStatus === 'picked' ? '#60a5fa' : '#fbbf24', weight: 3, opacity: 0.85, dashArray: '8,5' }
+        { color: checkinStatus === 'picked' ? '#60a5fa' : '#ef4444', weight: 5, opacity: 0.9 }
       ).addTo(map);
       const dist = haversineDistance(driverPos.lat, driverPos.lng, targetLat, targetLng);
       setNavInfo({ dist: formatDist(dist), time: estimateTime(dist), target: targetLabel, status: checkinStatus });
@@ -205,12 +207,20 @@ export default function TripMap({
 
   function updateDriverMarker(lat, lng, map, L) {
     const pos = [parseFloat(lat), parseFloat(lng)];
+    const name = driverName || 'Driver';
     const icon = L.divIcon({
-      html: `<div style="width:30px;height:30px;border-radius:50%;background:#fbbf24;border:3px solid #fff;box-shadow:0 0 12px rgba(251,191,36,.9);display:flex;align-items:center;justify-content:center;font-size:15px">🚐</div>`,
-      iconSize:[30,30], iconAnchor:[15,15], className:'',
+      html: `<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+        <div style="width:48px;height:48px;border-radius:50%;background:#fbbf24;border:3px solid #fff;box-shadow:0 0 18px rgba(251,191,36,.95);display:flex;align-items:center;justify-content:center;font-size:24px">🚐</div>
+        <div style="background:rgba(0,0,0,0.75);color:#fbbf24;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;white-space:nowrap;font-family:'Sora',sans-serif;border:1px solid #fbbf2466">${name}</div>
+      </div>`,
+      iconSize:[60,68], iconAnchor:[30,24], className:'',
     });
-    if (driverMarker.current) { driverMarker.current.setLatLng(pos); }
-    else { driverMarker.current = L.marker(pos, { icon }).addTo(map).bindPopup('<b>Driver — live</b>'); }
+    if (driverMarker.current) {
+      driverMarker.current.setLatLng(pos);
+      driverMarker.current.setIcon(icon);
+    } else {
+      driverMarker.current = L.marker(pos, { icon }).addTo(map).bindPopup(`<b>🚐 ${name}</b><br/>Live location`);
+    }
     map.panTo(pos);
   }
 
@@ -235,7 +245,9 @@ export default function TripMap({
 
   function stopSharing() { setSharing(false); clearInterval(locationInterval.current); }
 
-  const navColor = navInfo?.status === 'picked' ? C.blue : C.amber;
+  const navColor = navInfo?.status === 'picked' ? C.blue : '#ef4444';
+  const isApproaching = navInfo && !isDriver && navInfo.status !== 'picked';
+  const isHeadingDropoff = navInfo && !isDriver && navInfo.status === 'picked';
 
   return (
     <div style={{ borderRadius:12, overflow:'hidden', border:`1px solid ${C.border}`, marginBottom:20 }}>
@@ -248,18 +260,50 @@ export default function TripMap({
             <span style={{ fontSize:12, color:C.text3 }}>{status}</span>
           </div>
         )}
+
+        {/* ── ETA overlay on map — big bold centered — only when driver approaching pickup ── */}
+        {isApproaching && (
+          <div style={{
+            position:'absolute', top:12, left:'50%', transform:'translateX(-50%)',
+            zIndex:1000, pointerEvents:'none',
+            display:'flex', flexDirection:'column', alignItems:'center', gap:4,
+          }}>
+            <div style={{
+              background:'rgba(0,0,0,0.82)', border:'2px solid #ef4444',
+              borderRadius:14, padding:'10px 22px', textAlign:'center',
+              boxShadow:'0 4px 24px rgba(239,68,68,0.5)',
+            }}>
+              <div style={{
+                fontSize:36, fontWeight:900, color:'#ef4444',
+                fontFamily:"'Georgia','Times New Roman',serif",
+                letterSpacing:1, lineHeight:1,
+              }}>
+                ~{navInfo.time}
+              </div>
+              <div style={{ fontSize:13, color:'#fff', marginTop:4, fontWeight:500 }}>
+                {navInfo.dist} away
+              </div>
+              {driverName && (
+                <div style={{ fontSize:12, color:'#fbbf24', marginTop:3, fontWeight:600 }}>
+                  🚐 {driverName}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Nav banner for passenger */}
       {navInfo && !isDriver && (
-        <div style={{ background: navInfo.status==='picked' ? C.blueDim : '#2d1f00', borderBottom:`1px solid ${navColor}44`, padding:'10px 16px', display:'flex', alignItems:'center', gap:12 }}>
-          <span style={{ fontSize:20 }}>{navInfo.status==='picked' ? '🏁' : '🚐'}</span>
+        <div style={{ background: isHeadingDropoff ? C.blueDim : 'rgba(239,68,68,0.12)', borderBottom:`1px solid ${navColor}55`, padding:'10px 16px', display:'flex', alignItems:'center', gap:12 }}>
+          <span style={{ fontSize:22 }}>{isHeadingDropoff ? '🏁' : '🚐'}</span>
           <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:600, color:navColor }}>
-              {navInfo.status==='picked' ? 'Heading to your drop-off' : 'Driver approaching you'}
+            <div style={{ fontSize:13, fontWeight:700, color:navColor }}>
+              {isHeadingDropoff ? 'Heading to your drop-off' : 'Driver is on the way to your pickup'}
             </div>
             <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>
-              {navInfo.dist} away · ~{navInfo.time} · {navInfo.target}
+              {navInfo.dist} away · ~{navInfo.time}
+              {driverName && !isHeadingDropoff ? ` · ${driverName}` : ''}
             </div>
           </div>
         </div>
