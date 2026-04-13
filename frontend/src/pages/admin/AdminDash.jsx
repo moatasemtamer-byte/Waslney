@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PlaceSearch as AreaSearch } from '../../components/LeafletSearch.jsx';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-import { C, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
+import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
 
 
