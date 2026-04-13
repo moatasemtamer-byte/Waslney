@@ -280,8 +280,6 @@ export default function PassengerDash() {
   }
 
   async function confirmBook() {
-    const avail=selTrip.total_seats-selTrip.booked_seats;
-    if (seats>avail) { notify('Not enough seats',`Only ${avail} available.`,'error'); return; }
     setBooking(true);
     try {
       const b=await api.bookTrip({trip_id:selTrip.id,seats,pickup_note:fromCoord?.name||selPickup?.label||''});
@@ -290,7 +288,9 @@ export default function PassengerDash() {
     } catch(e) {
       const msg = e.message || '';
       if (msg === 'already_reserved' || msg.toLowerCase().includes('already')) {
-        notify('Already reserved', 'You already have an active booking on this trip. Go to your bookings to cancel it first.', 'warning');
+        notify('Already reserved', 'You already have an active booking on this trip. Cancel it first to rebook.', 'warning');
+      } else if (msg.toLowerCase().includes('not enough') || msg.toLowerCase().includes('seats')) {
+        notify('No seats available', msg, 'error');
       } else {
         notify('Error', msg, 'error');
       }
