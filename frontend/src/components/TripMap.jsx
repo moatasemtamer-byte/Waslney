@@ -220,8 +220,9 @@ export default function TripMap({
       driverMarker.current.setIcon(icon);
     } else {
       driverMarker.current = L.marker(pos, { icon }).addTo(map).bindPopup(`<b>🚐 ${name}</b><br/>Live location`);
+      // Only pan to driver on first appearance, not every update
+      map.panTo(pos, { animate: true, duration: 0.5 });
     }
-    map.panTo(pos);
   }
 
   function startSharing() {
@@ -240,7 +241,7 @@ export default function TripMap({
       );
     };
     send();
-    locationInterval.current = setInterval(send, 4000);
+    locationInterval.current = setInterval(send, 3000);
   }
 
   function stopSharing() { setSharing(false); clearInterval(locationInterval.current); }
@@ -261,50 +262,26 @@ export default function TripMap({
           </div>
         )}
 
-        {/* ── ETA overlay on map — big bold centered — only when driver approaching pickup ── */}
-        {isApproaching && (
-          <div style={{
-            position:'absolute', top:12, left:'50%', transform:'translateX(-50%)',
-            zIndex:1000, pointerEvents:'none',
-            display:'flex', flexDirection:'column', alignItems:'center', gap:4,
-          }}>
-            <div style={{
-              background:'rgba(0,0,0,0.82)', border:'2px solid #ef4444',
-              borderRadius:14, padding:'10px 22px', textAlign:'center',
-              boxShadow:'0 4px 24px rgba(239,68,68,0.5)',
-            }}>
-              <div style={{
-                fontSize:36, fontWeight:900, color:'#ef4444',
-                fontFamily:"'Georgia','Times New Roman',serif",
-                letterSpacing:1, lineHeight:1,
-              }}>
-                ~{navInfo.time}
-              </div>
-              <div style={{ fontSize:13, color:'#fff', marginTop:4, fontWeight:500 }}>
-                {navInfo.dist} away
-              </div>
-              {driverName && (
-                <div style={{ fontSize:12, color:'#fbbf24', marginTop:3, fontWeight:600 }}>
-                  🚐 {driverName}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+
       </div>
 
-      {/* Nav banner for passenger */}
+      {/* Nav banner for passenger — clear ETA below map */}
       {navInfo && !isDriver && (
-        <div style={{ background: isHeadingDropoff ? C.blueDim : 'rgba(239,68,68,0.12)', borderBottom:`1px solid ${navColor}55`, padding:'10px 16px', display:'flex', alignItems:'center', gap:12 }}>
-          <span style={{ fontSize:22 }}>{isHeadingDropoff ? '🏁' : '🚐'}</span>
+        <div style={{ background: isHeadingDropoff ? C.blueDim : 'rgba(239,68,68,0.13)', borderBottom:`1px solid ${navColor}55`, padding:'12px 16px', display:'flex', alignItems:'center', gap:14 }}>
+          <span style={{ fontSize:26 }}>{isHeadingDropoff ? '🏁' : '🚐'}</span>
           <div style={{ flex:1 }}>
-            <div style={{ fontSize:13, fontWeight:700, color:navColor }}>
+            <div style={{ fontSize:13, fontWeight:700, color:navColor, marginBottom:3 }}>
               {isHeadingDropoff ? 'Heading to your drop-off' : 'Driver is on the way to your pickup'}
             </div>
-            <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>
-              {navInfo.dist} away · ~{navInfo.time}
-              {driverName && !isHeadingDropoff ? ` · ${driverName}` : ''}
+            <div style={{ fontSize:12, color:C.text2 }}>
+              {driverName && <span style={{ color:'#fbbf24', fontWeight:600 }}>{driverName} · </span>}
+              {navInfo.dist} away
             </div>
+          </div>
+          {/* Big ETA pill on the right */}
+          <div style={{ background:'rgba(0,0,0,0.5)', border:`2px solid ${navColor}`, borderRadius:10, padding:'6px 14px', textAlign:'center', minWidth:70 }}>
+            <div style={{ fontSize:22, fontWeight:900, color:navColor, lineHeight:1 }}>~{navInfo.time}</div>
+            <div style={{ fontSize:10, color:C.text3, marginTop:2 }}>ETA</div>
           </div>
         </div>
       )}

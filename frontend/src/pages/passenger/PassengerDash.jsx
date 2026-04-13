@@ -317,8 +317,21 @@ export default function PassengerDash() {
       }
 
       enriched.sort((a, b) => (a.bestPickupDist||0) - (b.bestPickupDist||0));
-      setMatchedTrips(enriched);
-      if (!enriched.length) notify('No trips found', 'Try a broader area or different destination.', 'info');
+
+      if (enriched.length) {
+        setMatchedTrips(enriched);
+      } else {
+        // Last resort: show ALL available trips so passenger can still see options
+        console.log('[Search] No proximity match — showing all trips as fallback');
+        const fallback = all.map(trip => {
+          const stops = trip.stops || [];
+          const bestPickup  = stops.find(s => s.type === 'pickup')  || { type:'pickup',  lat: trip.pickup_lat,  lng: trip.pickup_lng,  label: trip.from_loc };
+          const bestDropoff = stops.find(s => s.type === 'dropoff') || { type:'dropoff', lat: trip.dropoff_lat, lng: trip.dropoff_lng, label: trip.to_loc };
+          return { ...trip, bestPickup, bestDropoff, bestPickupDist: null, bestDropoffDist: null, isFallback: true };
+        });
+        setMatchedTrips(fallback);
+        notify('Showing all trips', 'No stops found near your area — showing all available trips.', 'info');
+      }
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setSearching(false); }
   }
