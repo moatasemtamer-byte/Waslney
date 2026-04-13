@@ -321,13 +321,13 @@ router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(re
         `INSERT INTO trips(from_loc,to_loc,pickup_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng,status,is_pool)VALUES(?,?,?,?,?,?,?,?,?,?,?,'upcoming',1)`,
         [ordered[0].origin_label||'Pool pickup',fPax.dest_label||'Pool destination',group.desired_time,group.desired_date,price,Math.max(ts+2,4),req.user.id,ordered[0].origin_lat,ordered[0].origin_lng,fPax.dest_lat,fPax.dest_lng]
       );
-      tripId=tr[0].insertId;
+      tripId=tr.insertId;
     } else {
       const[tr]=await db.query(
         `INSERT INTO trips(from_loc,to_loc,pickup_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng,status)VALUES(?,?,?,?,?,?,?,?,?,?,?,'upcoming')`,
         [ordered[0].origin_label||'Pool pickup',fPax.dest_label||'Pool destination',group.desired_time,group.desired_date,price,Math.max(ts+2,4),req.user.id,ordered[0].origin_lat,ordered[0].origin_lng,fPax.dest_lat,fPax.dest_lng]
       );
-      tripId=tr[0].insertId;
+      tripId=tr.insertId;
     }
 
     await buildStops(tripId,ordered,fPax);
