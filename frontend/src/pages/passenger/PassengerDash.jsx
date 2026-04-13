@@ -175,6 +175,16 @@ export default function PassengerDash() {
     window.location.hash = t;
   };
 
+  // Persist selBooking in sessionStorage so refresh restores it
+  const openBooking = (b) => {
+    setSelBooking(b);
+    sessionStorage.setItem('selBookingId', b.id);
+  };
+  const closeBooking = () => {
+    setSelBooking(null);
+    sessionStorage.removeItem('selBookingId');
+  };
+
   const [fromCoord,    setFromCoord]    = useState(null); // { lat, lng, name }
   const [toCoord,      setToCoord]      = useState(null);
   const [userLocation, setUserLocation] = useState(null); // { lat, lng }
@@ -382,11 +392,9 @@ export default function PassengerDash() {
   }
 
   async function loadBookings() {
-    // Only show spinner on first load, not on every 3s poll
     if (myBookings.length === 0) setLoadingB(true);
     try {
       const bks = await api.getMyBookings();
-      // Fetch trip stops only for bookings that don't have them yet
       const enriched = await Promise.all(bks.map(async b => {
         const existing = myBookings.find(x => x.id === b.id);
         if (existing?.stops?.length) return { ...b, stops: existing.stops };
@@ -394,6 +402,12 @@ export default function PassengerDash() {
         catch { return { ...b, stops: [] }; }
       }));
       setMyBookings(enriched);
+      // Restore selected booking after page refresh
+      const savedId = sessionStorage.getItem('selBookingId');
+      if (savedId) {
+        const found = enriched.find(b => String(b.id) === String(savedId));
+        if (found) setSelBooking(found);
+      }
     } catch {} finally { setLoadingB(false); }
   }
 
@@ -664,7 +678,7 @@ export default function PassengerDash() {
               const statusColor = st==='picked' ? C.green : st==='dropped' ? C.blue : C.amber;
               const statusLabel = st==='picked' ? '✅ Picked up' : st==='dropped' ? '🏁 Dropped off' : '⏳ Confirmed';
               return (
-                <div key={b.id} onClick={() => setSelBooking(b)}
+                <div key={b.id} onClick={() => openBooking(b)}
                   style={{ ...card, marginBottom:12, cursor:'pointer', transition:'border-color .15s',
                     border:`1px solid ${st==='picked'?C.greenBorder:st==='dropped'?C.blueBorder:C.border}` }}>
                   <div style={{ display:'flex', alignItems:'center', marginBottom:8 }}>
@@ -689,7 +703,7 @@ export default function PassengerDash() {
           const st = b.checkin_status;
           return (
             <div>
-              <button onClick={() => setSelBooking(null)} style={{ ...btnSm, marginBottom:20 }}>← Back</button>
+              <button onClick={closeBooking} style={{ ...btnSm, marginBottom:20 }}>← Back</button>
               <h2 style={{ fontSize:20, fontWeight:400, marginBottom:4 }}>{b.from_loc} → {b.to_loc}</h2>
               <p style={{ color:C.text2, fontSize:13, marginBottom:16 }}>{fmtDate(b.date)} · Pickup {b.pickup_time}</p>
 
@@ -705,16 +719,29 @@ export default function PassengerDash() {
                 </div>
               )}
 
-              {/* Live map with driver nav */}
+              {/* Status: waiting for driver */}
+              {!st || st === 'pending' ? (
+                <div style={{ padding:'12px 16px', background:'#1a1a0a', border:'1px solid #fbbf2444', borderRadius:10, marginBottom:12, display:'flex', alignItems:'center', gap:12 }}>
+                  <span style={{ fontSize:22 }}>⏳</span>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#fbbf24' }}>Waiting for driver</div>
+                    <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>You'll see the driver on the map once they share their location</div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Live map with driver nav — ETA shown above map automatically when driver moves */}
               <TripMap
                 tripId={b.trip_id}
                 stops={b.stops||[]}
-                pickupLat={b.pickup_lat}   pickupLng={b.pickup_lng}
-                dropoffLat={b.dropoff_lat} dropoffLng={b.dropoff_lng}
+                pickupLat={b.pickup_lat || (b.stops||[]).find(s=>s.type==='pickup')?.lat}
+                pickupLng={b.pickup_lng || (b.stops||[]).find(s=>s.type==='pickup')?.lng}
+                dropoffLat={b.dropoff_lat || (b.stops||[]).find(s=>s.type==='dropoff')?.lat}
+                dropoffLng={b.dropoff_lng || (b.stops||[]).find(s=>s.type==='dropoff')?.lng}
                 passengerLat={userLocation?.lat} passengerLng={userLocation?.lng}
                 driverName={b.driver_name}
                 checkinStatus={st}
-                height={280}
+                height={300}
               />
 
               {/* Trip details */}
@@ -730,7 +757,7 @@ export default function PassengerDash() {
                 </div>
               </div>
 
-              <button style={{ ...btnDanger }} onClick={() => { cancelBooking(b.id); setSelBooking(null); }}>Cancel booking</button>
+              <button style={{ ...btnDanger }} onClick={() => { cancelBooking(b.id); closeBooking(); }}>Cancel booking</button>
             </div>
           );
         })()}
