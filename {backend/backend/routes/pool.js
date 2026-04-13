@@ -40,21 +40,9 @@ async function suggestDrivers(groupId){
     if(!reqs.length)return;
     const avgLat=reqs.reduce((s,r)=>s+(+r.origin_lat),0)/reqs.length;
     const avgLng=reqs.reduce((s,r)=>s+(+r.origin_lng),0)/reqs.length;
-    // Try nearby drivers first, fall back to ALL drivers if none found
-    const[nearbyDrivers]=await db.query(`
-      SELECT dl.driver_id,dl.lat,dl.lng,u.name FROM driver_locations dl
-      JOIN users u ON u.id=dl.driver_id
-      WHERE dl.updated_at>DATE_SUB(NOW(),INTERVAL 24 HOUR)
-    `);
-    // Also get ALL drivers (role=driver) so they always get notified even without location
-    const[allDriverUsers]=await db.query(`SELECT id AS driver_id, 0 AS lat, 0 AS lng, name FROM users WHERE role='driver'`);
-    // Merge: prefer nearby with location, add rest
-    const nearbyIds=new Set(nearbyDrivers.map(d=>d.driver_id));
-    const drivers=[
-      ...nearbyDrivers.filter(d=>haversine(+d.lat,+d.lng,avgLat,avgLng)<=15000),
-      ...allDriverUsers.filter(d=>!nearbyIds.has(d.driver_id))
-    ];
+    const[drivers]=await db.query(`SELECT dl.driver_id,dl.lat,dl.lng,u.name FROM driver_locations dl JOIN users u ON u.id=dl.driver_id WHERE dl.updated_at>DATE_SUB(NOW(),INTERVAL 60 MINUTE)`);
     for(const d of drivers){
+      if(haversine(+d.lat,+d.lng,avgLat,avgLng)>15000)continue;
       const[ex]=await db.query('SELECT id FROM pool_invitations WHERE group_id=? AND driver_id=?',[groupId,d.driver_id]);
       if(ex.length)continue;
       await db.query('INSERT INTO pool_invitations(group_id,driver_id,expires_at)VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 MINUTE))',[groupId,d.driver_id]);
@@ -308,6 +296,48 @@ router.post('/expire-groups',async(req,res)=>{
     }
     res.json({expired:exp.length});
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
+});
+
+
+// ── DEBUG (remove after testing) ──────────────────────────────
+router.get('/debug',async(req,res)=>{
+  try{
+    const[requests]=await db.query(`
+      SELECT pr.id, pr.passenger_id, u.name, pr.status, pr.desired_date, pr.desired_time,
+             pr.origin_lat, pr.origin_lng, pr.origin_label,
+             pr.dest_lat, pr.dest_lng, pr.dest_label,
+             pr.pool_group_id, pr.seats, pr.created_at
+      FROM pool_requests pr
+      JOIN users u ON u.id=pr.passenger_id
+      ORDER BY pr.created_at DESC
+      LIMIT 20
+    `);
+    const[groups]=await db.query(`SELECT * FROM pool_groups ORDER BY created_at DESC LIMIT 10`);
+    
+    // Also show why last two requests didn't match
+    let matchAnalysis=[];
+    if(requests.length>=2){
+      const a=requests[0], b=requests[1];
+      const od=haversine(+a.origin_lat,+a.origin_lng,+b.origin_lat,+b.origin_lng);
+      const dd=haversine(+a.dest_lat,+a.dest_lng,+b.dest_lat,+b.dest_lng);
+      const timeDiff=Math.abs((a.desired_time||'00:00').split(':').reduce((h,m,i)=>h+(i===0?+m*60:+m),0) - (b.desired_time||'00:00').split(':').reduce((h,m,i)=>h+(i===0?+m*60:+m),0));
+      const sameUser=a.passenger_id===b.passenger_id;
+      const sameDate=a.desired_date?.toISOString?.().slice(0,10)===b.desired_date?.toISOString?.().slice(0,10) || String(a.desired_date)===String(b.desired_date);
+      matchAnalysis={
+        request_1:{id:a.id,user:a.name,passenger_id:a.passenger_id,date:a.desired_date,time:a.desired_time,origin:a.origin_label,dest:a.dest_label},
+        request_2:{id:b.id,user:b.name,passenger_id:b.passenger_id,date:b.desired_date,time:b.desired_time,origin:b.origin_label,dest:b.dest_label},
+        checks:{
+          same_user_FAIL: sameUser,
+          same_date: sameDate,
+          origin_distance_m: Math.round(od)+' (must be <=15000)',
+          dest_distance_m: Math.round(dd)+' (must be <=10000)',
+          time_diff_minutes: Math.round(timeDiff)+' (must be <=30)',
+          WOULD_MATCH: !sameUser && sameDate && od<=15000 && dd<=10000 && timeDiff<=30
+        }
+      };
+    }
+    res.json({requests, groups, matchAnalysis});
+  }catch(e){res.status(500).json({error:e.message});}
 });
 
 module.exports=router;

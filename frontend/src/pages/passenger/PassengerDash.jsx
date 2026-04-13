@@ -162,6 +162,7 @@ export default function PassengerDash(){
   const[poolWaiting,setPoolWaiting]=useState(false);
   const[poolResult,setPoolResult]=useState(null);
   const[myPoolRequests,setMyPoolRequests]=useState([]);
+  const[activePoolGroup,setActivePoolGroup]=useState(null); // pending group on home screen
 
   // Pool chat
   const[poolChat,setPoolChat]=useState(null);
@@ -197,6 +198,7 @@ export default function PassengerDash(){
   },[user.id]);
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
   useEffect(()=>{if(tab==='activity'){loadBookings();loadMyPoolRequests();}},[tab]);
+  useEffect(()=>{if(tab==='home'){loadActivePoolGroup();}},[tab]);
 
   async function loadNotifs(){try{setNotifs(await api.getNotifications());}catch{}}
   async function openNotifs(){setNotifOpen(true);try{await api.markNotifRead();setNotifs(n=>n.map(x=>({...x,is_read:1})));}catch{}}
@@ -307,6 +309,15 @@ export default function PassengerDash(){
 
   async function loadMyPoolRequests(){try{setMyPoolRequests(await api.getMyPoolRequests());}catch{}}
 
+  async function loadActivePoolGroup(){
+    try{
+      const reqs=await api.getMyPoolRequests();
+      setMyPoolRequests(reqs);
+      const active=reqs.find(r=>r.status==='pending'&&r.pool_group_id);
+      setActivePoolGroup(active||null);
+    }catch{}
+  }
+
   async function openPoolChat(tripId){
     try{const messages=await api.getPoolChat(tripId);setPoolChat({tripId,messages});setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);}
     catch(e){notify('Error',e.message,'error');}
@@ -387,6 +398,39 @@ export default function PassengerDash(){
 
             {/* ── SMART POOL BANNER (always visible under search bar) ── */}
             <div style={{marginTop:16}}>
+              {/* Active Pool Group Card — shown when passenger has a pending group */}
+              {activePoolGroup&&(
+                <div style={{background:'linear-gradient(135deg,#0a1628,#0f2347)',border:'2px solid rgba(74,222,128,0.4)',borderRadius:20,padding:'18px 20px',marginBottom:16,position:'relative',overflow:'hidden',boxShadow:'0 4px 24px rgba(74,222,128,0.1)'}}>
+                  {/* animated pulse ring */}
+                  <div style={{position:'absolute',top:16,right:16,width:12,height:12,borderRadius:'50%',background:'#4ade80',boxShadow:'0 0 0 0 rgba(74,222,128,0.6)',animation:'poolPulse 1.5s infinite'}}/>
+                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                    <div style={{width:42,height:42,borderRadius:12,background:'linear-gradient(135deg,#14532d,#16a34a)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>👥</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:14,fontWeight:800,color:'#4ade80',fontFamily:"'Sora',sans-serif"}}>Smart Pool Group Active</div>
+                      <div style={{fontSize:12,color:'rgba(74,222,128,0.7)',marginTop:1}}>
+                        {activePoolGroup.group_size||1} passenger{(activePoolGroup.group_size||1)!==1?'s':''} matched · Waiting for driver
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{background:'rgba(74,222,128,0.08)',borderRadius:12,padding:'10px 14px',marginBottom:14,border:'1px solid rgba(74,222,128,0.15)'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                        <div style={{width:7,height:7,borderRadius:'50%',background:'#fbbf24'}}/>
+                        <div style={{width:1,height:12,background:'#333'}}/>
+                        <div style={{width:7,height:7,borderRadius:2,background:'#4ade80'}}/>
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:12,color:'#ccc',marginBottom:5}}>{activePoolGroup.origin_label||'Your location'}</div>
+                        <div style={{fontSize:13,color:'#fff',fontWeight:700}}>{activePoolGroup.dest_label||'Destination'}</div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11,color:'rgba(74,222,128,0.6)',marginTop:8,paddingTop:8,borderTop:'1px solid rgba(74,222,128,0.1)'}}>{activePoolGroup.desired_date?.slice(0,10)} · {activePoolGroup.desired_time}</div>
+                  </div>
+                  <div style={{fontSize:12,color:'rgba(74,222,128,0.7)',textAlign:'center',lineHeight:1.5}}>
+                    🚗 Nearby drivers are being notified. You'll get a notification when one accepts.
+                  </div>
+                </div>
+              )}
               <SmartPoolBanner onClick={openSmartPool}/>
             </div>
 
