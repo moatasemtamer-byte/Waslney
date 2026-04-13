@@ -782,11 +782,17 @@ export default function PassengerDash(){
                     </div>
                     <div style={{fontSize:14,fontWeight:600,color:'#fff',marginBottom:4}}>{r.origin_label||'Your location'} → {r.dest_label||'Destination'}</div>
                     <div style={{fontSize:12,color:'#4b7ab5'}}>{r.seats} seat{r.seats>1?'s':''} · {r.group_size>0?`${r.group_size} passenger${r.group_size!==1?'s':''} in group`:'Waiting for match'}</div>
-                    {r.group_trip_id&&(
+                    {/* Chat only available after driver accepts (group_trip_id set) */}
+                    {r.group_trip_id&&r.group_status==='confirmed'&&(
                       <button onClick={()=>openPoolChat(r.group_trip_id)}
                         style={{marginTop:10,background:'rgba(29,78,216,0.15)',border:'1px solid rgba(96,165,250,0.2)',borderRadius:8,padding:'7px 14px',color:'#60a5fa',fontSize:12,cursor:'pointer',fontFamily:"'Sora',sans-serif",width:'100%'}}>
-                        💬 Open Smart Pool Chat
+                        💬 Open Group Chat
                       </button>
+                    )}
+                    {r.pool_group_id&&!r.group_trip_id&&r.status==='pending'&&(
+                      <div style={{marginTop:8,fontSize:12,color:'rgba(96,165,250,0.5)',textAlign:'center',padding:'6px 0'}}>
+                        ⏳ Waiting for a driver to accept…
+                      </div>
                     )}
                   </div>
                 ))}

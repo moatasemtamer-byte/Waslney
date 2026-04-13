@@ -193,6 +193,34 @@ router.get('/invitations',requireAuth,requireRole('driver'),async(req,res)=>{
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
 
+
+// ── FARE PREVIEW — driver can call before accepting ───────────
+router.get('/invitations/:id/fare-preview',requireAuth,requireRole('driver'),async(req,res)=>{
+  try{
+    const[[inv]]=await db.query('SELECT * FROM pool_invitations WHERE id=? AND driver_id=?',[req.params.id,req.user.id]);
+    if(!inv)return res.status(404).json({error:'Not found'});
+    const[members]=await db.query("SELECT pr.*,u.name AS passenger_name FROM pool_requests pr JOIN users u ON u.id=pr.passenger_id WHERE pr.pool_group_id=? AND pr.status='pending'",[inv.group_id]);
+    if(!members.length)return res.json({suggested_fare:0,members:[]});
+    const[[dl]]=await db.query('SELECT lat,lng FROM driver_locations WHERE driver_id=?',[req.user.id]).catch(()=>[[null]]);
+    const dLat=dl?.lat||members[0].origin_lat,dLng=dl?.lng||members[0].origin_lng;
+    const ordered=optimiseOrder(dLat,dLng,members);
+    let fDist=0,fPax=members[0];
+    for(const m of members){const d=haversine(+dLat,+dLng,+m.dest_lat,+m.dest_lng);if(d>fDist){fDist=d;fPax=m;}}
+    const gs=members.length;
+    const routeDist=haversine(+ordered[0].origin_lat,+ordered[0].origin_lng,+fPax.dest_lat,+fPax.dest_lng);
+    const suggested=calcPrice(routeDist,gs);
+    const perPassenger=members.map(m=>({
+      passenger_id:m.passenger_id,
+      name:m.passenger_name,
+      origin:m.origin_label,
+      dest:m.dest_label,
+      seats:m.seats||1,
+      suggested_fare:calcPrice(haversine(+m.origin_lat,+m.origin_lng,+m.dest_lat,+m.dest_lng),gs)
+    }));
+    res.json({suggested_fare:suggested,route_km:(routeDist/1000).toFixed(1),passengers:members.length,per_passenger:perPassenger,min_fare:MIN_FARE,price_per_km:PRICE_PER_KM});
+  }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
+});
+
 router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(req,res)=>{
   try{
     const[[inv]]=await db.query('SELECT * FROM pool_invitations WHERE id=? AND driver_id=?',[req.params.id,req.user.id]);
@@ -209,7 +237,10 @@ router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(re
     for(const m of members){const d=haversine(+dLat,+dLng,+m.dest_lat,+m.dest_lng);if(d>fDist){fDist=d;fPax=m;}}
     const gs=members.length,ts=members.reduce((s,m)=>s+(m.seats||1),0);
     const[[driver]]=await db.query('SELECT * FROM users WHERE id=?',[req.user.id]);
-    const price=calcPrice(haversine(+ordered[0].origin_lat,+ordered[0].origin_lng,+fPax.dest_lat,+fPax.dest_lng),gs);
+    // Driver can set custom fare per passenger, otherwise auto-calculate
+    const customFare=req.body&&req.body.fare_per_passenger?parseFloat(req.body.fare_per_passenger):null;
+    const autoPrice=calcPrice(haversine(+ordered[0].origin_lat,+ordered[0].origin_lng,+fPax.dest_lat,+fPax.dest_lng),gs);
+    const price=customFare&&customFare>=1?customFare:autoPrice;
     const[tr]=await db.query(`INSERT INTO trips(from_loc,to_loc,pickup_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng,status,is_pool)VALUES(?,?,?,?,?,?,?,?,?,?,?,'upcoming',1)`,[ordered[0].origin_label||'Pool pickup',fPax.dest_label||'Pool destination',group.desired_time,group.desired_date,price,Math.max(ts+2,4),req.user.id,ordered[0].origin_lat,ordered[0].origin_lng,fPax.dest_lat,fPax.dest_lng]);
     const tripId=tr.insertId;
     await buildStops(tripId,ordered,fPax);
@@ -235,7 +266,16 @@ router.post('/invitations/:id/decline',requireAuth,requireRole('driver'),async(r
   try{
     const[[inv]]=await db.query('SELECT * FROM pool_invitations WHERE id=? AND driver_id=?',[req.params.id,req.user.id]);
     if(!inv)return res.status(404).json({error:'Not found'});
+    const reason=req.body&&req.body.reason?req.body.reason:'';
     await db.query("UPDATE pool_invitations SET response='declined' WHERE id=?",[req.params.id]);
+    // Notify passengers of decline with optional reason
+    const[members]=await db.query("SELECT passenger_id FROM pool_requests WHERE pool_group_id=? AND status='pending'",[inv.group_id]);
+    const[[driver]]=await db.query('SELECT name FROM users WHERE id=?',[req.user.id]);
+    const msg=reason
+      ?`⚠️ Driver ${driver?.name||'A driver'} declined your Smart Pool (${reason}). Looking for another driver…`
+      :`⚠️ A driver couldn't take your Smart Pool. Looking for another driver…`;
+    for(const m of members) await notify(m.passenger_id,msg);
+    // Try to find another driver
     const[[group]]=await db.query('SELECT * FROM pool_groups WHERE id=?',[inv.group_id]);
     if(group&&group.status==='pending'){
       const[pending]=await db.query("SELECT id FROM pool_invitations WHERE group_id=? AND response='pending'",[inv.group_id]);

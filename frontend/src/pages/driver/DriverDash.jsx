@@ -22,6 +22,10 @@ export default function DriverDash() {
   const [poolInvitations,  setPoolInvitations]  = useState([]);
   const [poolLoading,      setPoolLoading]      = useState(false);
   const [poolChat,         setPoolChat]         = useState(null); // {tripId, messages}
+  const [fareEditor,       setFareEditor]       = useState(null); // {inv, suggested, custom}
+  const [declineModal,     setDeclineModal]     = useState(null); // {invId}
+  const [declineReason,    setDeclineReason]    = useState('');
+  const [fareLoading,      setFareLoading]      = useState(false);
   const [chatInput,        setChatInput]        = useState('');
   const [sendingChat,      setSendingChat]      = useState(false);
   const [editingStops,     setEditingStops]     = useState(null); // {tripId, stops}
@@ -37,21 +41,37 @@ export default function DriverDash() {
     finally { setPoolLoading(false); }
   }
 
-  async function handleAcceptPool(invId) {
+  async function openFareEditor(inv) {
+    setFareLoading(true);
     try {
-      const result = await api.acceptPoolInvitation(invId);
-      notify('Pool trip accepted!', `Trip #${result.tripId} created with ${result.stops?.filter(s=>s.type==='pickup').length} passengers.`);
+      const preview = await api.getPoolFarePreview(inv.id);
+      setFareEditor({ inv, suggested: preview.suggested_fare, custom: String(preview.suggested_fare), preview });
+    } catch(e) {
+      // fallback: use price_preview
+      setFareEditor({ inv, suggested: inv.price_preview||0, custom: String(inv.price_preview||0), preview: null });
+    } finally { setFareLoading(false); }
+  }
+
+  async function handleAcceptPool(invId, farePerPassenger) {
+    try {
+      const body = farePerPassenger ? { fare_per_passenger: parseFloat(farePerPassenger) } : {};
+      const result = await api.acceptPoolInvitation(invId, body);
+      notify('Pool trip accepted!', `Trip #${result.tripId} created with ${result.member_count} passengers.`);
+      setFareEditor(null);
       loadPoolInvitations(); loadTrips();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
   async function handleDeclinePool(invId) {
     try {
-      await api.declinePoolInvitation(invId);
-      notify('Declined', 'Pool invitation declined.');
+      await api.declinePoolInvitation(invId, { reason: declineReason });
+      notify('Declined', declineReason ? `Reason: ${declineReason}` : 'Pool invitation declined.');
+      setDeclineModal(null); setDeclineReason('');
       loadPoolInvitations();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
+
+
 
   async function openPoolChat(tripId) {
     try {
@@ -535,11 +555,11 @@ export default function DriverDash() {
                 {/* Action buttons */}
                 {inv.response === 'pending' && (
                   <div style={{ display:'flex', gap:10 }}>
-                    <button onClick={() => handleAcceptPool(inv.id)}
-                      style={{ flex:2, background:'linear-gradient(135deg,#1d4ed8,#3b82f6)', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", boxShadow:'0 4px 14px rgba(59,130,246,0.35)' }}>
-                      ✅ Accept Trip
+                    <button onClick={() => openFareEditor(inv)} disabled={fareLoading}
+                      style={{ flex:2, background:'linear-gradient(135deg,#1d4ed8,#3b82f6)', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", boxShadow:'0 4px 14px rgba(59,130,246,0.35)', opacity: fareLoading?0.7:1 }}>
+                      {fareLoading ? '⏳ Loading…' : '✅ Set Fare & Accept'}
                     </button>
-                    <button onClick={() => handleDeclinePool(inv.id)}
+                    <button onClick={() => { setDeclineModal({invId: inv.id}); setDeclineReason(''); }}
                       style={{ flex:1, background:'transparent', color:'#f87171', border:'1px solid rgba(248,113,113,0.3)', borderRadius:12, padding:'14px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
                       ✕ Decline
                     </button>
@@ -566,6 +586,135 @@ export default function DriverDash() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ── FARE EDITOR MODAL ── */}
+        {fareEditor && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.92)', zIndex:500, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+            <div style={{ background:'#0d1117', borderRadius:'24px 24px 0 0', padding:'28px 20px 44px', maxHeight:'88vh', overflowY:'auto', border:'1px solid rgba(96,165,250,0.2)' }}>
+              {/* Header */}
+              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:24 }}>
+                <div style={{ width:44, height:44, borderRadius:14, background:'linear-gradient(135deg,#1d4ed8,#3b82f6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0 }}>💰</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:19, fontWeight:800, color:'#fff', fontFamily:"'Sora',sans-serif" }}>Set Fare Per Passenger</div>
+                  <div style={{ fontSize:12, color:'#60a5fa', marginTop:2 }}>You can use the suggested price or set your own</div>
+                </div>
+                <button onClick={() => setFareEditor(null)} style={{ background:'rgba(255,255,255,0.06)', border:'none', color:'#888', fontSize:18, cursor:'pointer', width:32, height:32, borderRadius:8 }}>✕</button>
+              </div>
+
+              {/* Route summary */}
+              <div style={{ background:'rgba(30,58,95,0.3)', borderRadius:14, padding:'14px 16px', marginBottom:20, border:'1px solid rgba(96,165,250,0.1)' }}>
+                <div style={{ fontSize:11, color:'#4b7ab5', marginBottom:8, textTransform:'uppercase', letterSpacing:'.08em' }}>Trip</div>
+                <div style={{ fontSize:14, fontWeight:700, color:'#fff' }}>→ {fareEditor.inv.dest_label || 'Destination'}</div>
+                <div style={{ fontSize:12, color:'#555', marginTop:4 }}>{fareEditor.inv.desired_date} · {fareEditor.inv.desired_time} · {fareEditor.inv.members?.length||0} passenger{fareEditor.inv.members?.length!==1?'s':''}</div>
+                {fareEditor.preview?.route_km && (
+                  <div style={{ fontSize:12, color:'#4b7ab5', marginTop:4 }}>📍 ~{fareEditor.preview.route_km} km route</div>
+                )}
+              </div>
+
+              {/* Suggested fare */}
+              <div style={{ background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:14, padding:'16px', marginBottom:20 }}>
+                <div style={{ fontSize:11, color:'#fbbf24', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Suggested Fare</div>
+                <div style={{ fontSize:28, fontWeight:800, color:'#fbbf24', fontFamily:"'Sora',sans-serif" }}>{fareEditor.suggested} <span style={{ fontSize:14, fontWeight:400 }}>EGP / passenger</span></div>
+                {fareEditor.preview && (
+                  <div style={{ fontSize:12, color:'#a16207', marginTop:6 }}>
+                    Based on {fareEditor.preview.price_per_km} EGP/km · min {fareEditor.preview.min_fare} EGP · {fareEditor.inv.members?.length||1} passengers
+                  </div>
+                )}
+              </div>
+
+              {/* Custom fare input */}
+              <div style={{ marginBottom:20 }}>
+                <label style={{ fontSize:12, color:'#4b7ab5', display:'block', marginBottom:8, textTransform:'uppercase', letterSpacing:'.06em', fontFamily:"'Sora',sans-serif" }}>Your Fare (EGP per passenger)</label>
+                <div style={{ position:'relative' }}>
+                  <input
+                    type="number" min="1" step="0.5"
+                    value={fareEditor.custom}
+                    onChange={e => setFareEditor(prev => ({...prev, custom: e.target.value}))}
+                    style={{ width:'100%', boxSizing:'border-box', background:'#111', border:'2px solid rgba(96,165,250,0.3)', borderRadius:12, padding:'16px 60px 16px 16px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:22, fontWeight:700, outline:'none' }}
+                  />
+                  <span style={{ position:'absolute', right:16, top:'50%', transform:'translateY(-50%)', fontSize:14, color:'#4b7ab5', fontWeight:600 }}>EGP</span>
+                </div>
+                {fareEditor.custom && parseFloat(fareEditor.custom) > 0 && fareEditor.inv.members?.length > 0 && (
+                  <div style={{ fontSize:13, color:'#4ade80', marginTop:8, fontWeight:600 }}>
+                    💰 Total earnings: {(parseFloat(fareEditor.custom) * fareEditor.inv.members.reduce((s,m)=>s+(m.seats||1),0)).toFixed(0)} EGP
+                  </div>
+                )}
+                {/* Quick presets */}
+                <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                  {[Math.round(fareEditor.suggested*0.8), fareEditor.suggested, Math.round(fareEditor.suggested*1.2), Math.round(fareEditor.suggested*1.5)].map(p=>(
+                    <button key={p} onClick={() => setFareEditor(prev=>({...prev, custom: String(p)}))}
+                      style={{ flex:1, background: String(p)===fareEditor.custom?'rgba(96,165,250,0.2)':'#111', border:`1px solid ${String(p)===fareEditor.custom?'#3b82f6':'#1a1a1a'}`, borderRadius:10, padding:'8px 4px', color: String(p)===fareEditor.custom?'#60a5fa':'#555', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'#333', marginTop:4, paddingLeft:2 }}>
+                  <span>-20%</span><span>Suggested</span><span>+20%</span><span>+50%</span>
+                </div>
+              </div>
+
+              {/* Per-passenger breakdown */}
+              {fareEditor.preview?.per_passenger && (
+                <div style={{ background:'rgba(30,58,95,0.2)', borderRadius:12, padding:'12px 14px', marginBottom:20, border:'1px solid rgba(96,165,250,0.08)' }}>
+                  <div style={{ fontSize:11, color:'#4b7ab5', marginBottom:10, textTransform:'uppercase', letterSpacing:'.08em' }}>Per passenger breakdown</div>
+                  {fareEditor.preview.per_passenger.map((p,i) => (
+                    <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderTop: i>0?'1px solid rgba(96,165,250,0.07)':'none' }}>
+                      <div>
+                        <div style={{ fontSize:13, color:'#fff', fontWeight:600 }}>{p.name}</div>
+                        <div style={{ fontSize:11, color:'#4b7ab5' }}>{p.origin} → {p.dest}</div>
+                      </div>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#fbbf24' }}>
+                        {fareEditor.custom && parseFloat(fareEditor.custom)>0 ? parseFloat(fareEditor.custom).toFixed(0) : p.suggested_fare} EGP
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => handleAcceptPool(fareEditor.inv.id, fareEditor.custom)}
+                disabled={!fareEditor.custom || parseFloat(fareEditor.custom) <= 0}
+                style={{ width:'100%', background: fareEditor.custom&&parseFloat(fareEditor.custom)>0?'linear-gradient(135deg,#1d4ed8,#3b82f6)':'#1a1a1a', color: fareEditor.custom&&parseFloat(fareEditor.custom)>0?'#fff':'#333', border:'none', borderRadius:14, padding:'16px', fontSize:15, fontWeight:700, cursor: fareEditor.custom&&parseFloat(fareEditor.custom)>0?'pointer':'default', fontFamily:"'Sora',sans-serif", boxShadow: fareEditor.custom&&parseFloat(fareEditor.custom)>0?'0 6px 20px rgba(59,130,246,0.35)':'none' }}>
+                ✅ Accept & Confirm {fareEditor.custom ? `— ${fareEditor.custom} EGP/passenger` : ''}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── DECLINE REASON MODAL ── */}
+        {declineModal && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:500, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+            <div style={{ background:'#0d1117', borderRadius:'24px 24px 0 0', padding:'28px 20px 44px', border:'1px solid rgba(248,113,113,0.2)' }}>
+              <div style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:6, fontFamily:"'Sora',sans-serif" }}>Decline this trip?</div>
+              <div style={{ fontSize:13, color:'#555', marginBottom:20 }}>Passengers will be notified and we'll find another driver.</div>
+
+              <label style={{ fontSize:12, color:'#4b7ab5', display:'block', marginBottom:8, textTransform:'uppercase', letterSpacing:'.06em' }}>Reason (optional)</label>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:12 }}>
+                {['Too far','Wrong direction','Already on a trip','Vehicle issue','Other'].map(r=>(
+                  <button key={r} onClick={() => setDeclineReason(r)}
+                    style={{ background: declineReason===r?'rgba(248,113,113,0.15)':'#111', border:`1px solid ${declineReason===r?'rgba(248,113,113,0.5)':'#222'}`, borderRadius:20, padding:'7px 14px', color: declineReason===r?'#f87171':'#555', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <input value={declineReason} onChange={e=>setDeclineReason(e.target.value)}
+                placeholder="Or type your own reason…"
+                style={{ width:'100%', boxSizing:'border-box', background:'#111', border:'1px solid #222', borderRadius:12, padding:'12px 14px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', marginBottom:20 }}
+              />
+
+              <div style={{ display:'flex', gap:10 }}>
+                <button onClick={() => { setDeclineModal(null); setDeclineReason(''); }}
+                  style={{ flex:1, background:'transparent', border:'1px solid #333', borderRadius:12, padding:'14px', color:'#888', fontSize:13, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                  Cancel
+                </button>
+                <button onClick={() => handleDeclinePool(declineModal.invId)}
+                  style={{ flex:2, background:'rgba(248,113,113,0.15)', border:'1px solid rgba(248,113,113,0.4)', borderRadius:12, padding:'14px', color:'#f87171', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                  ✕ Confirm Decline
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
