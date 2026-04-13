@@ -74,6 +74,49 @@ async function verifyMember(tripId,userId){
 
 // ── PASSENGER ──────────────────────────────────────────────────
 
+
+// ── PUBLIC DEBUG (no auth needed) ─────────────────────
+router.get('/debug', async(req,res)=>{
+  try{
+    const[requests]=await db.query(`
+      SELECT pr.id, pr.passenger_id, u.name as user_name,
+             pr.status, pr.desired_date, pr.desired_time,
+             ROUND(pr.origin_lat,4) as olat, ROUND(pr.origin_lng,4) as olng,
+             pr.origin_label,
+             ROUND(pr.dest_lat,4) as dlat, ROUND(pr.dest_lng,4) as dlng,
+             pr.dest_label, pr.pool_group_id, pr.seats
+      FROM pool_requests pr
+      JOIN users u ON u.id=pr.passenger_id
+      ORDER BY pr.created_at DESC LIMIT 20
+    `);
+    const[groups]=await db.query('SELECT * FROM pool_groups ORDER BY created_at DESC LIMIT 10');
+    let analysis=null;
+    if(requests.length>=2){
+      const a=requests[0],b=requests[1];
+      function hav(la1,ln1,la2,ln2){const R=6371000;const x=Math.sin((la2-la1)*Math.PI/360)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin((ln2-ln1)*Math.PI/360)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+      function toMin(t){const[h,m]=(t||'00:00').split(':').map(Number);return h*60+m;}
+      const od=Math.round(hav(+a.olat,+a.olng,+b.olat,+b.olng));
+      const dd=Math.round(hav(+a.dlat,+a.dlng,+b.dlat,+b.dlng));
+      const td=Math.abs(toMin(a.desired_time)-toMin(b.desired_time));
+      const aDate=a.desired_date instanceof Date?a.desired_date.toISOString().slice(0,10):String(a.desired_date).slice(0,10);
+      const bDate=b.desired_date instanceof Date?b.desired_date.toISOString().slice(0,10):String(b.desired_date).slice(0,10);
+      analysis={
+        request_A:{id:a.id,user:a.user_name,pid:a.passenger_id,date:aDate,time:a.desired_time,from:a.origin_label,to:a.dest_label},
+        request_B:{id:b.id,user:b.user_name,pid:b.passenger_id,date:bDate,time:b.desired_time,from:b.origin_label,to:b.dest_label},
+        WHY_NOT_MATCHING:{
+          same_user: a.passenger_id===b.passenger_id,
+          same_date: aDate===bDate,
+          origin_dist_m: od+' (need <=15000)',
+          dest_dist_m: dd+' (need <=10000)',
+          time_diff_min: td+' (need <=30)',
+          WOULD_MATCH: a.passenger_id!==b.passenger_id && aDate===bDate && od<=15000 && dd<=10000 && td<=30
+        }
+      };
+    }
+    res.json({total_requests:requests.length,requests,groups,analysis});
+  }catch(e){res.status(500).json({error:e.message,stack:e.stack});}
+});
+
 router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
   const{origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats}=req.body;
   if(!origin_lat||!origin_lng||!dest_lat||!dest_lng||!desired_time||!desired_date)return res.status(400).json({error:'Missing fields'});
@@ -296,48 +339,6 @@ router.post('/expire-groups',async(req,res)=>{
     }
     res.json({expired:exp.length});
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
-});
-
-
-// ── DEBUG (remove after testing) ──────────────────────────────
-router.get('/debug',async(req,res)=>{
-  try{
-    const[requests]=await db.query(`
-      SELECT pr.id, pr.passenger_id, u.name, pr.status, pr.desired_date, pr.desired_time,
-             pr.origin_lat, pr.origin_lng, pr.origin_label,
-             pr.dest_lat, pr.dest_lng, pr.dest_label,
-             pr.pool_group_id, pr.seats, pr.created_at
-      FROM pool_requests pr
-      JOIN users u ON u.id=pr.passenger_id
-      ORDER BY pr.created_at DESC
-      LIMIT 20
-    `);
-    const[groups]=await db.query(`SELECT * FROM pool_groups ORDER BY created_at DESC LIMIT 10`);
-    
-    // Also show why last two requests didn't match
-    let matchAnalysis=[];
-    if(requests.length>=2){
-      const a=requests[0], b=requests[1];
-      const od=haversine(+a.origin_lat,+a.origin_lng,+b.origin_lat,+b.origin_lng);
-      const dd=haversine(+a.dest_lat,+a.dest_lng,+b.dest_lat,+b.dest_lng);
-      const timeDiff=Math.abs((a.desired_time||'00:00').split(':').reduce((h,m,i)=>h+(i===0?+m*60:+m),0) - (b.desired_time||'00:00').split(':').reduce((h,m,i)=>h+(i===0?+m*60:+m),0));
-      const sameUser=a.passenger_id===b.passenger_id;
-      const sameDate=a.desired_date?.toISOString?.().slice(0,10)===b.desired_date?.toISOString?.().slice(0,10) || String(a.desired_date)===String(b.desired_date);
-      matchAnalysis={
-        request_1:{id:a.id,user:a.name,passenger_id:a.passenger_id,date:a.desired_date,time:a.desired_time,origin:a.origin_label,dest:a.dest_label},
-        request_2:{id:b.id,user:b.name,passenger_id:b.passenger_id,date:b.desired_date,time:b.desired_time,origin:b.origin_label,dest:b.dest_label},
-        checks:{
-          same_user_FAIL: sameUser,
-          same_date: sameDate,
-          origin_distance_m: Math.round(od)+' (must be <=15000)',
-          dest_distance_m: Math.round(dd)+' (must be <=10000)',
-          time_diff_minutes: Math.round(timeDiff)+' (must be <=30)',
-          WOULD_MATCH: !sameUser && sameDate && od<=15000 && dd<=10000 && timeDiff<=30
-        }
-      };
-    }
-    res.json({requests, groups, matchAnalysis});
-  }catch(e){res.status(500).json({error:e.message});}
 });
 
 module.exports=router;
