@@ -31,7 +31,7 @@ router.get('/mine', requireAuth, async (req, res) => {
 router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
   const { trip_id, seats, pickup_note } = req.body;
   if (!trip_id || !seats) return res.status(400).json({ error: 'trip_id and seats required' });
-  if (seats < 1 || seats > 3) return res.status(400).json({ error: 'You can reserve 1–3 seats' });
+  if (seats < 1 || seats > 16) return res.status(400).json({ error: 'Invalid seat count' });
 
   try {
     // Trip must be upcoming or active

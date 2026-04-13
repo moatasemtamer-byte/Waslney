@@ -475,13 +475,13 @@ export default function PassengerDash() {
               <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:24, padding:'12px 0' }}>
                 <button onClick={()=>setSeats(s=>Math.max(1,s-1))} style={{ width:44,height:44,borderRadius:22,border:'1px solid #333',background:'transparent',color:'#fff',fontSize:20,cursor:'pointer' }}>−</button>
                 <span style={{ fontSize:32, fontWeight:800, color:'#fff', minWidth:40, textAlign:'center' }}>{seats}</span>
-                <button onClick={()=>setSeats(s=>Math.min(3,Math.min(selTrip.total_seats-selTrip.booked_seats,s+1)))} style={{ width:44,height:44,borderRadius:22,border:'1px solid #333',background:'transparent',color:'#fff',fontSize:20,cursor:'pointer' }}>+</button>
+                <button onClick={()=>setSeats(s=>Math.min(selTrip.total_seats,s+1))} style={{ width:44,height:44,borderRadius:22,border:'1px solid #333',background:'transparent',color:'#fff',fontSize:20,cursor:'pointer' }}>+</button>
               </div>
-              <p style={{ fontSize:11, color:'#555', textAlign:'center' }}>{selTrip.total_seats-selTrip.booked_seats} seats available · max 3</p>
+              <p style={{ fontSize:11, color:'#555', textAlign:'center' }}>{selTrip.total_seats} total seats · max per booking: {selTrip.total_seats}</p>
             </div>
-            <button onClick={confirmBook} disabled={booking||selTrip.total_seats<=selTrip.booked_seats}
+            <button onClick={confirmBook} disabled={booking}
               style={{ ...btnPrimary, opacity:(booking||selTrip.total_seats<=selTrip.booked_seats)?.4:1 }}>
-              {booking?'Booking…':selTrip.total_seats<=selTrip.booked_seats?'Trip is full':`Confirm — ${seats * selTrip.price} EGP`}
+              {booking?'Booking…':`Confirm — ${seats * selTrip.price} EGP`}
             </button>
           </div>
         )}
