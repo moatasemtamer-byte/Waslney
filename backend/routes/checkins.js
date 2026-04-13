@@ -8,10 +8,19 @@ router.post('/stop-arrived', requireAuth, requireRole('driver'), async (req, res
   if (trip_id == null || stop_index == null)
     return res.status(400).json({ error: 'trip_id and stop_index required' });
   try {
-    // Safe migration: ensure arrived column exists
+    // Ensure arrived column exists (migration may not have run yet)
     try {
-      await db.query('ALTER TABLE trip_stops ADD COLUMN IF NOT EXISTS arrived TINYINT(1) DEFAULT 0');
-    } catch (_) {}
+      const [cols] = await db.query("SHOW COLUMNS FROM trip_stops LIKE 'arrived'");
+      if (cols.length === 0) {
+        await db.query('ALTER TABLE trip_stops ADD COLUMN arrived TINYINT(1) NOT NULL DEFAULT 0');
+        console.log('Added arrived column to trip_stops');
+      }
+    } catch (migErr) {
+      console.warn('Could not check/add arrived column:', migErr.message);
+    }
+
+    // Small delay to ensure column is committed before update
+    await new Promise(r => setTimeout(r, 100));
 
     await db.query(
       'UPDATE trip_stops SET arrived=1 WHERE trip_id=? AND stop_order=?',

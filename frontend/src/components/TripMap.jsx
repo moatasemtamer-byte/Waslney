@@ -35,10 +35,21 @@ export function haversineDistance(lat1, lng1, lat2, lng2) {
 }
 
 function estimateTime(meters) {
-  const minutes = Math.round((meters / 1000) / 30 * 60);
+  // Realistic Cairo city traffic speed estimates by distance:
+  // < 1km  → very short, heavy traffic ~15 km/h
+  // 1-5km  → city streets ~25 km/h
+  // 5-15km → mixed roads ~35 km/h
+  // > 15km → highways possible ~50 km/h
+  let kmh;
+  if      (meters < 1000)  kmh = 15;
+  else if (meters < 5000)  kmh = 25;
+  else if (meters < 15000) kmh = 35;
+  else                     kmh = 50;
+
+  const minutes = Math.round((meters / 1000) / kmh * 60);
   if (minutes < 1) return '< 1 min';
   if (minutes < 60) return `${minutes} min`;
-  return `${Math.floor(minutes/60)}h ${minutes%60}m`;
+  return `${Math.floor(minutes/60)}h ${minutes % 60 > 0 ? ' ' + (minutes%60) + 'm' : ''}`.trim();
 }
 
 function formatDist(meters) {
