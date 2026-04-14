@@ -582,22 +582,47 @@ export default function DriverDash() {
                   </div>
                 )}
 
-                {/* Accepted: show chat + edit stops */}
+                {/* Accepted: show manage trip + chat + edit stops */}
                 {inv.response === 'accepted' && inv.group_trip_id && (
-                  <div style={{ display:'flex', gap:10, marginTop:4 }}>
-                    <button onClick={() => openPoolChat(inv.group_trip_id || inv.trip_id)}
-                      style={{ flex:1, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'11px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
-                      💬 Group Chat
-                    </button>
+                  <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:4 }}>
                     <button onClick={async () => {
                         try {
-                          const tripDetail = await api.getTrip(inv.group_trip_id);
-                          setEditingStops({ tripId: inv.group_trip_id, stops: tripDetail.stops || [] });
+                          const td = await api.getTrip(inv.group_trip_id);
+                          setSelTrip({
+                            id: inv.group_trip_id,
+                            from_loc: td.from_loc,
+                            to_loc: td.to_loc,
+                            status: td.status,
+                            date: td.date,
+                            pickup_time: td.pickup_time,
+                            pickup_lat: td.pickup_lat,
+                            pickup_lng: td.pickup_lng,
+                            dropoff_lat: td.dropoff_lat,
+                            dropoff_lng: td.dropoff_lng,
+                            stops: td.stops || [],
+                          });
+                          setTripDetail(td);
+                          setTab('trips');
                         } catch(e) { notify('Error', e.message, 'error'); }
                       }}
-                      style={{ flex:1, background:'rgba(251,191,36,0.1)', border:'1px solid #fbbf2444', borderRadius:10, padding:'11px', fontSize:13, fontWeight:600, color:'#fbbf24', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
-                      📍 Edit Stops
+                      style={{ width:'100%', background:'linear-gradient(135deg,#fbbf24,#f59e0b)', color:'#000', border:'none', borderRadius:10, padding:'13px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", boxShadow:'0 4px 14px rgba(251,191,36,0.3)' }}>
+                      🚐 Manage Trip
                     </button>
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button onClick={() => openPoolChat(inv.group_trip_id || inv.trip_id)}
+                        style={{ flex:1, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'11px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                        💬 Group Chat
+                      </button>
+                      <button onClick={async () => {
+                          try {
+                            const tripDetail = await api.getTrip(inv.group_trip_id);
+                            setEditingStops({ tripId: inv.group_trip_id, stops: tripDetail.stops || [] });
+                          } catch(e) { notify('Error', e.message, 'error'); }
+                        }}
+                        style={{ flex:1, background:'rgba(251,191,36,0.1)', border:'1px solid #fbbf2444', borderRadius:10, padding:'11px', fontSize:13, fontWeight:600, color:'#fbbf24', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                        📍 Edit Stops
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -740,8 +765,14 @@ export default function DriverDash() {
             <div style={{ background:'#0d1117', borderBottom:'1px solid #1e3a5f', padding:'16px 20px', display:'flex', alignItems:'center' }}>
               <button onClick={() => { setPoolChat(null); setPoolChatStops([]); }} style={{ background:'transparent', border:'none', color:'#fff', fontSize:22, cursor:'pointer', marginRight:12 }}>←</button>
               <div>
-                <div style={{ fontSize:15, fontWeight:700, color:'#fff' }}>Pool Trip Chat</div>
-                <div style={{ fontSize:11, color:'#4b7ab5' }}>Trip #{poolChat.tripId} · You are the <strong style={{color:'#fbbf24'}}>Driver</strong></div>
+                <div style={{ fontSize:15, fontWeight:700, color:'#fff' }}>
+                  {(() => {
+                    const pu = poolChatStops.find(s => s.type === 'pickup');
+                    const dr = poolChatStops.find(s => s.type === 'dropoff');
+                    return (pu?.label && dr?.label) ? `${pu.label} → ${dr.label}` : 'Pool Trip Chat';
+                  })()}
+                </div>
+                <div style={{ fontSize:11, color:'#4b7ab5' }}>Pool Ride · You are the <strong style={{color:'#fbbf24'}}>Driver</strong></div>
               </div>
             </div>
             {/* Leaflet map showing all pickup/dropoff stops + live driver location */}
@@ -770,8 +801,9 @@ export default function DriverDash() {
                 const isDriver = m.sender_role === 'driver';
                 return (
                   <div key={i} style={{ display:'flex', flexDirection:'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
-                    <div style={{ fontSize:11, color:'#444', marginBottom:3 }}>
-                      {isDriver ? `🚗 ${m.sender_name} (Driver)` : m.sender_name}
+                    <div style={{ fontSize:13, fontWeight:700, color: isDriver ? '#fbbf24' : '#60a5fa', marginBottom:4, letterSpacing:'.01em' }}>
+                      {isDriver ? `🚗 ${m.sender_name}` : `👤 ${m.sender_name}`}
+                      <span style={{ fontSize:10, fontWeight:400, color:'#555', marginLeft:6 }}>{isDriver ? 'Driver' : 'Passenger'}</span>
                     </div>
                     <div style={{ background: isMe ? '#fbbf24' : '#111', color: isMe ? '#000' : '#fff', borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px', padding:'10px 14px', maxWidth:'75%', fontSize:13, lineHeight:1.5 }}>
                       {m.message}

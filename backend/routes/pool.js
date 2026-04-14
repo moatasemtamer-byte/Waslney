@@ -77,15 +77,16 @@ async function buildStops(tripId,ordered,farthest){
   } catch(_) {}
 
   for(const p of ordered){
+    const pickupLabel = p.origin_label || `Pickup ${o + 1}`;
     if (hasExtraCols) {
       await db.query(
         `INSERT INTO trip_stops(trip_id,type,label,lat,lng,stop_order,passenger_id,pool_request_id)VALUES(?,?,?,?,?,?,?,?)`,
-        [tripId,'pickup',p.origin_label||p.passenger_name+' pickup',p.origin_lat,p.origin_lng,o++,p.passenger_id,p.id]
+        [tripId,'pickup',pickupLabel,p.origin_lat,p.origin_lng,o++,p.passenger_id,p.id]
       );
     } else {
       await db.query(
         `INSERT INTO trip_stops(trip_id,type,label,lat,lng,stop_order)VALUES(?,?,?,?,?,?)`,
-        [tripId,'pickup',p.origin_label||p.passenger_name+' pickup',p.origin_lat,p.origin_lng,o++]
+        [tripId,'pickup',pickupLabel,p.origin_lat,p.origin_lng,o++]
       );
     }
   }
