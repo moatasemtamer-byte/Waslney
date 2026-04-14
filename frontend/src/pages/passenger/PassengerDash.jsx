@@ -462,6 +462,25 @@ export default function PassengerDash(){
                   </div>
                 </div>
               )}
+              {/* Confirmed pool trip — show chat button prominently */}
+              {myPoolRequests.find(r=>r.group_trip_id&&r.group_status==='confirmed')&&(()=>{
+                const confirmed=myPoolRequests.find(r=>r.group_trip_id&&r.group_status==='confirmed');
+                return(
+                  <div style={{background:'linear-gradient(135deg,#0a1628,#0f2347)',border:'2px solid rgba(59,130,246,0.5)',borderRadius:20,padding:'16px 20px',marginBottom:16,boxShadow:'0 4px 24px rgba(59,130,246,0.15)'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                      <div style={{width:42,height:42,borderRadius:12,background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0,boxShadow:'0 4px 12px rgba(59,130,246,0.4)'}}>💬</div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:14,fontWeight:800,color:'#fff',fontFamily:"'Sora',sans-serif"}}>Smart Pool — Driver assigned! 🎉</div>
+                        <div style={{fontSize:12,color:'#60a5fa',marginTop:1}}>{confirmed.origin_label} → {confirmed.dest_label}</div>
+                      </div>
+                    </div>
+                    <button onClick={()=>openPoolChat(confirmed.group_trip_id)}
+                      style={{width:'100%',background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',border:'none',borderRadius:12,padding:'13px',color:'#fff',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif",boxShadow:'0 4px 14px rgba(59,130,246,0.35)'}}>
+                      💬 Open Group Chat
+                    </button>
+                  </div>
+                );
+              })()}
               <SmartPoolBanner onClick={openSmartPool}/>
             </div>
 
@@ -773,6 +792,40 @@ export default function PassengerDash(){
         {tab==='activity'&&!selBooking&&(
           <div style={{paddingTop:24}}>
             <h2 style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:20}}>Your trips</h2>
+
+            {/* ── SMART POOL REQUESTS (always at top) ── */}
+            {myPoolRequests.length>0&&(
+              <>
+                <p style={{fontSize:11,color:'#4b7ab5',letterSpacing:'.1em',textTransform:'uppercase',marginBottom:12}}>🚀 Smart Pool</p>
+                {myPoolRequests.map(r=>(
+                  <div key={r.id} style={{background:'#0d1117',borderRadius:16,padding:'16px 20px',marginBottom:10,border:`1px solid ${r.status==='confirmed'?'rgba(74,222,128,0.3)':r.status==='cancelled'?'rgba(248,113,113,0.2)':'rgba(96,165,250,0.2)'}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                      <span style={{fontSize:12,fontWeight:700,padding:'3px 10px',borderRadius:20,color:r.status==='confirmed'?'#4ade80':r.status==='cancelled'?'#f87171':'#60a5fa',background:r.status==='confirmed'?'rgba(74,222,128,0.1)':r.status==='cancelled'?'rgba(248,113,113,0.1)':'rgba(96,165,250,0.1)'}}>
+                        {r.status==='confirmed'?'✅ Confirmed':r.status==='cancelled'?'❌ Cancelled':'⏳ Pending'}
+                      </span>
+                      <span style={{fontSize:11,color:'#555'}}>{r.desired_date?.slice?.(0,10)||r.desired_date} · {r.desired_time}</span>
+                    </div>
+                    <div style={{fontSize:14,fontWeight:700,color:'#fff',marginBottom:4}}>{r.origin_label||'Your location'} → {r.dest_label||'Destination'}</div>
+                    <div style={{fontSize:12,color:'#4b7ab5',marginBottom:r.group_trip_id||r.pool_group_id?8:0}}>
+                      {r.seats} seat{r.seats>1?'s':''} · {r.group_size>0?`${r.group_size} passenger${r.group_size!==1?'s':''} in group`:'Waiting for match'}
+                    </div>
+                    {r.group_trip_id&&r.group_status==='confirmed'&&(
+                      <button onClick={()=>openPoolChat(r.group_trip_id)}
+                        style={{background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',border:'none',borderRadius:10,padding:'10px 16px',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif",width:'100%',marginTop:4}}>
+                        💬 Open Group Chat
+                      </button>
+                    )}
+                    {r.pool_group_id&&!r.group_trip_id&&r.status==='pending'&&(
+                      <div style={{fontSize:12,color:'rgba(96,165,250,0.5)',textAlign:'center',padding:'6px 0',background:'rgba(96,165,250,0.05)',borderRadius:8}}>
+                        ⏳ Waiting for a driver to accept…
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {(activeBookings.length>0||historyBookings.length>0)&&<div style={{height:8}}/>}
+              </>
+            )}
+
             {activeBookings.length>0&&(
               <>
                 <p style={{fontSize:11,color:'#555',letterSpacing:'.1em',textTransform:'uppercase',marginBottom:12}}>Active</p>
@@ -817,36 +870,7 @@ export default function PassengerDash(){
                 ))}
               </>
             )}
-            {/* Pool Requests */}
-            {myPoolRequests.length>0&&(
-              <>
-                <p style={{fontSize:11,color:'#4b7ab5',letterSpacing:'.1em',textTransform:'uppercase',marginBottom:12,marginTop:28}}>🚀 Smart Pool Requests</p>
-                {myPoolRequests.map(r=>(
-                  <div key={r.id} style={{background:'#0d1117',borderRadius:16,padding:'16px 20px',marginBottom:10,border:'1px solid rgba(96,165,250,0.15)'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                      <span style={{fontSize:12,fontWeight:700,padding:'3px 10px',borderRadius:20,color:r.status==='confirmed'?'#4ade80':r.status==='cancelled'?'#f87171':'#60a5fa',background:r.status==='confirmed'?'rgba(74,222,128,0.1)':r.status==='cancelled'?'rgba(248,113,113,0.1)':'rgba(96,165,250,0.1)'}}>
-                        {r.status==='confirmed'?'✅ Confirmed':r.status==='cancelled'?'❌ Cancelled':'⏳ Pending'}
-                      </span>
-                      <span style={{fontSize:11,color:'#555'}}>{r.desired_date} · {r.desired_time}</span>
-                    </div>
-                    <div style={{fontSize:14,fontWeight:600,color:'#fff',marginBottom:4}}>{r.origin_label||'Your location'} → {r.dest_label||'Destination'}</div>
-                    <div style={{fontSize:12,color:'#4b7ab5'}}>{r.seats} seat{r.seats>1?'s':''} · {r.group_size>0?`${r.group_size} passenger${r.group_size!==1?'s':''} in group`:'Waiting for match'}</div>
-                    {/* Chat only available after driver accepts (group_trip_id set) */}
-                    {r.group_trip_id&&r.group_status==='confirmed'&&(
-                      <button onClick={()=>openPoolChat(r.group_trip_id)}
-                        style={{marginTop:10,background:'rgba(29,78,216,0.15)',border:'1px solid rgba(96,165,250,0.2)',borderRadius:8,padding:'7px 14px',color:'#60a5fa',fontSize:12,cursor:'pointer',fontFamily:"'Sora',sans-serif",width:'100%'}}>
-                        💬 Open Group Chat
-                      </button>
-                    )}
-                    {r.pool_group_id&&!r.group_trip_id&&r.status==='pending'&&(
-                      <div style={{marginTop:8,fontSize:12,color:'rgba(96,165,250,0.5)',textAlign:'center',padding:'6px 0'}}>
-                        ⏳ Waiting for a driver to accept…
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
+
             {!loadingB&&myBookings.length===0&&myPoolRequests.length===0&&(
               <div style={{textAlign:'center',paddingTop:60}}>
                 <div style={{fontSize:48,marginBottom:16}}>🎫</div>
