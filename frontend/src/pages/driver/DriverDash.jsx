@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-import { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed } from '../../socket.js';
+// proposeFare, respondToFare added to api.js
+import { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareProposed } from '../../socket.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import TripMap from '../../components/TripMap.jsx';
 
@@ -24,6 +25,7 @@ export default function DriverDash() {
   const [poolChat,         setPoolChat]         = useState(null); // {tripId, messages}
   const [poolChatStops,    setPoolChatStops]    = useState([]); // stops for map in chat
   const [fareEditor,       setFareEditor]       = useState(null); // {inv, suggested, custom}
+  const [fareProposing,    setFareProposing]    = useState(null); // {tripId, bookings, value}
   const [declineModal,     setDeclineModal]     = useState(null); // {invId}
   const [declineReason,    setDeclineReason]    = useState('');
   const [fareLoading,      setFareLoading]      = useState(false);
@@ -84,6 +86,19 @@ export default function DriverDash() {
   }
 
 
+
+  async function handleProposeFare(tripId, fareValue) {
+    try {
+      // Call backend
+      const result = await api.proposeFare(tripId, fareValue);
+      // Get passenger ids from bookings
+      const passengerIds = (tripDetail?.bookings || []).map(b => b.passenger_id).filter(Boolean);
+      // Emit socket so passengers get instant notification
+      emitFareProposed(tripId, fareValue, user.name, passengerIds);
+      notify('Fare proposed!', `${fareValue} EGP sent to ${result.notified} passengers.`);
+      setFareProposing(null);
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
 
   async function openPoolChat(tripId) {
     try {
@@ -257,14 +272,25 @@ export default function DriverDash() {
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4, flexWrap:'wrap' }}>
               <h2 style={{ fontSize:20, fontWeight:400, margin:0 }}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
               {selTrip.is_pool ? <span style={{ fontSize:12, fontWeight:700, color:'#fbbf24', background:'rgba(251,191,36,0.12)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:'3px 10px' }}>🚗 Pool Ride</span> : null}
+              {selTrip.status==='active' && <span style={{ fontSize:12, fontWeight:700, color:'#4ade80', background:'rgba(74,222,128,0.1)', border:'1px solid rgba(74,222,128,0.3)', borderRadius:20, padding:'3px 10px', display:'flex', alignItems:'center', gap:5 }}><span style={{ width:7, height:7, borderRadius:'50%', background:'#4ade80', display:'inline-block', animation:'poolPulse 1.5s infinite' }}/>Active</span>}
             </div>
-            <p style={{ color:C.text2, fontSize:13, marginBottom: selTrip.is_pool ? 10 : 20 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
-            {selTrip.is_pool && (
+            <p style={{ color:C.text2, fontSize:13, marginBottom:12 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
+
+            {/* Action buttons row */}
+            <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+              {/* Chat — for pool AND regular trips */}
               <button onClick={() => openPoolChat(selTrip.id)}
-                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'9px 16px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif", marginBottom:16 }}>
-                💬 Group Chat
+                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'9px 14px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                💬 {selTrip.is_pool ? 'Group Chat' : 'Chat'}
               </button>
-            )}
+              {/* Propose fare — only for pool trips */}
+              {selTrip.is_pool && selTrip.status==='active' && (
+                <button onClick={() => setFareProposing({ tripId: selTrip.id, value: '' })}
+                  style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(251,191,36,0.1)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:10, padding:'9px 14px', fontSize:13, fontWeight:600, color:'#fbbf24', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                  💰 Propose Fare
+                </button>
+              )}
+            </div>
 
             <TripMap
               tripId={selTrip.id}

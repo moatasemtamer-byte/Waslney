@@ -441,6 +441,66 @@ router.post('/expire-groups',async(req,res)=>{
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
 
+// ── FARE PROPOSAL: driver proposes fare to group ──────────
+router.post('/trips/:tripId/propose-fare', requireAuth, requireRole('driver'), async(req,res)=>{
+  const {fare_per_passenger} = req.body;
+  if (!fare_per_passenger) return res.status(400).json({error:'fare_per_passenger required'});
+  try {
+    // Get all passengers on this trip
+    const [bookings] = await db.query(
+      "SELECT b.passenger_id, u.name as passenger_name FROM bookings b JOIN users u ON u.id=b.passenger_id WHERE b.trip_id=? AND b.status='confirmed'",
+      [req.params.tripId]
+    );
+    // Get driver name
+    const [driverRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
+    const driverName = driverRows[0]?.name || 'Driver';
+
+    // Save proposed fare to trips table (or a new column)
+    try { await db.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+    try { await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+    await db.query('UPDATE trips SET proposed_fare=? WHERE id=?', [fare_per_passenger, req.params.tripId]);
+
+    // Notify each passenger via notification
+    for (const b of bookings) {
+      await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
+        [b.passenger_id, `💰 Driver proposed a fare of ${fare_per_passenger} EGP per passenger for your pool ride. Open the app to accept or decline.`]);
+    }
+
+    res.json({ ok:true, notified: bookings.length, fare_per_passenger, driver_name: driverName });
+  } catch(err) { console.error(err); res.status(500).json({error:err.message}); }
+});
+
+// ── FARE RESPONSE: passenger accepts or declines ──────────
+router.post('/trips/:tripId/fare-response', requireAuth, requireRole('passenger'), async(req,res)=>{
+  const {response} = req.body; // 'accept' | 'decline'
+  if (!['accept','decline'].includes(response)) return res.status(400).json({error:'response must be accept or decline'});
+  try {
+    if (response === 'decline') {
+      // Cancel this passenger's booking and remove from pool group
+      await db.query("UPDATE bookings SET status='cancelled' WHERE trip_id=? AND passenger_id=?", [req.params.tripId, req.user.id]);
+      await db.query("UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND group_trip_id=?", [req.user.id, req.params.tripId]);
+      // Notify driver
+      const [tripRows] = await db.query('SELECT driver_id, from_loc, to_loc FROM trips WHERE id=?', [req.params.tripId]);
+      if (tripRows.length) {
+        const [uRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
+        await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
+          [tripRows[0].driver_id, `❌ ${uRows[0]?.name||'A passenger'} declined the fare and left the pool group.`]);
+      }
+      res.json({ ok:true, action:'left_group' });
+    } else {
+      // Accept — just notify driver
+      const [tripRows] = await db.query('SELECT driver_id FROM trips WHERE id=?', [req.params.tripId]);
+      if (tripRows.length) {
+        const [uRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
+        await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
+          [tripRows[0].driver_id, `✅ ${uRows[0]?.name||'A passenger'} accepted the fare.`]);
+      }
+      res.json({ ok:true, action:'accepted' });
+    }
+  } catch(err) { console.error(err); res.status(500).json({error:err.message}); }
+});
+
+
 module.exports=router;
 module.exports.suggestDriversForGroup=suggestDrivers;
 module.exports.calcPrice=calcPrice;

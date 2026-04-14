@@ -76,6 +76,17 @@ module.exports = function setupTracking(io) {
 
     // ── POOL CONFIRMED — notify passengers instantly ──────
     // Driver emits this after accepting; each passenger in their user room gets it
+    // Driver proposes fare — broadcast to all passengers in trip room
+    socket.on('fare:proposed', ({ tripId, farePerPassenger, driverName, passengerIds }) => {
+      if (passengerIds && passengerIds.length) {
+        passengerIds.forEach(pid => {
+          io.to(`user:${pid}`).emit('fare:proposed', { tripId, farePerPassenger, driverName });
+        });
+      } else {
+        socket.to(`trip:${tripId}`).emit('fare:proposed', { tripId, farePerPassenger, driverName });
+      }
+    });
+
     socket.on('pool:confirmed', ({ tripId, passengerIds }) => {
       if (!Array.isArray(passengerIds)) return;
       passengerIds.forEach(pid => {

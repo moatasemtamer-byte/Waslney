@@ -166,6 +166,7 @@ export default function PassengerDash(){
 
   // Pool chat
   const[poolChat,setPoolChat]=useState(null);
+  const[fareProposal,setFareProposal]=useState(null); // {tripId, farePerPassenger, driverName}
   const[poolChatStops,setPoolChatStops]=useState([]); // stops for map in chat
   const[chatInput,setChatInput]=useState('');
   const[sendingChat,setSendingChat]=useState(false);
@@ -196,12 +197,16 @@ export default function PassengerDash(){
     loadNotifs();requestLocation();
     connectSocket(user.id,'passenger');
     socket.on('checkin:update',({bookingId,status})=>{setMyBookings(prev=>prev.map(b=>b.id===bookingId?{...b,checkin_status:status}:b));setSelBooking(prev=>prev?.id===bookingId?{...prev,checkin_status:status}:prev);});
-    // Instant notification when driver confirms pool — open chat immediately
+    // Pool confirmed — reload requests and show notification, don't auto-open chat
     socket.on('pool:confirmed',({tripId})=>{
-      openPoolChat(tripId);
       loadMyPoolRequests();
+      notify('Pool confirmed!','Your group ride is confirmed. Open Activity to chat.','info');
     });
-    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');};
+    // Fare proposal from driver
+    socket.on('fare:proposed',({tripId, farePerPassenger, driverName})=>{
+      setFareProposal({tripId, farePerPassenger, driverName});
+    });
+    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:proposed');};
   },[user.id]);
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
   useEffect(()=>{
@@ -211,10 +216,7 @@ export default function PassengerDash(){
       try{
         const reqs=await api.getMyPoolRequests();
         setMyPoolRequests(reqs);
-        if(!poolChatRef.current){
-          const confirmed=reqs.find(r=>r.status==='confirmed'&&r.group_trip_id&&r.group_status==='confirmed');
-          if(confirmed)openPoolChat(confirmed.group_trip_id);
-        }
+        // Don't auto-open chat — let user open it manually
       }catch{}
     },8000);
     return()=>clearInterval(interval);
@@ -455,6 +457,53 @@ export default function PassengerDash(){
       )}
 
       <div style={{maxWidth:640,margin:'0 auto',padding:'0 16px'}}>
+
+        {/* ── FARE PROPOSAL MODAL — driver proposed a fare, passenger must accept/decline ── */}
+        {fareProposal&&(
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:600,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+            <div style={{background:'#111',borderRadius:'20px 20px 0 0',padding:'28px 24px 44px',width:'100%',maxWidth:480,border:'1px solid #fbbf2444'}}>
+              <div style={{textAlign:'center',marginBottom:20}}>
+                <div style={{fontSize:40,marginBottom:8}}>💰</div>
+                <h3 style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:6}}>Fare Proposed</h3>
+                <p style={{fontSize:13,color:'#888'}}>{fareProposal.driverName} has set a fare for your pool ride</p>
+              </div>
+              <div style={{background:'rgba(251,191,36,0.08)',border:'1px solid #fbbf2444',borderRadius:16,padding:'20px',textAlign:'center',marginBottom:24}}>
+                <div style={{fontSize:42,fontWeight:900,color:'#fbbf24'}}>{fareProposal.farePerPassenger} EGP</div>
+                <div style={{fontSize:13,color:'#888',marginTop:4}}>per passenger</div>
+              </div>
+              <div style={{display:'flex',gap:12}}>
+                <button onClick={async()=>{
+                  try{await api.respondToFare(fareProposal.tripId,'accept');notify('Accepted','You accepted the fare. Enjoy your ride!');setFareProposal(null);}
+                  catch(e){notify('Error',e.message,'error');}
+                }} style={{flex:1,background:'#fbbf24',color:'#000',border:'none',borderRadius:12,padding:'14px',fontSize:15,fontWeight:800,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+                  ✅ Accept
+                </button>
+                <button onClick={async()=>{
+                  try{await api.respondToFare(fareProposal.tripId,'decline');notify('Declined','You left the pool group.');setFareProposal(null);loadMyPoolRequests();loadBookings();}
+                  catch(e){notify('Error',e.message,'error');}
+                }} style={{flex:1,background:'#1a1a1a',color:'#f87171',border:'1px solid rgba(248,113,113,0.3)',borderRadius:12,padding:'14px',fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+                  ❌ Decline & Leave
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── ACTIVE TRIP BANNER — shown on ALL tabs when passenger has active/picked booking ── */}
+        {activeBookings.filter(b=>b.checkin_status==='picked'||b.trip_status==='active').slice(0,1).map(b=>(
+          <div key={b.id} onClick={()=>{changeTab('activity');setSelBooking(b);sessionStorage.setItem('selBookingId',b.id);}}
+            style={{background:'#0a1a0a',border:'1px solid #4ade8044',borderRadius:14,padding:'12px 16px',margin:'12px 0',display:'flex',alignItems:'center',gap:12,cursor:'pointer',position:'relative',overflow:'hidden'}}>
+            {/* Pulsing green dot */}
+            <div style={{position:'relative',flexShrink:0}}>
+              <div style={{width:10,height:10,borderRadius:'50%',background:'#4ade80',boxShadow:'0 0 0 0 rgba(74,222,128,0.6)',animation:'poolPulse 1.5s infinite'}}/>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:'#4ade80'}}>Active Trip</div>
+              <div style={{fontSize:12,color:'#555',marginTop:1}}>{b.from_loc} → {b.to_loc}</div>
+            </div>
+            <div style={{fontSize:11,color:'#4ade80',fontWeight:600}}>View →</div>
+          </div>
+        ))}
 
         {/* ── HOME TAB ── */}
         {tab==='home'&&!selTrip&&(
