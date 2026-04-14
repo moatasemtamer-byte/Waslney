@@ -233,9 +233,10 @@ export default function DriverDash() {
             {!loading && upcomingTrips.length === 0 && <p style={{ color:C.text2, fontSize:13 }}>No trips assigned yet.</p>}
             {upcomingTrips.map(t => (
               <div key={t.id} onClick={() => openTrip(t)}
-                style={{ ...card, marginBottom:12, cursor:'pointer' }}>
-                <div style={{ display:'flex', alignItems:'center', marginBottom:8 }}>
+                style={{ ...card, marginBottom:12, cursor:'pointer', border: t.is_pool ? '1.5px solid rgba(251,191,36,0.35)' : undefined, background: t.is_pool ? 'linear-gradient(135deg,#0d1117 80%,rgba(251,191,36,0.04))' : undefined }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
                   <Badge type={t.status === 'active' ? 'green' : 'amber'}>{t.status}</Badge>
+                  {t.is_pool ? <span style={{ fontSize:11, fontWeight:700, color:'#fbbf24', background:'rgba(251,191,36,0.12)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:'2px 9px' }}>🚗 Pool</span> : null}
                   <span style={{ marginLeft:'auto', fontSize:11, color:C.text3 }}>{fmtDate(t.date)} · {t.pickup_time}</span>
                 </div>
                 <div style={{ fontSize:16, fontWeight:400, marginBottom:8 }}>{t.from_loc} → {t.to_loc}</div>
@@ -253,8 +254,17 @@ export default function DriverDash() {
         {tab === 'trips' && selTrip && (
           <div>
             <button onClick={() => { setSelTrip(null); setTripDetail(null); }} style={{ ...btnSm, marginBottom:20 }}>← Back</button>
-            <h2 style={{ fontSize:20, fontWeight:400, marginBottom:4 }}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
-            <p style={{ color:C.text2, fontSize:13, marginBottom:20 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
+            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4, flexWrap:'wrap' }}>
+              <h2 style={{ fontSize:20, fontWeight:400, margin:0 }}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
+              {selTrip.is_pool ? <span style={{ fontSize:12, fontWeight:700, color:'#fbbf24', background:'rgba(251,191,36,0.12)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:'3px 10px' }}>🚗 Pool Ride</span> : null}
+            </div>
+            <p style={{ color:C.text2, fontSize:13, marginBottom: selTrip.is_pool ? 10 : 20 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
+            {selTrip.is_pool && (
+              <button onClick={() => openPoolChat(selTrip.id)}
+                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'9px 16px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif", marginBottom:16 }}>
+                💬 Group Chat
+              </button>
+            )}
 
             <TripMap
               tripId={selTrip.id}
@@ -588,7 +598,7 @@ export default function DriverDash() {
                     <button onClick={async () => {
                         try {
                           const td = await api.getTrip(inv.group_trip_id);
-                          setSelTrip({
+                          const tripObj = {
                             id: inv.group_trip_id,
                             from_loc: td.from_loc,
                             to_loc: td.to_loc,
@@ -600,8 +610,15 @@ export default function DriverDash() {
                             dropoff_lat: td.dropoff_lat,
                             dropoff_lng: td.dropoff_lng,
                             stops: td.stops || [],
-                          });
+                            booked_seats: td.bookings?.length || 0,
+                            total_seats: td.total_seats,
+                            price: td.price,
+                            is_pool: 1,
+                          };
+                          setSelTrip(tripObj);
                           setTripDetail(td);
+                          setActiveStop(null);
+                          sessionStorage.setItem('drv_tab', 'trips');
                           setTab('trips');
                         } catch(e) { notify('Error', e.message, 'error'); }
                       }}
