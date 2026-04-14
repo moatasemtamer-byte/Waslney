@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-// proposeFare, respondToFare added to api.js
-import { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareProposed } from '../../socket.js';
+import { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareOffer } from '../../socket.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import TripMap from '../../components/TripMap.jsx';
 
@@ -25,7 +24,6 @@ export default function DriverDash() {
   const [poolChat,         setPoolChat]         = useState(null); // {tripId, messages}
   const [poolChatStops,    setPoolChatStops]    = useState([]); // stops for map in chat
   const [fareEditor,       setFareEditor]       = useState(null); // {inv, suggested, custom}
-  const [fareProposing,    setFareProposing]    = useState(null); // {tripId, bookings, value}
   const [declineModal,     setDeclineModal]     = useState(null); // {invId}
   const [declineReason,    setDeclineReason]    = useState('');
   const [fareLoading,      setFareLoading]      = useState(false);
@@ -67,10 +65,22 @@ export default function DriverDash() {
           ? { ...inv, response: 'accepted', group_trip_id: result.tripId }
           : inv
       ));
-      // Notify passengers via socket so their chat button appears instantly
+      // Notify passengers via socket — pool confirmed AND fare offer
       const inv = poolInvitations.find(i => i.id === invId);
       if (inv?.members?.length) {
-        emitPoolConfirmed(result.tripId, inv.members.map(m => m.passenger_id));
+        const passengerIds = inv.members.map(m => m.passenger_id);
+        emitPoolConfirmed(result.tripId, passengerIds);
+        // Send fare offer to each passenger so they can accept/refuse
+        if (farePerPassenger) {
+          emitFareOffer(
+            result.tripId,
+            passengerIds,
+            inv.members.map(m => ({ bookingId: m.booking_id, passengerId: m.passenger_id })),
+            parseFloat(farePerPassenger),
+            inv.dest_label || 'Origin',
+            inv.dest_label || 'Destination'
+          );
+        }
       }
       loadPoolInvitations(); loadTrips();
     } catch(e) { notify('Error', e.message, 'error'); }
@@ -86,19 +96,6 @@ export default function DriverDash() {
   }
 
 
-
-  async function handleProposeFare(tripId, fareValue) {
-    try {
-      // Call backend
-      const result = await api.proposeFare(tripId, fareValue);
-      // Get passenger ids from bookings
-      const passengerIds = (tripDetail?.bookings || []).map(b => b.passenger_id).filter(Boolean);
-      // Emit socket so passengers get instant notification
-      emitFareProposed(tripId, fareValue, user.name, passengerIds);
-      notify('Fare proposed!', `${fareValue} EGP sent to ${result.notified} passengers.`);
-      setFareProposing(null);
-    } catch(e) { notify('Error', e.message, 'error'); }
-  }
 
   async function openPoolChat(tripId) {
     try {
@@ -214,8 +211,58 @@ export default function DriverDash() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes poolGlow{0%,100%{opacity:.5}50%{opacity:1}} @keyframes fadeInUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes poolGlow{0%,100%{opacity:.5}50%{opacity:1}} @keyframes fadeInUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}} @keyframes activePulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,0.6)}70%{box-shadow:0 0 0 8px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}`}</style>
       <Topbar role="driver" name={user.name} onLogout={logout} notifCount={unread} onNotif={openNotifs} />
+
+      {/* ── ACTIVE TRIP BANNER — shown on every tab ── */}
+      {(() => {
+        const activeTrip = trips.find(t => t.status === 'active');
+        const upcomingTrip = !activeTrip && trips.find(t => t.status === 'upcoming');
+        const displayTrip = activeTrip || upcomingTrip;
+        if (!displayTrip) return null;
+        const isLive = displayTrip.status === 'active';
+        return (
+          <div style={{
+            background: isLive ? 'linear-gradient(90deg,#052e16,#064e24)' : 'linear-gradient(90deg,#0a1628,#0f2347)',
+            borderBottom: `1px solid ${isLive ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.2)'}`,
+            padding: '8px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            position: 'sticky',
+            top: 57,
+            zIndex: 90,
+          }}>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: '50%',
+                background: isLive ? '#4ade80' : '#60a5fa',
+                animation: 'activePulse 1.5s infinite',
+              }} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: isLive ? '#4ade80' : '#60a5fa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {isLive ? '🟢 ACTIVE TRIP' : '⏳ Upcoming Trip'}
+              </div>
+              <div style={{ fontSize: 11, color: '#888', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {displayTrip.from_loc} → {displayTrip.to_loc} · {displayTrip.pickup_time}
+              </div>
+            </div>
+            {displayTrip.is_pool ? (
+              <button
+                onClick={() => openPoolChat(displayTrip.id)}
+                style={{ background: 'rgba(29,78,216,0.25)', border: '1px solid rgba(96,165,250,0.3)', borderRadius: 8, padding: '5px 10px', color: '#60a5fa', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Sora',sans-serif", whiteSpace: 'nowrap', flexShrink: 0 }}>
+                💬 Chat
+              </button>
+            ) : null}
+            <button
+              onClick={() => { goTab('trips'); openTrip(displayTrip); }}
+              style={{ background: isLive ? 'rgba(74,222,128,0.15)' : 'rgba(96,165,250,0.15)', border: `1px solid ${isLive ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.3)'}`, borderRadius: 8, padding: '5px 10px', color: isLive ? '#4ade80' : '#60a5fa', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Sora',sans-serif", whiteSpace: 'nowrap', flexShrink: 0 }}>
+              {isLive ? 'Manage →' : 'View →'}
+            </button>
+          </div>
+        );
+      })()}
       <div style={{ maxWidth:860, margin:'0 auto', padding:'28px 20px' }}>
 
         {notifOpen && (
@@ -272,25 +319,14 @@ export default function DriverDash() {
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4, flexWrap:'wrap' }}>
               <h2 style={{ fontSize:20, fontWeight:400, margin:0 }}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
               {selTrip.is_pool ? <span style={{ fontSize:12, fontWeight:700, color:'#fbbf24', background:'rgba(251,191,36,0.12)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:'3px 10px' }}>🚗 Pool Ride</span> : null}
-              {selTrip.status==='active' && <span style={{ fontSize:12, fontWeight:700, color:'#4ade80', background:'rgba(74,222,128,0.1)', border:'1px solid rgba(74,222,128,0.3)', borderRadius:20, padding:'3px 10px', display:'flex', alignItems:'center', gap:5 }}><span style={{ width:7, height:7, borderRadius:'50%', background:'#4ade80', display:'inline-block', animation:'poolPulse 1.5s infinite' }}/>Active</span>}
             </div>
-            <p style={{ color:C.text2, fontSize:13, marginBottom:12 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
-
-            {/* Action buttons row */}
-            <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-              {/* Chat — for pool AND regular trips */}
+            <p style={{ color:C.text2, fontSize:13, marginBottom: selTrip.is_pool ? 10 : 20 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
+            {selTrip.is_pool && (
               <button onClick={() => openPoolChat(selTrip.id)}
-                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'9px 14px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
-                💬 {selTrip.is_pool ? 'Group Chat' : 'Chat'}
+                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'9px 16px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif", marginBottom:16 }}>
+                💬 Group Chat
               </button>
-              {/* Propose fare — only for pool trips */}
-              {selTrip.is_pool && selTrip.status==='active' && (
-                <button onClick={() => setFareProposing({ tripId: selTrip.id, value: '' })}
-                  style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(251,191,36,0.1)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:10, padding:'9px 14px', fontSize:13, fontWeight:600, color:'#fbbf24', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
-                  💰 Propose Fare
-                </button>
-              )}
-            </div>
+            )}
 
             <TripMap
               tripId={selTrip.id}
@@ -361,6 +397,13 @@ export default function DriverDash() {
                     ✅ Complete trip
                   </button>
                 )}
+                {/* Driver can always open chat from trip detail if pool trip */}
+                {selTrip.is_pool ? (
+                  <button onClick={() => openPoolChat(selTrip.id)}
+                    style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'9px 16px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif", marginBottom:16, width:'100%', justifyContent:'center' }}>
+                    💬 Open Group Chat
+                  </button>
+                ) : null}
 
                 {/* ── PICKUP STOPS CHECKLIST ── */}
                 {selTrip.status === 'active' && (() => {

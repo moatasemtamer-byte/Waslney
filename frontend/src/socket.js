@@ -16,15 +16,14 @@ export function sendLocation(tripId, lat, lng) {
   socket.emit('driver:location', { tripId, lat, lng });
 }
 
-export function emitFareProposed(tripId, farePerPassenger, driverName, passengerIds) {
-  socket.emit('fare:proposed', { tripId, farePerPassenger, driverName, passengerIds });
-}
-
 export function emitTripStarted(tripId)   { socket.emit('trip:started',   { tripId }); }
 export function emitTripCompleted(tripId) { socket.emit('trip:completed', { tripId }); }
 export function emitPoolConfirmed(tripId, passengerIds) { socket.emit('pool:confirmed', { tripId, passengerIds }); }
 export function emitCheckinUpdate(tripId, bookingId, status) {
   socket.emit('checkin:update', { tripId, bookingId, status });
+}
+export function emitFareOffer(tripId, passengerIds, bookings, farePerPassenger, fromLoc, toLoc) {
+  socket.emit('fare:offer', { tripId, passengerIds, bookings, farePerPassenger, fromLoc, toLoc });
 }
 
 export default socket;

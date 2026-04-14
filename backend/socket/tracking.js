@@ -76,22 +76,27 @@ module.exports = function setupTracking(io) {
 
     // ── POOL CONFIRMED — notify passengers instantly ──────
     // Driver emits this after accepting; each passenger in their user room gets it
-    // Driver proposes fare — broadcast to all passengers in trip room
-    socket.on('fare:proposed', ({ tripId, farePerPassenger, driverName, passengerIds }) => {
-      if (passengerIds && passengerIds.length) {
-        passengerIds.forEach(pid => {
-          io.to(`user:${pid}`).emit('fare:proposed', { tripId, farePerPassenger, driverName });
-        });
-      } else {
-        socket.to(`trip:${tripId}`).emit('fare:proposed', { tripId, farePerPassenger, driverName });
-      }
-    });
-
     socket.on('pool:confirmed', ({ tripId, passengerIds }) => {
       if (!Array.isArray(passengerIds)) return;
       passengerIds.forEach(pid => {
         io.to(`user:${pid}`).emit('pool:confirmed', { tripId });
       });
+    });
+
+    // ── FARE OFFER — driver sets fare, each passenger notified ──
+    // Driver emits this after setting fare; each passenger sees accept/refuse modal
+    socket.on('fare:offer', ({ tripId, passengerIds, bookings, farePerPassenger, fromLoc, toLoc }) => {
+      if (!Array.isArray(passengerIds)) return;
+      passengerIds.forEach((pid, i) => {
+        io.to(`user:${pid}`).emit('fare:offer', {
+          tripId,
+          bookingId: bookings[i]?.bookingId,
+          fare_per_passenger: farePerPassenger,
+          from_loc: fromLoc,
+          to_loc: toLoc,
+        });
+      });
+      console.log(`💰  Fare offer emitted for trip ${tripId} → ${passengerIds.length} passengers`);
     });
 
     // ── CHECKIN UPDATE ────────────────────────────────────
