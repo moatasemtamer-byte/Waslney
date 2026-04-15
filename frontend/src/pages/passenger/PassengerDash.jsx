@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, WaslneyLogo, Badge, DetailRow, CapBar, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
@@ -57,6 +57,82 @@ function PlaceSearch({placeholder,icon,value,onChange}){
   );
 }
 
+// ── Active Trip Banner (shows on every page) ─────────────────
+function ActiveTripBanner({ activeBookings, activePoolRequests, onOpen }) {
+  const activeTrip = activeBookings.find(b => b.checkin_status === 'picked' || b.checkin_status === 'pending' || !b.checkin_status);
+  const activePool = activePoolRequests.find(r => r.group_trip_id && r.group_status === 'confirmed');
+
+  if (!activeTrip && !activePool) return null;
+
+  const isPool = !!activePool || activeTrip?.is_pool === 1;
+
+  return (
+    <div onClick={onOpen}
+      style={{
+        position:'sticky', top:57, zIndex:90, cursor:'pointer',
+        background: isPool
+          ? 'linear-gradient(90deg,#0a1628,#0f2347)'
+          : 'linear-gradient(90deg,#0a1a0a,#0f2b0f)',
+        borderBottom: `2px solid ${isPool ? 'rgba(96,165,250,0.4)' : 'rgba(74,222,128,0.4)'}`,
+        padding:'10px 20px',
+        display:'flex', alignItems:'center', gap:10,
+      }}>
+      {/* Pulsing green dot */}
+      <div style={{
+        width:10, height:10, borderRadius:'50%', flexShrink:0,
+        background: isPool ? '#60a5fa' : '#4ade80',
+        boxShadow: isPool ? '0 0 0 3px rgba(96,165,250,0.25)' : '0 0 0 3px rgba(74,222,128,0.25)',
+        animation:'activePulse 1.5s ease-in-out infinite',
+      }}/>
+      <span style={{fontSize:13, fontWeight:700, color: isPool ? '#60a5fa' : '#4ade80', flex:1}}>
+        {isPool
+          ? `🚀 Pool Trip Active${activePool ? ` · ${activePool.origin_label||''} → ${activePool.dest_label||''}` : ''}`
+          : `🚐 Trip Active · ${activeTrip.from_loc} → ${activeTrip.to_loc}`}
+      </span>
+      <span style={{fontSize:11, color:'#555'}}>Tap to view →</span>
+    </div>
+  );
+}
+
+// ── Fare Accept/Refuse Modal ──────────────────────────────────
+function FareModal({ fareOffer, onAccept, onRefuse }) {
+  if (!fareOffer) return null;
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.95)',zIndex:600,display:'flex',alignItems:'flex-end'}}>
+      <div style={{width:'100%',background:'#0d1117',borderRadius:'24px 24px 0 0',padding:'32px 20px 48px',border:'1px solid rgba(251,191,36,0.3)',animation:'fadeInUp .3s ease-out'}}>
+        <div style={{textAlign:'center',marginBottom:24}}>
+          <div style={{fontSize:48,marginBottom:12}}>💰</div>
+          <div style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:6,fontFamily:"'Sora',sans-serif"}}>Driver Set Your Fare</div>
+          <div style={{fontSize:13,color:'#60a5fa'}}>Review and accept or refuse this fare</div>
+        </div>
+
+        <div style={{background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.3)',borderRadius:16,padding:'20px',marginBottom:20,textAlign:'center'}}>
+          <div style={{fontSize:13,color:'#fbbf24',marginBottom:4}}>Fare per passenger</div>
+          <div style={{fontSize:42,fontWeight:800,color:'#fbbf24',fontFamily:"'Sora',sans-serif"}}>{fareOffer.fare} <span style={{fontSize:18,fontWeight:400}}>EGP</span></div>
+          <div style={{fontSize:12,color:'#a16207',marginTop:6}}>for trip to {fareOffer.dest || 'your destination'}</div>
+        </div>
+
+        <div style={{background:'rgba(30,58,95,0.3)',borderRadius:12,padding:'12px 16px',marginBottom:24,fontSize:12,color:'#60a5fa',lineHeight:1.6}}>
+          ℹ️ <strong style={{color:'#93c5fd'}}>Accept</strong> to remain in the group ride.<br/>
+          <strong style={{color:'#f87171'}}>Refuse</strong> to leave the group and cancel your seat.
+        </div>
+
+        <div style={{display:'flex',gap:12}}>
+          <button onClick={onRefuse}
+            style={{flex:1,background:'rgba(248,113,113,0.12)',border:'1px solid rgba(248,113,113,0.4)',borderRadius:14,padding:'15px',color:'#f87171',fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+            ✕ Refuse & Leave
+          </button>
+          <button onClick={onAccept}
+            style={{flex:2,background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',border:'none',borderRadius:14,padding:'15px',color:'#fff',fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif",boxShadow:'0 4px 16px rgba(59,130,246,0.4)'}}>
+            ✅ Accept Fare
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Smart Pool Banner ─────────────────────────────────────────
 function SmartPoolBanner({onClick}){
   return(
     <div onClick={onClick} style={{background:'linear-gradient(135deg,#0c1a35 0%,#0f2347 50%,#0c1a35 100%)',border:'1px solid rgba(96,165,250,0.25)',borderRadius:16,padding:'14px 16px',marginBottom:20,cursor:'pointer',transition:'all .2s',position:'relative',overflow:'hidden'}}
@@ -130,142 +206,6 @@ function BottomNav({active,onSet,bookingCount}){
   );
 }
 
-// ── Active Trip Banner (appears on every page when there's an active/upcoming trip) ──
-function ActiveTripBanner({ bookings, poolRequests, onOpenChat }) {
-  // Find most relevant active trip
-  const activeBooking = bookings.find(b =>
-    b.status === 'confirmed' && (b.trip_status === 'active' || b.trip_status === 'upcoming')
-  );
-  const activePool = poolRequests.find(r => r.group_trip_id && r.group_status === 'confirmed');
-
-  if (!activeBooking && !activePool) return null;
-
-  const isLive = activeBooking?.trip_status === 'active';
-  const isPool = !!activePool && !activeBooking;
-
-  const label = isPool
-    ? `🚗 Pool · ${activePool.origin_label || 'Pickup'} → ${activePool.dest_label || 'Destination'}`
-    : `${activeBooking.from_loc} → ${activeBooking.to_loc}`;
-
-  const tripId = isPool ? activePool.group_trip_id : activeBooking?.trip_id;
-
-  return (
-    <div style={{
-      background: isLive
-        ? 'linear-gradient(90deg,#052e16,#064e24)'
-        : 'linear-gradient(90deg,#0a1628,#0f2347)',
-      borderBottom: `1px solid ${isLive ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.2)'}`,
-      padding: '8px 16px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      position: 'sticky',
-      top: 57,
-      zIndex: 90,
-    }}>
-      {/* Pulsing green dot */}
-      <div style={{ position: 'relative', flexShrink: 0 }}>
-        <div style={{
-          width: 10, height: 10, borderRadius: '50%',
-          background: isLive ? '#4ade80' : '#60a5fa',
-          boxShadow: isLive ? '0 0 0 0 rgba(74,222,128,0.5)' : '0 0 0 0 rgba(96,165,250,0.5)',
-          animation: 'activePulse 1.5s infinite',
-        }} />
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: isLive ? '#4ade80' : '#60a5fa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {isLive ? '🟢 ACTIVE TRIP' : '⏳ Upcoming Trip'}
-        </div>
-        <div style={{ fontSize: 11, color: '#888', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {label}
-        </div>
-      </div>
-      {(isPool || activeBooking?.is_pool === 1) && tripId && (
-        <button
-          onClick={() => onOpenChat(tripId)}
-          style={{
-            background: 'rgba(29,78,216,0.25)',
-            border: '1px solid rgba(96,165,250,0.3)',
-            borderRadius: 8,
-            padding: '5px 10px',
-            color: '#60a5fa',
-            fontSize: 11,
-            fontWeight: 700,
-            cursor: 'pointer',
-            fontFamily: "'Sora',sans-serif",
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}>
-          💬 Chat
-        </button>
-      )}
-      <div style={{
-        fontSize: 10,
-        fontWeight: 700,
-        padding: '3px 8px',
-        borderRadius: 20,
-        background: isLive ? 'rgba(74,222,128,0.15)' : 'rgba(96,165,250,0.15)',
-        color: isLive ? '#4ade80' : '#60a5fa',
-        flexShrink: 0,
-      }}>
-        {isLive ? 'LIVE' : 'Soon'}
-      </div>
-    </div>
-  );
-}
-
-// ── Fare Accept/Refuse Modal ──
-function FareResponseModal({ fareOffer, onAccept, onRefuse, onClose }) {
-  if (!fareOffer) return null;
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 600, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-      <div style={{ background: '#0d1117', borderRadius: '24px 24px 0 0', padding: '28px 20px 44px', border: '1px solid rgba(251,191,36,0.2)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>💰</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', fontFamily: "'Sora',sans-serif", marginBottom: 6 }}>
-            Driver set the fare
-          </div>
-          <div style={{ fontSize: 13, color: '#4b7ab5', lineHeight: 1.6 }}>
-            Your driver has confirmed the fare for your pool trip. Accept to stay in the group, or refuse to leave.
-          </div>
-        </div>
-
-        {/* Fare display */}
-        <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 16, padding: '18px', marginBottom: 20, textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Fare per seat</div>
-          <div style={{ fontSize: 40, fontWeight: 800, color: '#fbbf24', fontFamily: "'Sora',sans-serif" }}>
-            {fareOffer.fare_per_passenger} <span style={{ fontSize: 16, fontWeight: 400 }}>EGP</span>
-          </div>
-          <div style={{ fontSize: 12, color: '#a16207', marginTop: 6 }}>
-            {fareOffer.from_loc} → {fareOffer.to_loc}
-          </div>
-        </div>
-
-        {/* Route info */}
-        <div style={{ background: 'rgba(30,58,95,0.3)', borderRadius: 12, padding: '12px 16px', marginBottom: 24, border: '1px solid rgba(96,165,250,0.1)' }}>
-          <div style={{ fontSize: 12, color: '#60a5fa', lineHeight: 1.6 }}>
-            ✅ Accept → stay in the group & continue with the trip<br />
-            ❌ Refuse → leave the group, booking cancelled
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button
-            onClick={onRefuse}
-            style={{ flex: 1, background: 'transparent', border: '1px solid rgba(248,113,113,0.4)', borderRadius: 14, padding: '15px', color: '#f87171', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Sora',sans-serif" }}>
-            ✕ Refuse & Leave
-          </button>
-          <button
-            onClick={onAccept}
-            style={{ flex: 2, background: 'linear-gradient(135deg,#14532d,#16a34a)', border: 'none', borderRadius: 14, padding: '15px', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: "'Sora',sans-serif", boxShadow: '0 4px 16px rgba(74,222,128,0.3)' }}>
-            ✅ Accept — {fareOffer.fare_per_passenger} EGP
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════
 export default function PassengerDash(){
   const{user,logout,notify}=useAuth();
@@ -275,7 +215,6 @@ export default function PassengerDash(){
   const[selDropoff,setSelDropoff]=useState(null);
   const[selBooking,setSelBooking]=useState(null);
 
-  // Search
   const[fromCoord,setFromCoord]=useState(null);
   const[toCoord,setToCoord]=useState(null);
   const[userLocation,setUserLocation]=useState(null);
@@ -284,7 +223,6 @@ export default function PassengerDash(){
   const[searching,setSearching]=useState(false);
   const[searched,setSearched]=useState(false);
 
-  // Smart Pool modal
   const[showPool,setShowPool]=useState(false);
   const[poolDate,setPoolDate]=useState('');
   const[poolTime,setPoolTime]=useState('');
@@ -295,7 +233,7 @@ export default function PassengerDash(){
   const[myPoolRequests,setMyPoolRequests]=useState([]);
   const[activePoolGroup,setActivePoolGroup]=useState(null);
 
-  // Pool chat — only opened explicitly by user action, never auto-opened
+  // Pool chat — NEVER auto-opened; only opened by explicit user action
   const[poolChat,setPoolChat]=useState(null);
   const[poolChatStops,setPoolChatStops]=useState([]);
   const[chatInput,setChatInput]=useState('');
@@ -303,21 +241,18 @@ export default function PassengerDash(){
   const chatEndRef=useRef(null);
   const poolChatRef=useRef(null);
 
-  // Fare offer from driver
-  const[fareOffer,setFareOffer]=useState(null); // {fare_per_passenger, from_loc, to_loc, tripId, bookingId}
+  // Fare offer modal
+  const[fareOffer,setFareOffer]=useState(null); // {tripId, fare, dest}
 
-  // Bookings
   const[myBookings,setMyBookings]=useState([]);
   const[loadingB,setLoadingB]=useState(false);
   const[seats,setSeats]=useState(1);
   const[booking,setBooking]=useState(false);
 
-  // Rating
   const[rateTrip,setRateTrip]=useState(null);
   const[ratingStars,setRatingStars]=useState(0);
   const[rateComment,setRateComment]=useState('');
 
-  // Notifications
   const[notifs,setNotifs]=useState([]);
   const[notifOpen,setNotifOpen]=useState(false);
   const unread=notifs.filter(n=>!n.is_read).length;
@@ -326,6 +261,18 @@ export default function PassengerDash(){
   const historyBookings=myBookings.filter(b=>b.status==='completed'||b.status==='cancelled');
   const changeTab=(t)=>{setTab(t);setSelTrip(null);setSelBooking(null);window.location.hash=t;};
 
+  const activePoolRequests = myPoolRequests.filter(r=>r.group_trip_id&&r.group_status==='confirmed');
+
+  // Navigate to activity tab and highlight the active trip when banner tapped
+  const handleBannerTap = useCallback(() => {
+    if (activePoolRequests.length > 0) {
+      changeTab('activity');
+    } else if (activeBookings.length > 0) {
+      changeTab('activity');
+      setSelBooking(activeBookings[0]);
+    }
+  }, [activeBookings, activePoolRequests]);
+
   useEffect(()=>{
     loadNotifs();requestLocation();
     connectSocket(user.id,'passenger');
@@ -333,46 +280,46 @@ export default function PassengerDash(){
       setMyBookings(prev=>prev.map(b=>b.id===bookingId?{...b,checkin_status:status}:b));
       setSelBooking(prev=>prev?.id===bookingId?{...prev,checkin_status:status}:prev);
     });
-    // Pool confirmed — do NOT auto-open chat, just refresh data
+
+    // FIX: pool:confirmed no longer auto-opens chat — it only refreshes data
+    // Chat is only opened when user explicitly taps the "Open Chat" button
     socket.on('pool:confirmed',({tripId})=>{
       loadMyPoolRequests();
-      loadBookings();
-      // Show notification instead of forcing chat open
-      notify('Pool trip confirmed!','Your pool group has a driver. Open chat from Activity tab.','success');
+      notify('Pool trip confirmed!','Tap "Open Chat" to join your group.','default');
     });
-    // Fare offer from driver
-    socket.on('fare:offer',({tripId, bookingId, fare_per_passenger, from_loc, to_loc})=>{
-      setFareOffer({ tripId, bookingId, fare_per_passenger, from_loc, to_loc });
+
+    // NEW: fare set by driver — show accept/refuse modal
+    socket.on('pool:fare_set',({tripId, fare, dest})=>{
+      setFareOffer({tripId, fare, dest});
     });
-    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');};
+
+    return()=>{
+      socket.off('checkin:update');
+      socket.off('pool:confirmed');
+      socket.off('pool:fare_set');
+    };
   },[user.id]);
 
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
 
+  // Activity tab: load data, but do NOT auto-open chat
   useEffect(()=>{
     if(tab!=='activity')return;
     loadBookings();loadMyPoolRequests();
-    const interval=setInterval(async()=>{
-      try{
-        const reqs=await api.getMyPoolRequests();
-        setMyPoolRequests(reqs);
-        // Check for pending fare offer
-        const withFare = reqs.find(r => r.fare_per_passenger && !r.fare_responded);
-        if (withFare && !fareOffer) {
-          setFareOffer({
-            tripId: withFare.group_trip_id,
-            bookingId: withFare.booking_id,
-            fare_per_passenger: withFare.fare_per_passenger,
-            from_loc: withFare.origin_label,
-            to_loc: withFare.dest_label,
-          });
-        }
-      }catch{}
+    const interval=setInterval(()=>{
+      loadMyPoolRequests();
     },8000);
     return()=>clearInterval(interval);
   },[tab]);
 
-  useEffect(()=>{if(tab==='home'){loadActivePoolGroup();loadBookings();}},[tab]);
+  useEffect(()=>{if(tab==='home'){loadActivePoolGroup();}},[tab]);
+
+  // Always keep pool requests fresh (for banner)
+  useEffect(()=>{
+    loadMyPoolRequests();
+    const interval=setInterval(loadMyPoolRequests,15000);
+    return()=>clearInterval(interval);
+  },[]);
 
   async function loadNotifs(){try{setNotifs(await api.getNotifications());}catch{}}
   async function openNotifs(){setNotifOpen(true);try{await api.markNotifRead();setNotifs(n=>n.map(x=>({...x,is_read:1})));}catch{}}
@@ -457,35 +404,6 @@ export default function PassengerDash(){
     catch(e){notify('Error',e.message,'error');}
   }
 
-  // ── Fare accept/refuse ────────────────────────────────────
-  async function handleFareAccept() {
-    if (!fareOffer) return;
-    try {
-      await api.respondToFare(fareOffer.tripId, fareOffer.bookingId, 'accepted');
-      notify('Fare accepted!', 'You remain in the pool group.', 'success');
-      setFareOffer(null);
-      loadBookings();
-      loadMyPoolRequests();
-    } catch(e) { notify('Error', e.message, 'error'); }
-  }
-
-  async function handleFareRefuse() {
-    if (!fareOffer) return;
-    try {
-      await api.respondToFare(fareOffer.tripId, fareOffer.bookingId, 'refused');
-      notify('You left the group', 'Your booking has been cancelled.', 'warning');
-      setFareOffer(null);
-      loadBookings();
-      loadMyPoolRequests();
-      // Close chat if open for this trip
-      if (poolChat?.tripId === fareOffer.tripId) {
-        setPoolChat(null);
-        poolChatRef.current = null;
-        setPoolChatStops([]);
-      }
-    } catch(e) { notify('Error', e.message, 'error'); }
-  }
-
   // ── Smart Pool functions ───────────────────────────────────
   function openSmartPool(){
     if(!poolDate)setPoolDate(new Date().toISOString().slice(0,10));
@@ -520,7 +438,7 @@ export default function PassengerDash(){
     }catch{}
   }
 
-  // Only open chat when explicitly requested by user — never auto-open
+  // Only called when user explicitly taps "Open Chat"
   async function openPoolChat(tripId){
     try{
       const [messages, tripDetail] = await Promise.all([
@@ -544,6 +462,32 @@ export default function PassengerDash(){
     finally{setSendingChat(false);}
   }
 
+  // ── Fare accept/refuse ────────────────────────────────────
+  async function handleFareAccept(){
+    try{
+      // Notify via socket that this passenger accepted
+      socket.emit('pool:fare_response',{tripId:fareOffer.tripId, passengerId:user.id, accepted:true});
+      notify('Fare accepted!','You remain in the pool group.');
+      setFareOffer(null);
+    }catch(e){notify('Error',e.message,'error');}
+  }
+
+  async function handleFareRefuse(){
+    try{
+      // Notify via socket that passenger refused → they leave
+      socket.emit('pool:fare_response',{tripId:fareOffer.tripId, passengerId:user.id, accepted:false});
+      // Also cancel their pool request/booking
+      const req=myPoolRequests.find(r=>r.group_trip_id===fareOffer.tripId);
+      if(req){
+        try{await api.declinePoolInvitation(req.id,{reason:'refused_fare'});}catch{}
+      }
+      notify('Fare refused','You have left the pool group.');
+      setFareOffer(null);
+      loadMyPoolRequests();
+      loadBookings();
+    }catch(e){notify('Error',e.message,'error');}
+  }
+
   const hasChatGroup = myPoolRequests.some(r=>r.group_trip_id&&r.group_status==='confirmed');
   const activePoolChatRequest = myPoolRequests.find(r=>r.group_trip_id&&r.group_status==='confirmed');
 
@@ -555,18 +499,17 @@ export default function PassengerDash(){
         @keyframes poolPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:0.85}}
         @keyframes poolScan{0%{transform:translateY(-100%)}100%{transform:translateY(400%)}}
         @keyframes fadeInUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes activePulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,0.6)}70%{box-shadow:0 0 0 8px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+        @keyframes activePulse{0%,100%{box-shadow:0 0 0 3px rgba(74,222,128,0.25)}50%{box-shadow:0 0 0 6px rgba(74,222,128,0.1)}}
       `}</style>
 
-      {/* ── FARE OFFER MODAL ── */}
-      <FareResponseModal
+      {/* ── FARE ACCEPT/REFUSE MODAL ── */}
+      <FareModal
         fareOffer={fareOffer}
         onAccept={handleFareAccept}
         onRefuse={handleFareRefuse}
-        onClose={() => setFareOffer(null)}
       />
 
-      {/* ── GLOBAL POOL CHAT MODAL — only when explicitly opened ── */}
+      {/* ── GLOBAL POOL CHAT MODAL ── */}
       {poolChat&&(
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.97)',zIndex:500,display:'flex',flexDirection:'column'}}>
           <div style={{background:'#0d1117',borderBottom:'1px solid rgba(96,165,250,0.15)',padding:'16px 20px',display:'flex',alignItems:'center'}}>
@@ -630,11 +573,11 @@ export default function PassengerDash(){
         </button>
       </div>
 
-      {/* ── ACTIVE TRIP BANNER — shown on every tab ── */}
+      {/* ── ACTIVE TRIP BANNER (visible on all tabs) ── */}
       <ActiveTripBanner
-        bookings={myBookings}
-        poolRequests={myPoolRequests}
-        onOpenChat={openPoolChat}
+        activeBookings={activeBookings}
+        activePoolRequests={activePoolRequests}
+        onOpen={handleBannerTap}
       />
 
       {/* Notifications */}
@@ -666,7 +609,6 @@ export default function PassengerDash(){
               <p style={{fontSize:13,color:'#555'}}>{locationLabel}</p>
             </div>
 
-            {/* Search bar */}
             <div style={{background:'#111',borderRadius:20,padding:'16px',marginBottom:0,border:'1px solid #1a1a1a'}}>
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -807,6 +749,9 @@ export default function PassengerDash(){
                       </div>
                       <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>Searching for riders…</div>
                       <div style={{fontSize:13,color:'#60a5fa',lineHeight:1.7,fontFamily:"'Sora',sans-serif"}}>Looking for passengers going<br/>the same way at the same time</div>
+                      <div style={{marginTop:24,display:'flex',justifyContent:'center',gap:6}}>
+                        {[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:'50%',background:'#3b82f6',animation:'poolGlow 1.2s ease-in-out infinite',animationDelay:i*0.2+'s'}}/>)}
+                      </div>
                     </div>
                   ):poolResult?(
                     <div style={{textAlign:'center',padding:'8px 0',animation:'fadeInUp 0.4s ease-out'}}>
@@ -819,6 +764,43 @@ export default function PassengerDash(){
                           ?`You've been grouped with ${poolResult.compatible_count} other passenger${poolResult.compatible_count!==1?'s':''}. A nearby driver will be notified.`
                           :"Your request is open. We'll notify you when others join and a driver accepts."}
                       </div>
+
+                      {poolResult.matched && poolResult.group_members && poolResult.group_members.length>0 && (
+                        <div style={{background:'rgba(30,58,95,0.4)',borderRadius:16,padding:'16px',marginBottom:20,textAlign:'left',border:'1px solid rgba(96,165,250,0.2)'}}>
+                          <div style={{fontSize:11,color:'#4b7ab5',marginBottom:12,textTransform:'uppercase',letterSpacing:'.08em',fontFamily:"'Sora',sans-serif"}}>👥 Your group</div>
+                          {poolResult.group_members.map((m,i)=>(
+                            <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderTop:i>0?'1px solid rgba(96,165,250,0.08)':'none',animation:`fadeInUp 0.3s ease-out ${i*0.08}s both`}}>
+                              <div style={{width:36,height:36,borderRadius:'50%',background:m.passenger_id===poolResult.id?'linear-gradient(135deg,#1d4ed8,#3b82f6)':'rgba(59,130,246,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,color:'#fff',flexShrink:0,border:'2px solid rgba(96,165,250,0.3)'}}>
+                                {m.passenger_name?.[0]?.toUpperCase()||'?'}
+                              </div>
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:13,fontWeight:700,color:'#fff',fontFamily:"'Sora',sans-serif"}}>
+                                  {m.passenger_name} {m.passenger_id===user.id&&<span style={{fontSize:10,color:'#3b82f6',background:'rgba(59,130,246,0.15)',padding:'2px 6px',borderRadius:8}}>You</span>}
+                                </div>
+                                <div style={{fontSize:11,color:'#4b7ab5',marginTop:2}}>📍 {m.origin_label||'Pickup'} · {m.seats} seat{m.seats>1?'s':''}</div>
+                              </div>
+                              <div style={{width:8,height:8,borderRadius:'50%',background:'#4ade80',boxShadow:'0 0 6px #4ade80'}}/>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div style={{background:'rgba(30,58,95,0.3)',borderRadius:14,padding:'14px 16px',marginBottom:20,textAlign:'left',border:'1px solid rgba(96,165,250,0.1)'}}>
+                        <div style={{fontSize:11,color:'#4b7ab5',marginBottom:8,textTransform:'uppercase',letterSpacing:'.08em'}}>Your ride</div>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
+                          <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                            <div style={{width:8,height:8,borderRadius:'50%',background:'#fbbf24'}}/>
+                            <div style={{width:1,height:14,background:'#333'}}/>
+                            <div style={{width:8,height:8,borderRadius:2,background:'#60a5fa'}}/>
+                          </div>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:13,color:'#ccc',marginBottom:6}}>{fromCoord?.name||'Your location'}</div>
+                            <div style={{fontSize:13,color:'#fff',fontWeight:600}}>{toCoord?.name}</div>
+                          </div>
+                        </div>
+                        <div style={{fontSize:12,color:'#4b7ab5',marginTop:10,paddingTop:8,borderTop:'1px solid rgba(96,165,250,0.1)'}}>{poolDate} · {poolTime} · {poolSeats} seat{poolSeats>1?'s':''}</div>
+                      </div>
+
                       <button onClick={()=>setShowPool(false)}
                         style={{background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',color:'#fff',border:'none',borderRadius:14,padding:'15px',fontSize:15,fontWeight:700,cursor:'pointer',width:'100%',fontFamily:"'Sora',sans-serif",boxShadow:'0 6px 20px rgba(59,130,246,0.35)'}}>
                         {poolResult.matched?'🎉 Awesome, got it!':'Got it!'}
@@ -900,8 +882,7 @@ export default function PassengerDash(){
             {(selTrip.stops||[]).filter(s=>s.type==='pickup').length>1&&(
               <div style={{...card,marginBottom:14}}>
                 <p style={sectSt}>Choose your pickup point</p>
-                {selTrip.stops.filter(s=>s.type==='pickup').map((s,i)=>{const dist=fromCoord?haversineDistance(fromCoord.lat,fromCoord.lng,parseFloat(s.lat),parseFloat(s.lng)):null;const sel=selPickup?.lat===s.lat&&selPickup?.lng===s.lng;return(<div key={i} onClick={()=>setSelPickup(s)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px',borderRadius:10,marginBottom:8,cursor:'pointer',border:`1px solid ${sel?'#fbbf24':C.border}`,background:sel?'rgba(251,191,36,0.08)':'transparent'}}><div style={{width:20,height:20,borderRadius:'50%',flexShrink:0,background:sel?'#fbbf24':C.border2,border:`2px solid ${sel?'#fbbf24':C.border}`}}/><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:'#fff'}}>{s.label||'Pickup '+(i+1)}</div>{dist!==null&&<div style={{fontSize:11,color:'#555'}}>{formatDist(dist)} · {estimateWalkTime(dist)}</div>}</div>{sel&&<span style={{color:'#fbbf24',fontWeight:700}}>✓</span>}</div>);})}
-              </div>
+                {selTrip.stops.filter(s=>s.type==='pickup').map((s,i)=>{const dist=fromCoord?haversineDistance(fromCoord.lat,fromCoord.lng,parseFloat(s.lat),parseFloat(s.lng)):null;const sel=selPickup?.lat===s.lat&&selPickup?.lng===s.lng;return(<div key={i} onClick={()=>setSelPickup(s)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px',borderRadius:10,marginBottom:8,cursor:'pointer',border:`1px solid ${sel?'#fbbf24':C.border}`,background:sel?'rgba(251,191,36,0.08)':'transparent'}}><div style={{width:20,height:20,borderRadius:'50%',flexShrink:0,background:sel?'#fbbf24':C.border2,border:`2px solid ${sel?'#fbbf24':C.border}`}}/><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:'#fff'}}>{s.label||'Pickup '+(i+1)}</div>{dist!==null&&<div style={{fontSize:11,color:'#555'}}>{formatDist(dist)} · {estimateWalkTime(dist)}</div>}</div>{sel&&<span style={{color:'#fbbf24',fontWeight:700}}>✓</span>}</div>);})</div>
             )}
             <div style={{...card,marginBottom:14}}>
               {selPickup&&<DetailRow label="Pickup point" val={selPickup.label||(parseFloat(selPickup.lat).toFixed(4)+', '+parseFloat(selPickup.lng).toFixed(4))} accent="#fbbf24"/>}
@@ -942,7 +923,6 @@ export default function PassengerDash(){
                       <div style={{fontSize:12,color:'#4b7ab5',marginTop:2}}>{r.origin_label||'Pickup'} → {r.dest_label||'Destination'}</div>
                       <div style={{fontSize:11,color:'#334',marginTop:2}}>{r.desired_date} · {r.desired_time}</div>
                     </div>
-                    {/* Chat button only in activity - explicit user action */}
                     <button onClick={()=>openPoolChat(r.group_trip_id)}
                       style={{background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',border:'none',borderRadius:10,padding:'8px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif",whiteSpace:'nowrap',flexShrink:0}}>
                       💬 Chat

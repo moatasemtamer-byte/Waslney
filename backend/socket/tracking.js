@@ -83,20 +83,23 @@ module.exports = function setupTracking(io) {
       });
     });
 
-    // ── FARE OFFER — driver sets fare, each passenger notified ──
-    // Driver emits this after setting fare; each passenger sees accept/refuse modal
-    socket.on('fare:offer', ({ tripId, passengerIds, bookings, farePerPassenger, fromLoc, toLoc }) => {
+    // ── FARE SET BY DRIVER — notify each passenger ────────
+    // Driver emits this with the fare they set; passengers get accept/refuse modal
+    socket.on('pool:fare_set', ({ tripId, fare, dest, passengerIds }) => {
       if (!Array.isArray(passengerIds)) return;
-      passengerIds.forEach((pid, i) => {
-        io.to(`user:${pid}`).emit('fare:offer', {
-          tripId,
-          bookingId: bookings[i]?.bookingId,
-          fare_per_passenger: farePerPassenger,
-          from_loc: fromLoc,
-          to_loc: toLoc,
-        });
+      passengerIds.forEach(pid => {
+        io.to(`user:${pid}`).emit('pool:fare_set', { tripId, fare, dest });
       });
-      console.log(`💰  Fare offer emitted for trip ${tripId} → ${passengerIds.length} passengers`);
+      console.log(`💰  fare_set trip:${tripId} fare:${fare} → ${passengerIds.length} passengers`);
+    });
+
+    // ── FARE RESPONSE FROM PASSENGER ─────────────────────
+    // Passenger emits accepted or refused; broadcast to the trip room (driver sees it)
+    socket.on('pool:fare_response', ({ tripId, passengerId, accepted }) => {
+      const conn = connections.get(socket.id) || {};
+      // Notify driver (in trip room) about the response
+      io.to(`trip:${tripId}`).emit('pool:fare_response', { passengerId, accepted, name: conn.name });
+      console.log(`💰  fare_response trip:${tripId} passenger:${passengerId} accepted:${accepted}`);
     });
 
     // ── CHECKIN UPDATE ────────────────────────────────────
