@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-import socket, { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareSet } from '../../socket.js';
+import { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareProposed } from '../../socket.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import TripMap from '../../components/TripMap.jsx';
 
@@ -30,24 +30,11 @@ export default function DriverDash() {
   const [chatInput,        setChatInput]        = useState('');
   const [sendingChat,      setSendingChat]      = useState(false);
   const [editingStops,     setEditingStops]     = useState(null); // {tripId, stops}
-  const [fareResponses,    setFareResponses]    = useState([]); // [{name, accepted}] live responses
   const chatEndRef = useRef(null);
 
   const unread = notifs.filter(n => !n.is_read).length;
 
-  useEffect(() => {
-    loadTrips(); loadRatings(); loadNotifs(); loadPoolInvitations();
-    // Listen for passenger fare accept/refuse responses
-    socket.on('pool:fare_response', ({ passengerId, accepted, name }) => {
-      setFareResponses(prev => [...prev.filter(r => r.passengerId !== passengerId), { passengerId, accepted, name }]);
-      notify(
-        accepted ? `${name} accepted the fare ✅` : `${name} refused the fare ❌`,
-        accepted ? 'They remain in the group.' : 'They have left the group.',
-        accepted ? 'default' : 'error'
-      );
-    });
-    return () => { socket.off('pool:fare_response'); };
-  }, []);
+  useEffect(() => { loadTrips(); loadRatings(); loadNotifs(); loadPoolInvitations(); }, []);
 
   async function loadPoolInvitations() {
     setPoolLoading(true);
@@ -82,9 +69,9 @@ export default function DriverDash() {
       const inv = poolInvitations.find(i => i.id === invId);
       if (inv?.members?.length) {
         emitPoolConfirmed(result.tripId, inv.members.map(m => m.passenger_id));
-        // Emit fare to passengers so they see accept/refuse modal
-        if (farePerPassenger) {
-          socket.emit('pool:fare_set', { tripId: result.tripId, fare: parseFloat(farePerPassenger), dest: inv.dest_label, passengerIds: inv.members.map(m => m.passenger_id) });
+        // Also broadcast the fare so each passenger can accept/refuse
+        if (farePerPassenger && parseFloat(farePerPassenger) > 0) {
+          emitFareProposed(result.tripId, inv.members.map(m => m.passenger_id), parseFloat(farePerPassenger), user.name);
         }
       }
       loadPoolInvitations(); loadTrips();
@@ -216,33 +203,8 @@ export default function DriverDash() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes poolGlow{0%,100%{opacity:.5}50%{opacity:1}} @keyframes fadeInUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}} @keyframes activePulse{0%,100%{box-shadow:0 0 0 3px rgba(74,222,128,0.3)}50%{box-shadow:0 0 0 7px rgba(74,222,128,0.08)}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes poolGlow{0%,100%{opacity:.5}50%{opacity:1}} @keyframes fadeInUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
       <Topbar role="driver" name={user.name} onLogout={logout} notifCount={unread} onNotif={openNotifs} />
-
-      {/* ── ACTIVE TRIP BANNER (all tabs) ── */}
-      {(() => {
-        const activeTrip = trips.find(t => t.status === 'active');
-        if (!activeTrip) return null;
-        return (
-          <div
-            onClick={() => { goTab('trips'); openTrip(activeTrip); }}
-            style={{ background: activeTrip.is_pool ? 'linear-gradient(90deg,#0c1a35,#0f2347)' : 'linear-gradient(90deg,#0a1a0a,#0f2b0f)', borderBottom: `2px solid ${activeTrip.is_pool ? 'rgba(96,165,250,0.4)' : 'rgba(74,222,128,0.4)'}`, padding:'10px 20px', display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
-            <div style={{ width:10, height:10, borderRadius:'50%', background: activeTrip.is_pool ? '#60a5fa' : '#4ade80', flexShrink:0, animation:'activePulse 1.5s ease-in-out infinite' }}/>
-            <span style={{ fontSize:13, fontWeight:700, color: activeTrip.is_pool ? '#60a5fa' : '#4ade80', flex:1 }}>
-              {activeTrip.is_pool ? '🚀' : '🚐'} Trip Active · {activeTrip.from_loc} → {activeTrip.to_loc}
-            </span>
-            {activeTrip.is_pool && (
-              <button
-                onClick={e => { e.stopPropagation(); openPoolChat(activeTrip.id); }}
-                style={{ background:'rgba(29,78,216,0.3)', border:'1px solid rgba(96,165,250,0.4)', borderRadius:8, padding:'5px 12px', color:'#60a5fa', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
-                💬 Chat
-              </button>
-            )}
-            <span style={{ fontSize:11, color:'#555' }}>Manage →</span>
-          </div>
-        );
-      })()}
-
       <div style={{ maxWidth:860, margin:'0 auto', padding:'28px 20px' }}>
 
         {notifOpen && (
@@ -300,12 +262,11 @@ export default function DriverDash() {
               <h2 style={{ fontSize:20, fontWeight:400, margin:0 }}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
               {selTrip.is_pool ? <span style={{ fontSize:12, fontWeight:700, color:'#fbbf24', background:'rgba(251,191,36,0.12)', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:'3px 10px' }}>🚗 Pool Ride</span> : null}
             </div>
-            <p style={{ color:C.text2, fontSize:13, marginBottom: selTrip.is_pool ? 10 : 20 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
-            {/* Chat available: pool trips always, regular trips when active */}
+            <p style={{ color:C.text2, fontSize:13, marginBottom: (selTrip.is_pool || selTrip.status==='active') ? 10 : 20 }}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
             {(selTrip.is_pool || selTrip.status === 'active') && (
               <button onClick={() => openPoolChat(selTrip.id)}
-                style={{ display:'inline-flex', alignItems:'center', gap:6, background: selTrip.is_pool ? 'rgba(29,78,216,0.2)' : 'rgba(74,222,128,0.12)', border: selTrip.is_pool ? '1px solid #1e3a5f' : '1px solid rgba(74,222,128,0.3)', borderRadius:10, padding:'9px 16px', fontSize:13, fontWeight:600, color: selTrip.is_pool ? '#60a5fa' : '#4ade80', cursor:'pointer', fontFamily:"'Sora',sans-serif", marginBottom:16 }}>
-                {selTrip.is_pool ? '💬 Group Chat' : '💬 Chat with Passengers'}
+                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(29,78,216,0.2)', border:'1px solid #1e3a5f', borderRadius:10, padding:'9px 16px', fontSize:13, fontWeight:600, color:'#60a5fa', cursor:'pointer', fontFamily:"'Sora',sans-serif", marginBottom:16 }}>
+                💬 {selTrip.is_pool ? 'Group Chat' : 'Chat with Passengers'}
               </button>
             )}
 
@@ -632,22 +593,6 @@ export default function DriverDash() {
                       style={{ flex:1, background:'transparent', color:'#f87171', border:'1px solid rgba(248,113,113,0.3)', borderRadius:12, padding:'14px', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
                       ✕ Decline
                     </button>
-                  </div>
-                )}
-
-                {/* Fare responses live view — shown after accepting */}
-                {inv.response === 'accepted' && fareResponses.length > 0 && (
-                  <div style={{ background:'rgba(30,58,95,0.25)', borderRadius:12, padding:'12px 14px', marginBottom:10, border:'1px solid rgba(96,165,250,0.1)' }}>
-                    <div style={{ fontSize:11, color:'#4b7ab5', marginBottom:8, textTransform:'uppercase', letterSpacing:'.08em' }}>💬 Passenger Fare Responses</div>
-                    {fareResponses.map((r, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', borderTop: i>0?'1px solid rgba(96,165,250,0.07)':'none' }}>
-                        <div style={{ width:8, height:8, borderRadius:'50%', background: r.accepted ? '#4ade80' : '#f87171', flexShrink:0 }}/>
-                        <span style={{ fontSize:13, color:'#fff', flex:1 }}>{r.name}</span>
-                        <span style={{ fontSize:12, fontWeight:700, color: r.accepted ? '#4ade80' : '#f87171' }}>
-                          {r.accepted ? '✅ Accepted' : '❌ Refused & left'}
-                        </span>
-                      </div>
-                    ))}
                   </div>
                 )}
 

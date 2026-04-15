@@ -1,10 +1,11 @@
 {
-  "name": "shuttle-frontend",
+  "name": "waslney",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "install-all": "cd frontend && npm install && cd ../backend && npm install",
+    "build": "cd frontend && npm install && npm run build",
+    "start": "node backend/server.js",
+    "dev": "cd frontend && npm run dev"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

@@ -76,6 +76,7 @@ export const getPoolInvitations   = ()        => get('/pool/invitations');
 export const acceptPoolInvitation = (id, body={}) => post(`/pool/invitations/${id}/accept`, body);
 export const declinePoolInvitation= (id, body={}) => post(`/pool/invitations/${id}/decline`, body);
 export const getPoolFarePreview   = (id)         => get(`/pool/invitations/${id}/fare-preview`);
+export const respondToPoolFare    = (tripId, accepted) => post(`/pool/fare-response/${tripId}`, { accepted });
 export const updatePoolStops      = (tid, s)  => put(`/pool/trips/${tid}/stops`, { stops: s });
 export const getPoolChat          = (tid)     => get(`/pool/chat/${tid}`);
 export const sendPoolMessage      = (tid, msg)=> post(`/pool/chat/${tid}`, { message: msg });

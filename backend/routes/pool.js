@@ -428,6 +428,42 @@ router.post('/chat/:tripId',requireAuth,async(req,res)=>{
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
 
+// ── PASSENGER FARE RESPONSE (accept or refuse driver's fare) ───
+router.post('/fare-response/:tripId',requireAuth,requireRole('passenger'),async(req,res)=>{
+  const{accepted}=req.body;
+  const tripId=req.params.tripId;
+  const passengerId=req.user.id;
+  try{
+    // Find the passenger's booking on this trip
+    const[[booking]]=await db.query(
+      "SELECT b.*,pg.id AS group_id FROM bookings b LEFT JOIN pool_groups pg ON pg.trip_id=b.trip_id WHERE b.trip_id=? AND b.passenger_id=? AND b.status='confirmed'",
+      [tripId,passengerId]
+    );
+    if(!booking) return res.status(404).json({error:'Booking not found or already responded'});
+
+    if(accepted){
+      // Passenger accepts — nothing changes, just notify
+      await notify(passengerId,'✅ You accepted the fare. Your seat is confirmed!');
+      res.json({ok:true,accepted:true,message:'Fare accepted'});
+    } else {
+      // Passenger refuses — cancel their booking, remove from pool_request
+      await db.query("UPDATE bookings SET status='cancelled' WHERE trip_id=? AND passenger_id=?",[tripId,passengerId]);
+      await db.query("UPDATE pool_requests SET status='cancelled' WHERE pool_group_id=? AND passenger_id=?",[booking.group_id,passengerId]);
+      await notify(passengerId,'❌ You refused the fare and left the pool group. Your booking has been cancelled.');
+      // Notify driver that a passenger left
+      const[[trip]]=await db.query('SELECT driver_id,from_loc,to_loc FROM trips WHERE id=?',[tripId]);
+      if(trip?.driver_id){
+        const[[pax]]=await db.query('SELECT name FROM users WHERE id=?',[passengerId]);
+        await notify(trip.driver_id,`ℹ️ Passenger ${pax?.name||'A passenger'} refused the fare and left the pool group.`);
+      }
+      res.json({ok:true,accepted:false,message:'Fare refused, booking cancelled'});
+    }
+  }catch(err){
+    console.error('POST /pool/fare-response ERROR:',err);
+    res.status(500).json({error:'Server error',detail:err.message});
+  }
+});
+
 router.post('/expire-groups',async(req,res)=>{
   try{
     const[exp]=await db.query(`SELECT id FROM pool_groups WHERE status='pending' AND TIMESTAMP(desired_date,desired_time)<DATE_SUB(NOW(),INTERVAL 30 MINUTE)`);
