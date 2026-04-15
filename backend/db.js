@@ -3,9 +3,9 @@ const mysql = require('mysql2/promise');
 
 const pool = mysql.createPool({
   host:     process.env.DB_HOST     || 'localhost',
-  user:     process.env.DB_USER     || 'root',
-  password: process.env.DB_PASS     || '',
-  database: process.env.DB_NAME     || 'shuttle',
+  user:     process.env.DB_USER     || 'u946447529_Moatasem',
+  password: process.env.DB_PASS     || 'Ilovemom_dad2',
+  database: process.env.DB_NAME     || 'u946447529_Wasalney',
   port:     process.env.DB_PORT     || 3306,
   waitForConnections: true,
   connectionLimit: 10,
@@ -15,12 +15,12 @@ const pool = mysql.createPool({
 
 pool.getConnection()
   .then(conn => {
-    console.log('✅  MySQL connected — database: shuttle');
+    console.log(`✅  MySQL connected — database: ${process.env.DB_NAME || 'u946447529_Wasalney'}`);
     conn.release();
   })
   .catch(err => {
     console.error('❌  MySQL connection failed:', err.message);
-    console.error('    Make sure XAMPP MySQL is running and shuttle database exists.');
+    console.error('    Check DB credentials in .env and make sure MySQL is running.');
     process.exit(1);
   });
 
