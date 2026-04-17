@@ -1,0 +1,9 @@
+{
+  "/_app": "pages/_app.js",
+  "/_error": "pages/_error.js",
+  "/Landing": "pages/Landing.js",
+  "/admin/AdminDash": "pages/admin/AdminDash.js",
+  "/driver/DriverDash": "pages/driver/DriverDash.js",
+  "/passenger/PassengerDash": "pages/passenger/PassengerDash.js",
+  "/_document": "pages/_document.js"
+}

@@ -1,4 +1,4 @@
-const BASE = 'https://api.waslney.com/api';
+const BASE = '/api';
 
 function getToken() {
   return localStorage.getItem('shuttle_token');

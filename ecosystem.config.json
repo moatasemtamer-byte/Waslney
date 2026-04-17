@@ -1,0 +1,17 @@
+{
+  "apps": [
+    {
+      "name": "waslney",
+      "script": "backend/server.js",
+      "cwd": "/home/u946447529/domains/waslney.com/public_html",
+      "env": {
+        "NODE_ENV": "production",
+        "PORT": "3001"
+      },
+      "watch": false,
+      "instances": 1,
+      "autorestart": true,
+      "max_memory_restart": "256M"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+import { io } from 'socket.io-client';
+
+const socket = io('/', { autoConnect: false, transports: ['websocket', 'polling'] });
+
+export function connectSocket(userId, role, tripId = null) {
+  if (!socket.connected) socket.connect();
+  socket.emit('auth', { userId, role, tripId });
+  if (role === 'admin') socket.emit('join:admin');
+}
+
+export function watchTrip(tripId) {
+  socket.emit('watch:trip', { tripId });
+}
+
+export function sendLocation(tripId, lat, lng) {
+  socket.emit('driver:location', { tripId, lat, lng });
+}
+
+export function emitTripStarted(tripId)   { socket.emit('trip:started',   { tripId }); }
+export function emitTripCompleted(tripId) { socket.emit('trip:completed', { tripId }); }
+
+export function emitPoolConfirmed(tripId, passengerIds) {
+  socket.emit('pool:confirmed', { tripId, passengerIds });
+}
+
+export function emitCheckinUpdate(tripId, bookingId, status) {
+  socket.emit('checkin:update', { tripId, bookingId, status });
+}
+
+// Used by DriverDash when driver sets fare after accepting a pool invitation
+export function emitFareOffer(tripId, passengerIds, bookings, farePerPassenger, fromLoc, toLoc) {
+  socket.emit('fare:offer', { tripId, passengerIds, bookings, farePerPassenger, fromLoc, toLoc });
+}
+
+// Alias — DriverDash may import either name depending on version
+export const emitFareProposed = emitFareOffer;
+
+export default socket;
