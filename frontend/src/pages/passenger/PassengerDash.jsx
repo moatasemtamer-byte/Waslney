@@ -366,28 +366,32 @@ export default function PassengerDash(){
 
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
 
+  // Tab-specific data refresh
   useEffect(()=>{
-    if(tab!=='activity')return;
-    loadBookings();loadMyPoolRequests();
+    if(tab==='activity'){loadBookings();loadMyPoolRequests();}
+  },[tab]);
+
+  // Always-running fare offer polling (tab-independent)
+  useEffect(()=>{
     const interval=setInterval(async()=>{
       try{
         const reqs=await api.getMyPoolRequests();
         setMyPoolRequests(reqs);
-        // Check for pending fare offer
+        // Check for pending fare offer using proposed_fare from trips join
         const withFare = reqs.find(r => r.fare_per_passenger && !r.fare_responded);
         if (withFare && !fareOffer) {
           setFareOffer({
             tripId: withFare.group_trip_id,
             bookingId: withFare.booking_id,
             fare_per_passenger: withFare.fare_per_passenger,
-            from_loc: withFare.origin_label,
-            to_loc: withFare.dest_label,
+            from_loc: withFare.fare_from_loc || withFare.origin_label,
+            to_loc:   withFare.fare_to_loc   || withFare.dest_label,
           });
         }
       }catch{}
     },8000);
     return()=>clearInterval(interval);
-  },[tab]);
+  },[fareOffer]);
 
   useEffect(()=>{if(tab==='home'){loadActivePoolGroup();loadBookings();}},[tab]);
 

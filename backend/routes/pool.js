@@ -202,7 +202,7 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
   try{
-    const[rows]=await db.query(`SELECT pr.*,pg.status AS group_status,pg.trip_id AS group_trip_id,(SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size FROM pool_requests pr LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id WHERE pr.passenger_id=? ORDER BY pr.created_at DESC`,[req.user.id]);
+    const[rows]=await db.query(`SELECT pr.*, pg.status AS group_status, pg.trip_id AS group_trip_id, t.proposed_fare AS fare_per_passenger, t.from_loc AS fare_from_loc, t.to_loc AS fare_to_loc, (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size FROM pool_requests pr LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id LEFT JOIN trips t ON t.id=pg.trip_id WHERE pr.passenger_id=? ORDER BY pr.created_at DESC`,[req.user.id]);
     res.json(rows);
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
@@ -465,6 +465,20 @@ router.post('/trips/:tripId/propose-fare', requireAuth, requireRole('driver'), a
       await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
         [b.passenger_id, `💰 Driver proposed a fare of ${fare_per_passenger} EGP per passenger for your pool ride. Open the app to accept or decline.`]);
     }
+
+    // Emit fare:offer socket event directly to each passenger's room
+    try {
+      const { io } = require('../server');
+      const [[trip]] = await db.query('SELECT from_loc, to_loc FROM trips WHERE id=?', [req.params.tripId]);
+      for (const b of bookings) {
+        io.to(`user:${b.passenger_id}`).emit('fare:offer', {
+          tripId: parseInt(req.params.tripId),
+          fare_per_passenger,
+          from_loc: trip?.from_loc || '',
+          to_loc:   trip?.to_loc   || '',
+        });
+      }
+    } catch(_) {}
 
     res.json({ ok:true, notified: bookings.length, fare_per_passenger, driver_name: driverName });
   } catch(err) { console.error(err); res.status(500).json({error:err.message}); }

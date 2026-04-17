@@ -44,6 +44,9 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(DIST, 'index.html'));
 });
 
+// ── EXPORT io so routes can emit events ───────────────────
+module.exports = { io };
+
 // ── START ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, async () => {
