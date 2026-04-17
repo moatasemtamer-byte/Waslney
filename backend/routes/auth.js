@@ -1,157 +1,154 @@
-const router  = require('express').Router();
-const bcrypt  = require('bcrypt');
+// backend/routes/auth.js
+require('dotenv').config();
+const express = require('express');
+const bcrypt  = require('bcryptjs');
+const jwt     = require('jsonwebtoken');
 const db      = require('../db');
-const { signToken, requireAuth, requireRole } = require('../auth');
+const { requireAuth } = require('../auth');
 
-const otpStore = {};
+const router     = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'waslney_secret_change_me';
 
-// POST /api/auth/send-otp
+// In-memory OTP store (fine for single Railway instance)
+const otpStore = new Map(); // phone -> { code, expires }
+
+function signToken(user) {
+  return jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+// ── POST /api/auth/send-otp ───────────────────────────────────────────────────
 router.post('/send-otp', async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone required' });
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  otpStore[phone] = { otp, expires: Date.now() + 5 * 60 * 1000 };
-  console.log(`📱  OTP for ${phone}: ${otp}`);
-  res.json({ message: 'OTP sent', dev_otp: otp });
+
+  const code    = String(Math.floor(100000 + Math.random() * 900000));
+  const expires = Date.now() + 10 * 60 * 1000; // 10 min
+  otpStore.set(phone, { code, expires });
+
+  console.log(`📱 OTP for ${phone}: ${code}`);
+  // TODO: send via SMS in production
+  res.json({ ok: true, dev_otp: code });
 });
 
-// POST /api/auth/register
-// Drivers: requires profile_photo + 3 document photos (base64)
-// Driver accounts start as pending_review — admin must approve before login
+// ── POST /api/auth/register ───────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   const {
-    name, phone, password, role, car, plate, otp,
-    profile_photo, car_license_photo, driver_license_photo, criminal_record_photo
+    name, phone, password, role, otp,
+    car, plate,
+    profile_photo,
+    car_license_photo,
+    driver_license_photo,
+    criminal_record_photo,
   } = req.body;
 
-  if (!name || !phone || !password || !role)
-    return res.status(400).json({ error: 'name, phone, password and role are required' });
-
-  if (role === 'driver') {
-    if (!car || !plate)
-      return res.status(400).json({ error: 'Car model and plate are required for drivers' });
-    if (!profile_photo || !car_license_photo || !driver_license_photo || !criminal_record_photo)
-      return res.status(400).json({ error: 'All photos are required: profile, car license, driver license, criminal record' });
+  if (!name || !phone || !password || !role) {
+    return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  const record = otpStore[phone];
-  if (!record || record.otp !== otp || Date.now() > record.expires)
+  // Verify OTP
+  const stored = otpStore.get(phone);
+  if (!stored || stored.code !== String(otp) || Date.now() > stored.expires) {
     return res.status(400).json({ error: 'Invalid or expired OTP' });
-  delete otpStore[phone];
+  }
+  otpStore.delete(phone);
+
+  // Check phone not already taken
+  const [[existing]] = await db.query('SELECT id FROM users WHERE phone = ?', [phone]);
+  if (existing) return res.status(400).json({ error: 'Phone already registered' });
+
+  // Driver: validate docs
+  if (role === 'driver') {
+    if (!car || !plate) return res.status(400).json({ error: 'Car model and plate required' });
+    if (!car_license_photo || !driver_license_photo || !criminal_record_photo) {
+      return res.status(400).json({ error: 'All 3 document photos are required' });
+    }
+  }
 
   try {
-    const [existing] = await db.query('SELECT id FROM users WHERE phone=?', [phone]);
-    if (existing.length) return res.status(409).json({ error: 'Phone already registered' });
+    const hash           = await bcrypt.hash(password, 10);
+    const account_status = role === 'driver' ? 'pending_review' : 'active';
 
-    const hash = await bcrypt.hash(password, 10);
-    const accountStatus = role === 'driver' ? 'pending_review' : 'active';
-
-    // Insert user — profile_photo & account_status columns added via migration
     const [result] = await db.query(
-      'INSERT INTO users (name,phone,password,role,car,plate,account_status,profile_photo) VALUES (?,?,?,?,?,?,?,?)',
-      [name, phone, hash, role, car||null, plate||null, accountStatus, profile_photo||null]
+      `INSERT INTO users (name, phone, password, role, car, plate, profile_photo, account_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, phone, hash, role, car || null, plate || null, profile_photo || null, account_status]
     );
     const userId = result.insertId;
 
+    // Save driver documents
     if (role === 'driver') {
-      // Save documents
       await db.query(
-        'INSERT INTO driver_documents(user_id,car_license_photo,driver_license_photo,criminal_record_photo) VALUES(?,?,?,?)',
+        `INSERT INTO driver_documents
+           (user_id, car_license_photo, driver_license_photo, criminal_record_photo)
+         VALUES (?, ?, ?, ?)`,
         [userId, car_license_photo, driver_license_photo, criminal_record_photo]
-      );
-      // Notify all admins
-      await db.query(
-        'INSERT INTO notifications(user_id,message) SELECT id,? FROM users WHERE role="admin"',
-        [`🚗 New driver pending review: ${name} — ${phone}`]
       );
     }
 
-    const token = signToken({ id: userId, role, name });
-    res.status(201).json({
-      token,
-      user: { id: userId, name, phone, role, car, plate, account_status: accountStatus }
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    const [[user]] = await db.query(
+      `SELECT id, name, phone, role, car, plate, account_status, created_at
+       FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    // Drivers go to pending screen — no token issued yet
+    if (role === 'driver') {
+      return res.json({ ok: true, user });
+    }
+
+    const token = signToken(user);
+    res.json({ ok: true, user, token });
+
+  } catch (e) {
+    console.error('Register error:', e);
+    res.status(500).json({ error: e.message });
   }
 });
 
-// POST /api/auth/login — blocks pending/rejected drivers
+// ── POST /api/auth/login ──────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   const { phone, password } = req.body;
-  if (!phone || !password) return res.status(400).json({ error: 'Phone and password required' });
+  if (!phone || !password) {
+    return res.status(400).json({ error: 'Phone and password required' });
+  }
+
   try {
-    const [rows] = await db.query('SELECT * FROM users WHERE phone=?', [phone]);
-    if (!rows.length) return res.status(401).json({ error: 'Invalid credentials' });
-    const user = rows[0];
+    const [[user]] = await db.query('SELECT * FROM users WHERE phone = ?', [phone]);
+    if (!user) return res.status(401).json({ error: 'Wrong credentials' });
+
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!match) return res.status(401).json({ error: 'Wrong credentials' });
 
-    const status = user.account_status || 'active';
-    if (status === 'pending_review')
-      return res.status(403).json({ error: 'pending_review', message: 'Your account is under review. You\'ll be notified once approved.' });
-    if (status === 'rejected')
-      return res.status(403).json({ error: 'rejected', message: user.rejection_note || 'Your account was not approved. Contact support.' });
+    // Block pending / rejected drivers
+    if (user.account_status === 'pending_review') {
+      return res.status(403).json({ error: 'pending_review' });
+    }
+    if (user.account_status === 'rejected') {
+      return res.status(403).json({ error: 'rejected', detail: user.rejection_note || '' });
+    }
 
-    const token = signToken({ id: user.id, role: user.role, name: user.name });
-    res.json({ token, user: { id: user.id, name: user.name, phone: user.phone, role: user.role, car: user.car, plate: user.plate, account_status: status } });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    const token = signToken(user);
+    const { password: _pw, ...safeUser } = user;
+    res.json({ ok: true, user: safeUser, token });
+
+  } catch (e) {
+    console.error('Login error:', e);
+    res.status(500).json({ error: e.message });
   }
 });
 
-// GET /api/auth/me
+// ── GET /api/auth/me ──────────────────────────────────────────────────────────
 router.get('/me', requireAuth, async (req, res) => {
-  const [rows] = await db.query('SELECT id,name,phone,role,car,plate,account_status,created_at FROM users WHERE id=?', [req.user.id]);
-  if (!rows.length) return res.status(404).json({ error: 'User not found' });
-  res.json(rows[0]);
-});
-
-// ── ADMIN: Driver Review ───────────────────────────────────────────────────
-
-// GET /api/auth/admin/pending-drivers
-router.get('/admin/pending-drivers', requireAuth, requireRole('admin'), async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT u.id, u.name, u.phone, u.car, u.plate, u.created_at,
-             u.account_status, u.profile_photo, u.rejection_note,
-             d.car_license_photo, d.driver_license_photo, d.criminal_record_photo, d.submitted_at
-      FROM users u
-      LEFT JOIN driver_documents d ON d.user_id = u.id
-      WHERE u.role='driver' AND u.account_status IN ('pending_review','rejected')
-      ORDER BY u.created_at DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error(err); res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// POST /api/auth/admin/review-driver/:id  { action: 'approve'|'reject', rejection_note? }
-router.post('/admin/review-driver/:id', requireAuth, requireRole('admin'), async (req, res) => {
-  const { action, rejection_note } = req.body;
-  if (!['approve','reject'].includes(action))
-    return res.status(400).json({ error: 'action must be approve or reject' });
-  try {
-    const [[driver]] = await db.query('SELECT * FROM users WHERE id=? AND role="driver"', [req.params.id]);
-    if (!driver) return res.status(404).json({ error: 'Driver not found' });
-
-    const newStatus = action === 'approve' ? 'active' : 'rejected';
-    await db.query('UPDATE users SET account_status=?, rejection_note=? WHERE id=?',
-      [newStatus, rejection_note||null, req.params.id]);
-    await db.query('UPDATE driver_documents SET reviewed_at=NOW(), reviewed_by=? WHERE user_id=?',
-      [req.user.id, req.params.id]);
-
-    const msg = action === 'approve'
-      ? '🎉 Your driver account has been approved! You can now log in and start driving.'
-      : `❌ Your driver account was not approved. ${rejection_note || 'Please contact support.'}`;
-    await db.query('INSERT INTO notifications(user_id,message) VALUES(?,?)', [req.params.id, msg]);
-
-    res.json({ ok: true, status: newStatus });
-  } catch (err) {
-    console.error(err); res.status(500).json({ error: 'Server error' });
+    const [[user]] = await db.query(
+      `SELECT id, name, phone, role, car, plate, account_status, created_at
+       FROM users WHERE id = ?`,
+      [req.user.id]
+    );
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

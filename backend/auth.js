@@ -1,37 +1,26 @@
-require('dotenv').config();
+// backend/auth.js — JWT middleware only (required by routes as '../auth')
 const jwt = require('jsonwebtoken');
+const JWT_SECRET = process.env.JWT_SECRET || 'waslney_secret_change_me';
 
-const SECRET = process.env.JWT_SECRET || 'shuttle_secret';
-
-function signToken(payload) {
-  return jwt.sign(payload, SECRET, { expiresIn: process.env.JWT_EXPIRES || '7d' });
-}
-
-function verifyToken(token) {
-  return jwt.verify(token, SECRET);
-}
-
-// Express middleware — attaches req.user if valid token
 function requireAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
+  const header = req.headers['authorization'] || '';
+  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'No token provided' });
   try {
-    req.user = verifyToken(header.slice(7));
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    return res.status(401).json({ error: 'Invalid token' });
   }
 }
 
-function requireRole(...roles) {
+function requireRole(role) {
   return (req, res, next) => {
-    if (!roles.includes(req.user?.role)) {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!req.user || req.user.role !== role) {
+      return res.status(403).json({ error: `Requires role: ${role}` });
     }
     next();
   };
 }
 
-module.exports = { signToken, verifyToken, requireAuth, requireRole };
+module.exports = { requireAuth, requireRole };
