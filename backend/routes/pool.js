@@ -202,9 +202,24 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
   try{
-    const[rows]=await db.query(`SELECT pr.*, pg.status AS group_status, pg.trip_id AS group_trip_id, t.proposed_fare AS fare_per_passenger, t.from_loc AS fare_from_loc, t.to_loc AS fare_to_loc, (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size FROM pool_requests pr LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id LEFT JOIN trips t ON t.id=pg.trip_id WHERE pr.passenger_id=? ORDER BY pr.created_at DESC`,[req.user.id]);
+    // Ensure proposed_fare column exists (safe no-op if already present)
+    try { await db.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+    const[rows]=await db.query(`
+      SELECT pr.*,
+        pg.status AS group_status,
+        pg.trip_id AS group_trip_id,
+        COALESCE(t.proposed_fare, NULL) AS fare_per_passenger,
+        t.from_loc AS fare_from_loc,
+        t.to_loc AS fare_to_loc,
+        (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
+      FROM pool_requests pr
+      LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
+      LEFT JOIN trips t ON t.id=pg.trip_id
+      WHERE pr.passenger_id=?
+      ORDER BY pr.created_at DESC
+    `,[req.user.id]);
     res.json(rows);
-  }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
+  }catch(err){console.error('requests/mine error:',err);res.status(500).json({error:'Server error'});}
 });
 
 router.delete('/requests/:id',requireAuth,requireRole('passenger'),async(req,res)=>{
@@ -457,7 +472,6 @@ router.post('/trips/:tripId/propose-fare', requireAuth, requireRole('driver'), a
 
     // Save proposed fare to trips table (or a new column)
     try { await db.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
-    try { await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
     await db.query('UPDATE trips SET proposed_fare=? WHERE id=?', [fare_per_passenger, req.params.tripId]);
 
     // Notify each passenger via notification
