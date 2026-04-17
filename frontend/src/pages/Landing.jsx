@@ -3,11 +3,30 @@ import { useAuth } from '../App.jsx';
 import { sendOTP, register, login } from '../api.js';
 import { WaslneyLogo, Inp, btnPrimary } from '../components/UI.jsx';
 
-function readFileAsBase64(file) {
+// Compress image to max 1200px wide/tall at 80% JPEG quality before upload.
+// This shrinks a typical 5 MB phone photo down to ~100–200 KB — well within limits.
+function compressImage(file, maxDim = 1200, quality = 0.78) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload  = () => resolve(reader.result);
     reader.onerror = reject;
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        // Work out new dimensions keeping aspect ratio
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round(height * maxDim / width);  width = maxDim; }
+          else                { width  = Math.round(width  * maxDim / height); height = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width  = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
     reader.readAsDataURL(file);
   });
 }
@@ -50,7 +69,7 @@ function PhotoTile({ label, arabic, emoji, value, onChange, error }) {
             {value ? '✓ Photo uploaded' : 'Tap to upload'}
           </div>
           <div style={{ fontSize:11, color:'#555', marginTop:2 }}>
-            {value ? 'Tap to change' : 'JPG or PNG — max 5 MB'}
+            {value ? 'Tap to change' : 'JPG or PNG — auto-compressed'}
           </div>
         </div>
       </div>
@@ -59,8 +78,10 @@ function PhotoTile({ label, arabic, emoji, value, onChange, error }) {
         onChange={async e => {
           const file = e.target.files[0];
           if (!file) return;
-          if (file.size > 5 * 1024 * 1024) { alert('File too large. Max 5 MB.'); return; }
-          onChange(await readFileAsBase64(file));
+          if (file.size > 15 * 1024 * 1024) { alert('File too large. Max 15 MB.'); return; }
+          try {
+            onChange(await compressImage(file));
+          } catch { alert('Could not read image. Please try a different file.'); }
         }}
       />
     </div>

@@ -18,12 +18,7 @@ async function request(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data.error || 'Request failed');
-    err.detail  = data.message || '';
-    err.status  = res.status;
-    throw err;
-  }
+  if (!res.ok) throw new Error(data.error || 'Request failed');
   return data;
 }
 
@@ -33,12 +28,10 @@ const put    = (p, b) => request('PUT',    p, b);
 const del    = (p)    => request('DELETE', p);
 
 // ── AUTH ──────────────────────────────────────────────────
-export const sendOTP             = (phone)        => post('/auth/send-otp',  { phone });
-export const register            = (body)         => post('/auth/register',  body);
-export const login               = (phone, pass)  => post('/auth/login',     { phone, password: pass });
-export const getMe               = ()             => get('/auth/me');
-export const getPendingDrivers   = ()             => get('/auth/admin/pending-drivers');
-export const reviewDriver        = (id, body)     => post(`/auth/admin/review-driver/${id}`, body);
+export const sendOTP      = (phone)        => post('/auth/send-otp',  { phone });
+export const register     = (body)         => post('/auth/register',  body);
+export const login        = (phone, pass)  => post('/auth/login',     { phone, password: pass });
+export const getMe        = ()             => get('/auth/me');
 
 // ── TRIPS ─────────────────────────────────────────────────
 export const getTrips        = ()    => get('/trips');
@@ -83,9 +76,9 @@ export const getPoolInvitations   = ()        => get('/pool/invitations');
 export const acceptPoolInvitation = (id, body={}) => post(`/pool/invitations/${id}/accept`, body);
 export const declinePoolInvitation= (id, body={}) => post(`/pool/invitations/${id}/decline`, body);
 export const getPoolFarePreview   = (id)         => get(`/pool/invitations/${id}/fare-preview`);
-export const respondToPoolFare    = (tripId, accepted) => post(`/pool/fare-response/${tripId}`, { accepted });
 export const updatePoolStops      = (tid, s)  => put(`/pool/trips/${tid}/stops`, { stops: s });
 export const getPoolChat          = (tid)     => get(`/pool/chat/${tid}`);
 export const sendPoolMessage      = (tid, msg)=> post(`/pool/chat/${tid}`, { message: msg });
 export const getNearbyPoolGroups  = (q)       => get(`/pool/groups/nearby?${new URLSearchParams(q)}`);
+export const respondToFare        = (tripId, response) => post(`/pool/fare-response`, { tripId, response });
 

@@ -117,16 +117,28 @@ module.exports = async function runMigrations() {
     // ── Driver document review system ──────────────────────────────────────
     // Add account_status, profile_photo, rejection_note to users
     await addCol('users', 'account_status', "ENUM('active','pending_review','rejected') NOT NULL DEFAULT 'active'");
-    await addCol('users', 'profile_photo',  'MEDIUMTEXT DEFAULT NULL');
+    await addCol('users', 'profile_photo',  'LONGTEXT DEFAULT NULL');
     await addCol('users', 'rejection_note', 'TEXT DEFAULT NULL');
+
+    // Upgrade profile_photo to LONGTEXT if it was added as MEDIUMTEXT previously
+    try {
+      const [[colInfo]] = await db.query(
+        `SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='users' AND COLUMN_NAME='profile_photo'`
+      );
+      if (colInfo && colInfo.DATA_TYPE === 'mediumtext') {
+        await db.query('ALTER TABLE `users` MODIFY COLUMN `profile_photo` LONGTEXT DEFAULT NULL');
+        console.log('  + Upgraded users.profile_photo to LONGTEXT');
+      }
+    } catch(_) {}
 
     // driver_documents: stores base64 photos of the 3 required documents
     await db.query(`CREATE TABLE IF NOT EXISTS driver_documents (
       id                    INT AUTO_INCREMENT PRIMARY KEY,
       user_id               INT NOT NULL UNIQUE,
-      car_license_photo     MEDIUMTEXT NOT NULL COMMENT 'رخصة العربية',
-      driver_license_photo  MEDIUMTEXT NOT NULL COMMENT 'رخصة السائق',
-      criminal_record_photo MEDIUMTEXT NOT NULL COMMENT 'الفيش الجنائي',
+      car_license_photo     LONGTEXT NOT NULL COMMENT 'رخصة العربية',
+      driver_license_photo  LONGTEXT NOT NULL COMMENT 'رخصة السائق',
+      criminal_record_photo LONGTEXT NOT NULL COMMENT 'الفيش الجنائي',
       submitted_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       reviewed_at           TIMESTAMP NULL,
       reviewed_by           INT DEFAULT NULL,

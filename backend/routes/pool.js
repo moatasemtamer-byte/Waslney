@@ -428,42 +428,6 @@ router.post('/chat/:tripId',requireAuth,async(req,res)=>{
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
 
-// ── PASSENGER FARE RESPONSE (accept or refuse driver's fare) ───
-router.post('/fare-response/:tripId',requireAuth,requireRole('passenger'),async(req,res)=>{
-  const{accepted}=req.body;
-  const tripId=req.params.tripId;
-  const passengerId=req.user.id;
-  try{
-    // Find the passenger's booking on this trip
-    const[[booking]]=await db.query(
-      "SELECT b.*,pg.id AS group_id FROM bookings b LEFT JOIN pool_groups pg ON pg.trip_id=b.trip_id WHERE b.trip_id=? AND b.passenger_id=? AND b.status='confirmed'",
-      [tripId,passengerId]
-    );
-    if(!booking) return res.status(404).json({error:'Booking not found or already responded'});
-
-    if(accepted){
-      // Passenger accepts — nothing changes, just notify
-      await notify(passengerId,'✅ You accepted the fare. Your seat is confirmed!');
-      res.json({ok:true,accepted:true,message:'Fare accepted'});
-    } else {
-      // Passenger refuses — cancel their booking, remove from pool_request
-      await db.query("UPDATE bookings SET status='cancelled' WHERE trip_id=? AND passenger_id=?",[tripId,passengerId]);
-      await db.query("UPDATE pool_requests SET status='cancelled' WHERE pool_group_id=? AND passenger_id=?",[booking.group_id,passengerId]);
-      await notify(passengerId,'❌ You refused the fare and left the pool group. Your booking has been cancelled.');
-      // Notify driver that a passenger left
-      const[[trip]]=await db.query('SELECT driver_id,from_loc,to_loc FROM trips WHERE id=?',[tripId]);
-      if(trip?.driver_id){
-        const[[pax]]=await db.query('SELECT name FROM users WHERE id=?',[passengerId]);
-        await notify(trip.driver_id,`ℹ️ Passenger ${pax?.name||'A passenger'} refused the fare and left the pool group.`);
-      }
-      res.json({ok:true,accepted:false,message:'Fare refused, booking cancelled'});
-    }
-  }catch(err){
-    console.error('POST /pool/fare-response ERROR:',err);
-    res.status(500).json({error:'Server error',detail:err.message});
-  }
-});
-
 router.post('/expire-groups',async(req,res)=>{
   try{
     const[exp]=await db.query(`SELECT id FROM pool_groups WHERE status='pending' AND TIMESTAMP(desired_date,desired_time)<DATE_SUB(NOW(),INTERVAL 30 MINUTE)`);
@@ -475,6 +439,106 @@ router.post('/expire-groups',async(req,res)=>{
     }
     res.json({expired:exp.length});
   }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
+});
+
+// ── FARE PROPOSAL: driver proposes fare to group ──────────
+router.post('/trips/:tripId/propose-fare', requireAuth, requireRole('driver'), async(req,res)=>{
+  const {fare_per_passenger} = req.body;
+  if (!fare_per_passenger) return res.status(400).json({error:'fare_per_passenger required'});
+  try {
+    // Get all passengers on this trip
+    const [bookings] = await db.query(
+      "SELECT b.passenger_id, u.name as passenger_name FROM bookings b JOIN users u ON u.id=b.passenger_id WHERE b.trip_id=? AND b.status='confirmed'",
+      [req.params.tripId]
+    );
+    // Get driver name
+    const [driverRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
+    const driverName = driverRows[0]?.name || 'Driver';
+
+    // Save proposed fare to trips table (or a new column)
+    try { await db.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+    try { await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+    await db.query('UPDATE trips SET proposed_fare=? WHERE id=?', [fare_per_passenger, req.params.tripId]);
+
+    // Notify each passenger via notification
+    for (const b of bookings) {
+      await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
+        [b.passenger_id, `💰 Driver proposed a fare of ${fare_per_passenger} EGP per passenger for your pool ride. Open the app to accept or decline.`]);
+    }
+
+    res.json({ ok:true, notified: bookings.length, fare_per_passenger, driver_name: driverName });
+  } catch(err) { console.error(err); res.status(500).json({error:err.message}); }
+});
+
+// ── FARE RESPONSE: passenger accepts or declines ──────────
+router.post('/trips/:tripId/fare-response', requireAuth, requireRole('passenger'), async(req,res)=>{
+  const {response} = req.body; // 'accept' | 'decline'
+  if (!['accept','decline'].includes(response)) return res.status(400).json({error:'response must be accept or decline'});
+  try {
+    if (response === 'decline') {
+      // Cancel this passenger's booking and remove from pool group
+      await db.query("UPDATE bookings SET status='cancelled' WHERE trip_id=? AND passenger_id=?", [req.params.tripId, req.user.id]);
+      await db.query("UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND group_trip_id=?", [req.user.id, req.params.tripId]);
+      // Notify driver
+      const [tripRows] = await db.query('SELECT driver_id, from_loc, to_loc FROM trips WHERE id=?', [req.params.tripId]);
+      if (tripRows.length) {
+        const [uRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
+        await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
+          [tripRows[0].driver_id, `❌ ${uRows[0]?.name||'A passenger'} declined the fare and left the pool group.`]);
+      }
+      res.json({ ok:true, action:'left_group' });
+    } else {
+      // Accept — just notify driver
+      const [tripRows] = await db.query('SELECT driver_id FROM trips WHERE id=?', [req.params.tripId]);
+      if (tripRows.length) {
+        const [uRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
+        await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
+          [tripRows[0].driver_id, `✅ ${uRows[0]?.name||'A passenger'} accepted the fare.`]);
+      }
+      res.json({ ok:true, action:'accepted' });
+    }
+  } catch(err) { console.error(err); res.status(500).json({error:err.message}); }
+});
+
+
+// ── PASSENGER: Respond to fare offer (accept / refuse) ────────────────────────
+// Called immediately when passenger taps Accept or Refuse in the fare modal.
+// Looks up the booking by passenger_id + trip_id — no bookingId needed from client.
+router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,res)=>{
+  const { tripId, response } = req.body;
+  if (!tripId) return res.status(400).json({error:'tripId required'});
+  if (!['accept','refuse'].includes(response))
+    return res.status(400).json({error:"response must be 'accept' or 'refuse'"});
+  try {
+    const [[booking]] = await db.query(
+      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
+      [tripId, req.user.id]
+    );
+    if (!booking) return res.status(404).json({error:'No active booking found for this trip'});
+
+    if (response === 'refuse') {
+      await db.query("UPDATE bookings SET status='cancelled' WHERE id=?", [booking.id]);
+      // Also cancel pool_request so the group seat count is correct
+      await db.query(
+        "UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND status='confirmed'",
+        [req.user.id]
+      ).catch(()=>{});
+      const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
+      const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
+      if (trip?.driver_id) {
+        await notify(trip.driver_id, `❌ ${u?.name||'A passenger'} refused the fare and left the group.`);
+      }
+      return res.json({ ok:true, action:'left_group' });
+    } else {
+      // accept — notify driver
+      const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
+      const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
+      if (trip?.driver_id) {
+        await notify(trip.driver_id, `✅ ${u?.name||'A passenger'} accepted the fare.`);
+      }
+      return res.json({ ok:true, action:'accepted' });
+    }
+  } catch(err) { console.error('fare-response error:', err); res.status(500).json({error:err.message}); }
 });
 
 module.exports=router;

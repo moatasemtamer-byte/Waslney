@@ -83,12 +83,20 @@ module.exports = function setupTracking(io) {
       });
     });
 
-    // ── FARE PROPOSED — driver set fare, notify each passenger ─
-    socket.on('pool:fare_proposed', ({ tripId, passengerIds, fare, driverName }) => {
+    // ── FARE OFFER — driver sets fare, each passenger notified ──
+    // Driver emits this after setting fare; each passenger sees accept/refuse modal.
+    // bookingId is NOT forwarded — the /fare-response endpoint looks it up by passenger_id.
+    socket.on('fare:offer', ({ tripId, passengerIds, farePerPassenger, fromLoc, toLoc }) => {
       if (!Array.isArray(passengerIds)) return;
       passengerIds.forEach(pid => {
-        io.to(`user:${pid}`).emit('pool:fare_proposed', { tripId, fare, driverName });
+        io.to(`user:${pid}`).emit('fare:offer', {
+          tripId,
+          fare_per_passenger: farePerPassenger,
+          from_loc: fromLoc,
+          to_loc: toLoc,
+        });
       });
+      console.log(`💰  Fare offer emitted for trip ${tripId} → ${passengerIds.length} passengers`);
     });
 
     // ── CHECKIN UPDATE ────────────────────────────────────
