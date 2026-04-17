@@ -68,6 +68,7 @@ export const getAllLocations   = ()   => get('/location/all');
 // ── USERS (admin) ─────────────────────────────────────────
 export const getUsers            = ()         => get('/users');
 export const getDrivers          = ()         => get('/users/drivers');
+export const getAllDrivers        = ()         => get('/users/drivers/all');
 export const getPendingDrivers   = ()         => get('/users/pending-review');
 export const approveDriver       = (id)       => post(`/users/${id}/approve`);
 export const rejectDriver        = (id, note) => post(`/users/${id}/reject`, { note });
@@ -83,5 +84,4 @@ export const updatePoolStops      = (tid, s)  => put(`/pool/trips/${tid}/stops`,
 export const getPoolChat          = (tid)     => get(`/pool/chat/${tid}`);
 export const sendPoolMessage      = (tid, msg)=> post(`/pool/chat/${tid}`, { message: msg });
 export const getNearbyPoolGroups  = (q)       => get(`/pool/groups/nearby?${new URLSearchParams(q)}`);
-export const respondToFare        = (tripId, response) => post(`/pool/fare-response`, { tripId, response });
 
