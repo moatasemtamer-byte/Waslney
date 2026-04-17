@@ -334,15 +334,17 @@ export default function PassengerDash(){
   const[notifOpen,setNotifOpen]=useState(false);
   const unread=notifs.filter(n=>!n.is_read).length;
 
-  const activeBookings=myBookings.filter(b=>b.status==='confirmed');
-  const historyBookings=myBookings.filter(b=>b.status==='completed'||b.status==='cancelled');
+  const activeBookings=(Array.isArray(myBookings)?myBookings:[]).filter(b=>b.status==='confirmed');
+  const historyBookings=(Array.isArray(myBookings)?myBookings:[]).filter(b=>b.status==='completed'||b.status==='cancelled');
   const changeTab=(t)=>{setTab(t);setSelTrip(null);setSelBooking(null);window.location.hash=t;};
 
   // Load pending drivers when admin opens review tab (or on mount)
   useEffect(()=>{ if(isAdmin && tab==='review') loadPendingDrivers(); },[tab]);
 
   useEffect(()=>{
-    loadNotifs();requestLocation();
+    loadNotifs();
+    if(isAdmin) return; // skip all passenger socket/data for admin
+    requestLocation();
     connectSocket(user.id,'passenger');
     socket.on('checkin:update',({bookingId,status})=>{
       setMyBookings(prev=>prev.map(b=>b.id===bookingId?{...b,checkin_status:status}:b));
@@ -414,7 +416,7 @@ export default function PassengerDash(){
     }catch(e){ notify('Error',e.message,'error'); }
   }
 
-  async function loadNotifs(){try{setNotifs(await api.getNotifications());}catch{}}
+  async function loadNotifs(){try{const r=await api.getNotifications();setNotifs(Array.isArray(r)?r:[]);}catch{}}
   async function openNotifs(){setNotifOpen(true);try{await api.markNotifRead();setNotifs(n=>n.map(x=>({...x,is_read:1})));}catch{}}
 
   function requestLocation(){
@@ -671,11 +673,11 @@ export default function PassengerDash(){
       </div>
 
       {/* ── ACTIVE TRIP BANNER — shown on every tab ── */}
-      <ActiveTripBanner
+      {!isAdmin&&<ActiveTripBanner
         bookings={myBookings}
         poolRequests={myPoolRequests}
         onOpenChat={openPoolChat}
-      />
+      />}
 
       {/* Notifications */}
       {notifOpen&&(
