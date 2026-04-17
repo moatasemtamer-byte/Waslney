@@ -85,3 +85,4 @@ export const getPoolChat          = (tid)     => get(`/pool/chat/${tid}`);
 export const sendPoolMessage      = (tid, msg)=> post(`/pool/chat/${tid}`, { message: msg });
 export const getNearbyPoolGroups  = (q)       => get(`/pool/groups/nearby?${new URLSearchParams(q)}`);
 
+export const respondToFare        = (tripId, response) => post('/pool/fare-response', { tripId, response });
