@@ -18,7 +18,12 @@ async function request(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) {
+    const err = new Error(data.error || 'Request failed');
+    err.detail  = data.message || '';
+    err.status  = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -28,10 +33,12 @@ const put    = (p, b) => request('PUT',    p, b);
 const del    = (p)    => request('DELETE', p);
 
 // ── AUTH ──────────────────────────────────────────────────
-export const sendOTP      = (phone)        => post('/auth/send-otp',  { phone });
-export const register     = (body)         => post('/auth/register',  body);
-export const login        = (phone, pass)  => post('/auth/login',     { phone, password: pass });
-export const getMe        = ()             => get('/auth/me');
+export const sendOTP             = (phone)        => post('/auth/send-otp',  { phone });
+export const register            = (body)         => post('/auth/register',  body);
+export const login               = (phone, pass)  => post('/auth/login',     { phone, password: pass });
+export const getMe               = ()             => get('/auth/me');
+export const getPendingDrivers   = ()             => get('/auth/admin/pending-drivers');
+export const reviewDriver        = (id, body)     => post(`/auth/admin/review-driver/${id}`, body);
 
 // ── TRIPS ─────────────────────────────────────────────────
 export const getTrips        = ()    => get('/trips');

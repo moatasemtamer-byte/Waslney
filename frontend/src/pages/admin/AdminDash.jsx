@@ -20,12 +20,37 @@ export default function AdminDash() {
   const [stops,   setStops]   = useState([]);
   const [editStops, setEditStops] = useState([]);
 
+  // Driver review state
+  const [pendingDrivers, setPendingDrivers] = useState([]);
+  const [reviewLoading,  setReviewLoading]  = useState(false);
+  const [lightbox,       setLightbox]       = useState(null); // {url, label}
+  const [rejectModal,    setRejectModal]    = useState(null); // {id, name}
+  const [rejectNote,     setRejectNote]     = useState('');
+
   const [form, setForm] = useState({
     from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:''
   });
   const f = k => e => setForm({ ...form, [k]: e.target.value });
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); loadPendingDrivers(); }, []);
+
+  async function loadPendingDrivers() {
+    try { setPendingDrivers(await api.getPendingDrivers()); } catch {}
+  }
+
+  async function handleReview(driverId, action, note='') {
+    setReviewLoading(true);
+    try {
+      await api.reviewDriver(driverId, { action, rejection_note: note });
+      notify(
+        action==='approve' ? '✅ Driver approved!' : '❌ Driver rejected',
+        action==='approve' ? 'They can now log in and start driving.' : 'Driver has been notified.'
+      );
+      setRejectModal(null); setRejectNote('');
+      loadPendingDrivers();
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setReviewLoading(false); }
+  }
 
   async function loadAll() {
     setLoading(true);
@@ -82,8 +107,9 @@ export default function AdminDash() {
   const allTrips    = trips;
   const activeCount = trips.filter(t => t.status==='upcoming'||t.status==='active').length;
   const totalBooked = trips.reduce((s,t) => s+(t.booked_seats||0), 0);
-  const passengers  = users.filter(u => u.role==='passenger');
-  const driverUsers = users.filter(u => u.role==='driver');
+  const passengers   = users.filter(u => u.role==='passenger');
+  const driverUsers  = users.filter(u => u.role==='driver');
+  const pendingCount = pendingDrivers.filter(d => d.account_status==='pending_review').length;
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg }}>
@@ -97,17 +123,33 @@ export default function AdminDash() {
           { id:'trips',      label:'Trips' },
           { id:'drivers',    label:'Drivers' },
           { id:'passengers', label:'Passengers' },
+          { id:'reviews',    label: pendingCount > 0 ? `🔍 Reviews (${pendingCount})` : '🔍 Reviews' },
         ]} active={tab} onSet={goTab} />
 
         {/* ── OVERVIEW ── */}
         {tab === 'overview' && (
           <div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:24 }}>
-              <StatCard num={activeCount}       label="Active trips"  color={C.blue} />
-              <StatCard num={totalBooked}       label="Seats booked"  color={C.green} />
+              <StatCard num={activeCount}        label="Active trips"  color={C.blue} />
+              <StatCard num={totalBooked}        label="Seats booked"  color={C.green} />
               <StatCard num={driverUsers.length} label="Drivers"       color={C.purple} />
-              <StatCard num={passengers.length} label="Passengers"    color={C.amber} />
+              <StatCard num={passengers.length}  label="Passengers"    color={C.amber} />
             </div>
+
+            {/* Pending reviews banner */}
+            {pendingCount > 0 && (
+              <div onClick={() => goTab('reviews')} style={{ background:'rgba(251,191,36,0.07)', border:'1px solid rgba(251,191,36,0.25)', borderRadius:14, padding:'14px 18px', marginBottom:20, display:'flex', alignItems:'center', gap:14, cursor:'pointer' }}>
+                <div style={{ fontSize:32 }}>⏳</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:15, fontWeight:700, color:'#fbbf24' }}>
+                    {pendingCount} driver account{pendingCount !== 1 ? 's' : ''} awaiting review
+                  </div>
+                  <div style={{ fontSize:12, color:'#888', marginTop:2 }}>Tap to review documents and approve or reject</div>
+                </div>
+                <div style={{ fontSize:20, color:'#fbbf24' }}>→</div>
+              </div>
+            )}
+
             <p style={sectSt}>Live driver locations</p>
             <AdminMap height={340} />
             <p style={sectSt}>All trips</p>
@@ -258,7 +300,156 @@ export default function AdminDash() {
           </div>
         )}
 
+        {/* ── REVIEWS ── */}
+        {tab === 'reviews' && (
+          <div>
+            <p style={sectSt}>
+              {pendingDrivers.filter(d=>d.account_status==='pending_review').length} pending
+              {pendingDrivers.filter(d=>d.account_status==='rejected').length > 0 &&
+                ` · ${pendingDrivers.filter(d=>d.account_status==='rejected').length} rejected`}
+            </p>
+
+            {pendingDrivers.length === 0 && (
+              <div style={{ textAlign:'center', padding:'60px 20px' }}>
+                <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
+                <div style={{ fontSize:15, fontWeight:600, color:'#888' }}>All caught up! No accounts to review.</div>
+              </div>
+            )}
+
+            {pendingDrivers.map(driver => (
+              <div key={driver.id} style={{ ...card, marginBottom:16, border: driver.account_status==='pending_review' ? '1px solid rgba(251,191,36,0.2)' : '1px solid rgba(248,113,113,0.15)' }}>
+
+                {/* Header row */}
+                <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
+                  {driver.profile_photo
+                    ? <img src={driver.profile_photo} alt="" onClick={()=>setLightbox({url:driver.profile_photo,label:'Profile Photo'})}
+                        style={{ width:52, height:52, borderRadius:'50%', objectFit:'cover', border:'2px solid rgba(251,191,36,0.4)', cursor:'pointer', flexShrink:0 }} />
+                    : <Avatar name={driver.name} size={52} />
+                  }
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:15, color:'#fff' }}>{driver.name}</div>
+                    <div style={{ fontSize:12, color:C.text2, marginTop:1 }}>{driver.phone}</div>
+                    <div style={{ fontSize:12, color:C.text3, marginTop:1 }}>{driver.car} · {driver.plate}</div>
+                  </div>
+                  <div style={{
+                    fontSize:11, fontWeight:700, padding:'5px 12px', borderRadius:20, flexShrink:0,
+                    color: driver.account_status==='pending_review' ? '#fbbf24' : '#f87171',
+                    background: driver.account_status==='pending_review' ? 'rgba(251,191,36,0.1)' : 'rgba(248,113,113,0.1)',
+                    border: `1px solid ${driver.account_status==='pending_review' ? 'rgba(251,191,36,0.3)' : 'rgba(248,113,113,0.3)'}`,
+                  }}>
+                    {driver.account_status==='pending_review' ? '⏳ Pending' : '❌ Rejected'}
+                  </div>
+                </div>
+
+                <div style={{ fontSize:11, color:C.text3, marginBottom:14 }}>
+                  Submitted {driver.submitted_at
+                    ? new Date(driver.submitted_at).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+                    : fmtDate(driver.created_at)}
+                </div>
+
+                {/* Documents grid */}
+                <div style={{ fontSize:11, color:C.text2, textTransform:'uppercase', letterSpacing:'.07em', marginBottom:10, fontWeight:700 }}>Documents</div>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16 }}>
+                  {[
+                    { key:'car_license_photo',     label:'رخصة العربية',  emoji:'🚗' },
+                    { key:'driver_license_photo',  label:'رخصة السائق',   emoji:'🪪' },
+                    { key:'criminal_record_photo', label:'الفيش الجنائي', emoji:'📋' },
+                  ].map(({ key, label, emoji }) => (
+                    <div key={key}
+                      onClick={() => driver[key] && setLightbox({ url: driver[key], label })}
+                      style={{
+                        background:'#0d1117', borderRadius:12, padding:'10px 8px', textAlign:'center',
+                        border: driver[key] ? '1px solid rgba(96,165,250,0.3)' : '1px solid #1a1a1a',
+                        cursor: driver[key] ? 'pointer' : 'default',
+                      }}>
+                      {driver[key]
+                        ? <img src={driver[key]} alt={label} style={{ width:'100%', aspectRatio:'4/3', objectFit:'cover', borderRadius:8, marginBottom:6 }} />
+                        : <div style={{ fontSize:26, marginBottom:6, paddingTop:8 }}>{emoji}</div>
+                      }
+                      <div style={{ fontSize:10, color: driver[key] ? '#60a5fa' : C.text3, fontWeight:600, lineHeight:1.3 }}>{label}</div>
+                      {driver[key] && <div style={{ fontSize:9, color:'#3b82f6', marginTop:2 }}>Tap to view</div>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Actions */}
+                {driver.account_status === 'pending_review' && (
+                  <div style={{ display:'flex', gap:10 }}>
+                    <button onClick={() => handleReview(driver.id, 'approve')} disabled={reviewLoading}
+                      style={{ flex:1, background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'#fff', border:'none', borderRadius:12, padding:'13px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", opacity:reviewLoading?.6:1 }}>
+                      ✅ Approve
+                    </button>
+                    <button onClick={() => { setRejectModal({ id: driver.id, name: driver.name }); setRejectNote(''); }} disabled={reviewLoading}
+                      style={{ flex:1, background:'transparent', color:'#f87171', border:'1px solid rgba(248,113,113,0.35)', borderRadius:12, padding:'13px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      ❌ Reject
+                    </button>
+                  </div>
+                )}
+                {driver.account_status === 'rejected' && (
+                  <button onClick={() => handleReview(driver.id, 'approve')} disabled={reviewLoading}
+                    style={{ width:'100%', background:'rgba(34,197,94,0.08)', color:'#22c55e', border:'1px solid rgba(34,197,94,0.25)', borderRadius:12, padding:'12px', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                    ↩️ Re-approve this driver
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
+
+      {/* ── DOCUMENT LIGHTBOX ── */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.93)', zIndex:1000, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:24 }}>
+          <div style={{ fontSize:13, color:'#888', marginBottom:12 }}>{lightbox.label}</div>
+          <img src={lightbox.url} alt={lightbox.label}
+            style={{ maxWidth:'90vw', maxHeight:'76vh', borderRadius:16, objectFit:'contain', border:'1px solid #222' }}
+            onClick={e => e.stopPropagation()}
+          />
+          <button onClick={() => setLightbox(null)}
+            style={{ marginTop:20, background:'#1a1a1a', border:'1px solid #333', color:'#fff', borderRadius:24, padding:'10px 28px', fontSize:14, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+            Close
+          </button>
+        </div>
+      )}
+
+      {/* ── REJECT MODAL ── */}
+      {rejectModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:900, display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
+          <div style={{ background:'#0d1117', borderRadius:'24px 24px 0 0', padding:'28px 20px 44px', border:'1px solid rgba(248,113,113,0.2)' }}>
+            <div style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:4, fontFamily:"'Sora',sans-serif" }}>Reject driver?</div>
+            <div style={{ fontSize:13, color:'#555', marginBottom:20 }}>{rejectModal.name} will be notified with your reason.</div>
+
+            <div style={{ fontSize:12, color:'#4b7ab5', marginBottom:8, textTransform:'uppercase', letterSpacing:'.06em' }}>Quick reasons</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:14 }}>
+              {['Documents unclear / blurry','Documents expired','Information mismatch','Vehicle not eligible','Incomplete submission','Other'].map(r => (
+                <button key={r} onClick={() => setRejectNote(r)}
+                  style={{ background:rejectNote===r?'rgba(248,113,113,0.15)':'#111', border:`1px solid ${rejectNote===r?'rgba(248,113,113,0.5)':'#222'}`, borderRadius:20, padding:'7px 14px', color:rejectNote===r?'#f87171':'#555', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                  {r}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ fontSize:12, color:'#4b7ab5', marginBottom:8, textTransform:'uppercase', letterSpacing:'.06em' }}>Custom message (optional)</div>
+            <textarea value={rejectNote} onChange={e => setRejectNote(e.target.value)}
+              placeholder="Add a specific reason for rejection…" rows={3}
+              style={{ width:'100%', boxSizing:'border-box', background:'#111', border:'1px solid #2a2a2a', borderRadius:12, padding:'12px 14px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:14, resize:'none', outline:'none', marginBottom:16 }}
+            />
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setRejectModal(null)}
+                style={{ flex:1, background:'#111', border:'1px solid #222', color:'#888', borderRadius:12, padding:'14px', fontSize:14, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                Cancel
+              </button>
+              <button onClick={() => handleReview(rejectModal.id, 'reject', rejectNote)} disabled={reviewLoading}
+                style={{ flex:2, background:'linear-gradient(135deg,#7f1d1d,#ef4444)', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", opacity:reviewLoading?.6:1 }}>
+                {reviewLoading ? 'Rejecting…' : '❌ Confirm Rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

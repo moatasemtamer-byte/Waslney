@@ -114,6 +114,26 @@ module.exports = async function runMigrations() {
       FOREIGN KEY(user_id) REFERENCES users(id)  ON DELETE CASCADE
     )`);
 
+    // ── Driver document review system ──────────────────────────────────────
+    // Add account_status, profile_photo, rejection_note to users
+    await addCol('users', 'account_status', "ENUM('active','pending_review','rejected') NOT NULL DEFAULT 'active'");
+    await addCol('users', 'profile_photo',  'MEDIUMTEXT DEFAULT NULL');
+    await addCol('users', 'rejection_note', 'TEXT DEFAULT NULL');
+
+    // driver_documents: stores base64 photos of the 3 required documents
+    await db.query(`CREATE TABLE IF NOT EXISTS driver_documents (
+      id                    INT AUTO_INCREMENT PRIMARY KEY,
+      user_id               INT NOT NULL UNIQUE,
+      car_license_photo     MEDIUMTEXT NOT NULL COMMENT 'رخصة العربية',
+      driver_license_photo  MEDIUMTEXT NOT NULL COMMENT 'رخصة السائق',
+      criminal_record_photo MEDIUMTEXT NOT NULL COMMENT 'الفيش الجنائي',
+      submitted_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at           TIMESTAMP NULL,
+      reviewed_by           INT DEFAULT NULL,
+      FOREIGN KEY(user_id)     REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+    )`);
+
     console.log('✅  Migrations done');
   } catch (err) {
     console.error('⚠️  Migration warning:', err.message);
