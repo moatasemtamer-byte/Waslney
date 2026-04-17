@@ -128,3 +128,37 @@ router.post('/:id/reject', requireAuth, requireAdmin, async (req, res) => {
 });
 
 module.exports = router;
+
+// ── GET /api/users/debug-review  (TEMPORARY — remove after debugging) ────────
+// Returns raw counts to diagnose why review page is empty
+router.get('/debug-review', requireAuth, async (req, res) => {
+  try {
+    const [[{ total_drivers }]] = await db.query(
+      `SELECT COUNT(*) AS total_drivers FROM users WHERE role='driver'`
+    );
+    const [[{ pending }]] = await db.query(
+      `SELECT COUNT(*) AS pending FROM users WHERE role='driver' AND account_status='pending_review'`
+    );
+    const [[{ has_docs }]] = await db.query(
+      `SELECT COUNT(*) AS has_docs FROM driver_documents`
+    );
+    const [[{ col_exists }]] = await db.query(
+      `SELECT COUNT(*) AS col_exists FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='users' AND COLUMN_NAME='account_status'`
+    );
+    const [sample] = await db.query(
+      `SELECT id, name, role, account_status FROM users ORDER BY id DESC LIMIT 5`
+    );
+    res.json({
+      your_role: req.user.role,
+      your_id:   req.user.id,
+      total_drivers,
+      pending_review_count: pending,
+      driver_documents_rows: has_docs,
+      account_status_col_exists: col_exists === 1,
+      recent_users: sample,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
