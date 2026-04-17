@@ -66,8 +66,11 @@ export const getTripLocation  = (id) => get(`/location/trip/${id}`);
 export const getAllLocations   = ()   => get('/location/all');
 
 // ── USERS (admin) ─────────────────────────────────────────
-export const getUsers         = ()   => get('/users');
-export const getDrivers       = ()   => get('/users/drivers');
+export const getUsers            = ()         => get('/users');
+export const getDrivers          = ()         => get('/users/drivers');
+export const getPendingDrivers   = ()         => get('/users/pending-review');
+export const approveDriver       = (id)       => post(`/users/${id}/approve`);
+export const rejectDriver        = (id, note) => post(`/users/${id}/reject`, { note });
 
 // ── POOL RIDES ────────────────────────────────────────────
 export const submitPoolRequest    = (b)       => post('/pool/requests', b);

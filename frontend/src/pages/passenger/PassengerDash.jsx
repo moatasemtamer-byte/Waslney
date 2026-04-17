@@ -113,8 +113,10 @@ function PoolUpsell({onClick}){
   );
 }
 
-function BottomNav({active,onSet,bookingCount}){
-  const tabs=[{id:'home',icon:'🏠',label:'Home'},{id:'activity',icon:'📋',label:'Activity',badge:bookingCount},{id:'account',icon:'👤',label:'Account'}];
+function BottomNav({active,onSet,bookingCount,isAdmin,pendingCount}){
+  const tabs=isAdmin
+    ?[{id:'review',icon:'📋',label:'Review',badge:pendingCount},{id:'account',icon:'👤',label:'Account'}]
+    :[{id:'home',icon:'🏠',label:'Home'},{id:'activity',icon:'📋',label:'Activity',badge:bookingCount},{id:'account',icon:'👤',label:'Account'}];
   return(
     <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#000',borderTop:'1px solid #1a1a1a',display:'flex',zIndex:200,paddingBottom:'env(safe-area-inset-bottom)'}}>
       {tabs.map(t=>(
@@ -269,7 +271,17 @@ function FareResponseModal({ fareOffer, onAccept, onRefuse, onClose }) {
 // ═══════════════════════════════════════════════════════════════
 export default function PassengerDash(){
   const{user,logout,notify}=useAuth();
-  const[tab,setTab]=useState(()=>{const h=window.location.hash.replace('#','');return['home','activity','account'].includes(h)?h:'home';});
+  const isAdmin = user.role === 'admin';
+  const[tab,setTab]=useState(()=>{const h=window.location.hash.replace('#','');
+    const valid=isAdmin?['review','account']:['home','activity','account'];
+    return valid.includes(h)?h:isAdmin?'review':'home';
+  });
+  // ── Admin review state ───────────────────────────────────
+  const[pendingDrivers,setPendingDrivers]=useState([]);
+  const[reviewLoading,setReviewLoading]=useState(false);
+  const[expandedDriver,setExpandedDriver]=useState(null);
+  const[rejectNote,setRejectNote]=useState('');
+  const[rejectTarget,setRejectTarget]=useState(null);
   const[selTrip,setSelTrip]=useState(null);
   const[selPickup,setSelPickup]=useState(null);
   const[selDropoff,setSelDropoff]=useState(null);
@@ -326,6 +338,9 @@ export default function PassengerDash(){
   const historyBookings=myBookings.filter(b=>b.status==='completed'||b.status==='cancelled');
   const changeTab=(t)=>{setTab(t);setSelTrip(null);setSelBooking(null);window.location.hash=t;};
 
+  // Load pending drivers when admin opens review tab (or on mount)
+  useEffect(()=>{ if(isAdmin && tab==='review') loadPendingDrivers(); },[tab]);
+
   useEffect(()=>{
     loadNotifs();requestLocation();
     connectSocket(user.id,'passenger');
@@ -373,6 +388,31 @@ export default function PassengerDash(){
   },[tab]);
 
   useEffect(()=>{if(tab==='home'){loadActivePoolGroup();loadBookings();}},[tab]);
+
+  async function loadPendingDrivers(){
+    setReviewLoading(true);
+    try{ const d=await api.getPendingDrivers(); setPendingDrivers(d.drivers||[]); }
+    catch(e){ notify('Error','Could not load pending drivers','error'); }
+    finally{ setReviewLoading(false); }
+  }
+
+  async function handleApprove(id){
+    try{
+      await api.approveDriver(id);
+      notify('Approved','Driver account activated ✅');
+      setPendingDrivers(p=>p.filter(d=>d.id!==id));
+      setExpandedDriver(null);
+    }catch(e){ notify('Error',e.message,'error'); }
+  }
+
+  async function handleReject(id){
+    try{
+      await api.rejectDriver(id, rejectNote);
+      notify('Rejected','Driver account rejected ❌');
+      setPendingDrivers(p=>p.filter(d=>d.id!==id));
+      setRejectTarget(null); setRejectNote(''); setExpandedDriver(null);
+    }catch(e){ notify('Error',e.message,'error'); }
+  }
 
   async function loadNotifs(){try{setNotifs(await api.getNotifications());}catch{}}
   async function openNotifs(){setNotifOpen(true);try{await api.markNotifRead();setNotifs(n=>n.map(x=>({...x,is_read:1})));}catch{}}
@@ -1085,6 +1125,115 @@ export default function PassengerDash(){
         )}
 
         {/* ── ACCOUNT TAB ── */}
+        {/* ── ADMIN REVIEW TAB ── */}
+        {tab==='review'&&(
+          <div style={{paddingTop:24,paddingBottom:16}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
+              <h2 style={{fontSize:20,fontWeight:800,color:'#fff',margin:0}}>Driver Review</h2>
+              <button onClick={loadPendingDrivers} style={{background:'#1a1a1a',border:'1px solid #333',borderRadius:10,padding:'8px 14px',color:'#fbbf24',fontSize:12,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+                🔄 Refresh
+              </button>
+            </div>
+
+            {reviewLoading&&<div style={{textAlign:'center',padding:40}}><div style={{width:28,height:28,border:'3px solid #222',borderTopColor:'#fbbf24',borderRadius:'50%',animation:'spin .6s linear infinite',margin:'0 auto'}}/><p style={{color:'#555',marginTop:12,fontSize:13}}>Loading pending drivers…</p></div>}
+
+            {!reviewLoading&&pendingDrivers.length===0&&(
+              <div style={{textAlign:'center',padding:'60px 24px',background:'#0d0d0d',borderRadius:16,border:'1px solid #1a1a1a'}}>
+                <div style={{fontSize:56,marginBottom:12}}>✅</div>
+                <p style={{color:'#fff',fontWeight:700,fontSize:16,marginBottom:6}}>All clear!</p>
+                <p style={{color:'#555',fontSize:13}}>No drivers pending review.</p>
+              </div>
+            )}
+
+            {!reviewLoading&&pendingDrivers.map(driver=>(
+              <div key={driver.id} style={{background:'#0d0d0d',border:'1px solid #1a1a1a',borderRadius:16,marginBottom:12,overflow:'hidden'}}>
+                {/* Header row */}
+                <div onClick={()=>setExpandedDriver(expandedDriver===driver.id?null:driver.id)}
+                  style={{display:'flex',alignItems:'center',gap:14,padding:'16px',cursor:'pointer'}}>
+                  {driver.profile_photo
+                    ? <img src={driver.profile_photo} alt="profile" style={{width:48,height:48,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>
+                    : <div style={{width:48,height:48,borderRadius:'50%',background:'#1a1a1a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🧑</div>
+                  }
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:15,fontWeight:700,color:'#fff',marginBottom:2}}>{driver.name}</div>
+                    <div style={{fontSize:12,color:'#666'}}>{driver.phone}</div>
+                    <div style={{fontSize:11,color:'#444',marginTop:2}}>Submitted: {new Date(driver.submitted_at).toLocaleDateString()}</div>
+                  </div>
+                  <span style={{color:'#555',fontSize:18,transform:expandedDriver===driver.id?'rotate(90deg)':'none',transition:'transform .2s'}}>›</span>
+                </div>
+
+                {/* Expanded: documents + actions */}
+                {expandedDriver===driver.id&&(
+                  <div style={{borderTop:'1px solid #1a1a1a',padding:'16px'}}>
+                    {/* Car info */}
+                    <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+                      {driver.car&&<span style={{background:'#1a1a1a',border:'1px solid #2a2a2a',borderRadius:8,padding:'5px 10px',fontSize:12,color:'#ccc'}}>🚗 {driver.car}</span>}
+                      {driver.plate&&<span style={{background:'#1a1a1a',border:'1px solid #2a2a2a',borderRadius:8,padding:'5px 10px',fontSize:12,color:'#ccc'}}>🪪 {driver.plate}</span>}
+                    </div>
+
+                    {/* Document photos */}
+                    <p style={{fontSize:11,fontWeight:700,color:'#fbbf24',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:10}}>Documents</p>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:16}}>
+                      {[
+                        {label:'Car License / رخصة العربية', photo:driver.car_license_photo},
+                        {label:'Driver License / رخصة السائق', photo:driver.driver_license_photo},
+                        {label:'Criminal Record / الفيش الجنائي', photo:driver.criminal_record_photo},
+                      ].map(({label,photo})=>(
+                        <div key={label}>
+                          <div style={{fontSize:9,color:'#555',marginBottom:4,lineHeight:1.3}}>{label}</div>
+                          {photo
+                            ? <a href={photo} target="_blank" rel="noreferrer">
+                                <img src={photo} alt={label} style={{width:'100%',aspectRatio:'4/3',objectFit:'cover',borderRadius:8,border:'1px solid #2a2a2a',display:'block'}}/>
+                              </a>
+                            : <div style={{width:'100%',aspectRatio:'4/3',background:'#1a1a1a',borderRadius:8,border:'1px solid #2a2a2a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>❓</div>
+                          }
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Reject note input (shown when reject is triggered) */}
+                    {rejectTarget===driver.id&&(
+                      <div style={{marginBottom:12}}>
+                        <textarea
+                          value={rejectNote}
+                          onChange={e=>setRejectNote(e.target.value)}
+                          placeholder="Reason for rejection (optional)"
+                          rows={3}
+                          style={{width:'100%',boxSizing:'border-box',background:'#1a1a1a',border:'1px solid #f87171',borderRadius:10,padding:'10px 12px',color:'#fff',fontSize:13,fontFamily:"'Sora',sans-serif",resize:'vertical',outline:'none'}}
+                        />
+                        <div style={{display:'flex',gap:8,marginTop:8}}>
+                          <button onClick={()=>handleReject(driver.id)}
+                            style={{flex:1,background:'#f87171',border:'none',borderRadius:10,padding:'10px',color:'#fff',fontWeight:700,fontSize:13,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+                            Confirm Reject ❌
+                          </button>
+                          <button onClick={()=>{setRejectTarget(null);setRejectNote('');}}
+                            style={{background:'#1a1a1a',border:'1px solid #333',borderRadius:10,padding:'10px 16px',color:'#888',fontSize:13,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action buttons */}
+                    {rejectTarget!==driver.id&&(
+                      <div style={{display:'flex',gap:8}}>
+                        <button onClick={()=>handleApprove(driver.id)}
+                          style={{flex:1,background:'#22c55e',border:'none',borderRadius:10,padding:'12px',color:'#fff',fontWeight:700,fontSize:14,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+                          ✅ Approve
+                        </button>
+                        <button onClick={()=>setRejectTarget(driver.id)}
+                          style={{flex:1,background:'transparent',border:'1px solid #f87171',borderRadius:10,padding:'12px',color:'#f87171',fontWeight:700,fontSize:14,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>
+                          ❌ Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {tab==='account'&&(
           <div style={{paddingTop:24}}>
             <div style={{textAlign:'center',paddingBottom:28}}>
@@ -1110,7 +1259,7 @@ export default function PassengerDash(){
         )}
 
       </div>
-      <BottomNav active={tab} onSet={changeTab} bookingCount={activeBookings.length}/>
+      <BottomNav active={tab} onSet={changeTab} bookingCount={activeBookings.length} isAdmin={isAdmin} pendingCount={pendingDrivers.length}/>
     </div>
   );
 }
