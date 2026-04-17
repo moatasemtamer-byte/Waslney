@@ -25,7 +25,12 @@ export default function App() {
     const token = localStorage.getItem('shuttle_token');
     if (!token) { setLoading(false); return; }
     getMe()
-      .then(u => { setUser(u); connectSocket(u.id, u.role); })
+      .then(data => {
+        // getMe returns { user: {...} } — unwrap it
+        const u = data.user || data;
+        setUser(u);
+        connectSocket(u.id, u.role);
+      })
       .catch(() => localStorage.removeItem('shuttle_token'))
       .finally(() => setLoading(false));
   }, []);

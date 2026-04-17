@@ -1,9 +1,7 @@
-// backend/routes/users.js  — drop-in replacement / patch
+// backend/routes/users.js
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
-
-// ── Auth middleware (matches project convention from pool.js / auth.js) ───────
 const { requireAuth, requireRole } = require('../auth');
 
 function requireAdmin(req, res, next) {
@@ -13,7 +11,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// ── GET /api/users  (existing — keep as-is) ───────────────────────────────────
+// ── GET /api/users ────────────────────────────────────────────────────────────
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -25,7 +23,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ── GET /api/users/drivers  (existing — keep as-is) ──────────────────────────
+// ── GET /api/users/drivers ────────────────────────────────────────────────────
 router.get('/drivers', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -38,8 +36,7 @@ router.get('/drivers', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ── GET /api/users/pending-review  ───────────────────────────────────────────
-// Returns all drivers whose account_status = 'pending_review', with their documents
+// ── GET /api/users/pending-review ─────────────────────────────────────────────
 router.get('/pending-review', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -59,31 +56,33 @@ router.get('/pending-review', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ── POST /api/users/:id/approve  ─────────────────────────────────────────────
+// ── POST /api/users/:id/approve ───────────────────────────────────────────────
 router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
-    const [[u]] = await db.query(
-      `SELECT id, role FROM users WHERE id = ?`, [id]
-    );
-    if (!u) return res.status(404).json({ error: 'User not found' });
+    const [[u]] = await db.query(`SELECT id, role FROM users WHERE id = ?`, [id]);
+    if (!u)              return res.status(404).json({ error: 'User not found' });
     if (u.role !== 'driver') return res.status(400).json({ error: 'Only drivers can be approved' });
 
     await db.query(
       `UPDATE users SET account_status='active', rejection_note=NULL WHERE id=?`, [id]
     );
-    await db.query(
-      `UPDATE driver_documents SET reviewed_at=NOW(), reviewed_by=? WHERE user_id=?`,
-      [req.user.id, id]
-    );
 
-    // Optional: create an in-app notification for the driver
+    // Update reviewed_at — safe even if driver_documents row missing
     try {
       await db.query(
-        `INSERT INTO notifications (user_id, title, body) VALUES (?, ?, ?)`,
-        [id, 'Account Approved ✅', 'Your documents have been reviewed and your account is now active. You can start accepting trips!']
+        `UPDATE driver_documents SET reviewed_at=NOW(), reviewed_by=? WHERE user_id=?`,
+        [req.user.id, id]
       );
-    } catch (_) { /* notifications table may not exist — safe to ignore */ }
+    } catch (_) {}
+
+    // Notify driver — uses correct schema: (user_id, message)
+    try {
+      await db.query(
+        `INSERT INTO notifications (user_id, message) VALUES (?, ?)`,
+        [id, '✅ Your account has been approved! You can now log in and start accepting trips.']
+      );
+    } catch (_) {}
 
     res.json({ ok: true });
   } catch (e) {
@@ -91,35 +90,37 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ── POST /api/users/:id/reject  ──────────────────────────────────────────────
+// ── POST /api/users/:id/reject ────────────────────────────────────────────────
 router.post('/:id/reject', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { note = '' } = req.body;
   try {
-    const [[u]] = await db.query(
-      `SELECT id, role FROM users WHERE id = ?`, [id]
-    );
+    const [[u]] = await db.query(`SELECT id, role FROM users WHERE id = ?`, [id]);
     if (!u) return res.status(404).json({ error: 'User not found' });
 
     await db.query(
       `UPDATE users SET account_status='rejected', rejection_note=? WHERE id=?`,
       [note, id]
     );
-    await db.query(
-      `UPDATE driver_documents SET reviewed_at=NOW(), reviewed_by=? WHERE user_id=?`,
-      [req.user.id, id]
-    );
 
-    // Optional: create an in-app notification for the driver
+    // Update reviewed_at — safe even if driver_documents row missing
     try {
-      const body = note
-        ? `Your account was not approved. Reason: ${note}`
-        : 'Your account was not approved. Please contact support for more information.';
       await db.query(
-        `INSERT INTO notifications (user_id, title, body) VALUES (?, ?, ?)`,
-        [id, 'Account Not Approved ❌', body]
+        `UPDATE driver_documents SET reviewed_at=NOW(), reviewed_by=? WHERE user_id=?`,
+        [req.user.id, id]
       );
-    } catch (_) { /* safe to ignore */ }
+    } catch (_) {}
+
+    // Notify driver — uses correct schema: (user_id, message)
+    try {
+      const msg = note
+        ? `❌ Your account was not approved. Reason: ${note}`
+        : '❌ Your account was not approved. Please contact support.';
+      await db.query(
+        `INSERT INTO notifications (user_id, message) VALUES (?, ?)`,
+        [id, msg]
+      );
+    } catch (_) {}
 
     res.json({ ok: true });
   } catch (e) {
@@ -127,10 +128,7 @@ router.post('/:id/reject', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-module.exports = router;
-
-// ── GET /api/users/debug-review  (TEMPORARY — remove after debugging) ────────
-// Returns raw counts to diagnose why review page is empty
+// ── GET /api/users/debug-review  (remove after debugging) ────────────────────
 router.get('/debug-review', requireAuth, async (req, res) => {
   try {
     const [[{ total_drivers }]] = await db.query(
@@ -162,3 +160,5 @@ router.get('/debug-review', requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+module.exports = router;
