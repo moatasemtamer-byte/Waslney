@@ -3,9 +3,8 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 
-// ── Auth middleware (reuse whatever you already have) ─────────────────────────
-// Assumes req.user is set by your existing authMiddleware
-const { authMiddleware } = require('../middleware/auth');
+// ── Auth middleware (matches project convention from pool.js / auth.js) ───────
+const { requireAuth, requireRole } = require('../auth');
 
 function requireAdmin(req, res, next) {
   if (!req.user || req.user.role !== 'admin') {
@@ -15,7 +14,7 @@ function requireAdmin(req, res, next) {
 }
 
 // ── GET /api/users  (existing — keep as-is) ───────────────────────────────────
-router.get('/', authMiddleware, requireAdmin, async (req, res) => {
+router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT id, name, phone, role, account_status, created_at FROM users ORDER BY created_at DESC`
@@ -27,7 +26,7 @@ router.get('/', authMiddleware, requireAdmin, async (req, res) => {
 });
 
 // ── GET /api/users/drivers  (existing — keep as-is) ──────────────────────────
-router.get('/drivers', authMiddleware, requireAdmin, async (req, res) => {
+router.get('/drivers', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT id, name, phone, car, plate, account_status, created_at
@@ -41,7 +40,7 @@ router.get('/drivers', authMiddleware, requireAdmin, async (req, res) => {
 
 // ── GET /api/users/pending-review  ───────────────────────────────────────────
 // Returns all drivers whose account_status = 'pending_review', with their documents
-router.get('/pending-review', authMiddleware, requireAdmin, async (req, res) => {
+router.get('/pending-review', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT
@@ -61,7 +60,7 @@ router.get('/pending-review', authMiddleware, requireAdmin, async (req, res) => 
 });
 
 // ── POST /api/users/:id/approve  ─────────────────────────────────────────────
-router.post('/:id/approve', authMiddleware, requireAdmin, async (req, res) => {
+router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     const [[u]] = await db.query(
@@ -93,7 +92,7 @@ router.post('/:id/approve', authMiddleware, requireAdmin, async (req, res) => {
 });
 
 // ── POST /api/users/:id/reject  ──────────────────────────────────────────────
-router.post('/:id/reject', authMiddleware, requireAdmin, async (req, res) => {
+router.post('/:id/reject', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { note = '' } = req.body;
   try {
