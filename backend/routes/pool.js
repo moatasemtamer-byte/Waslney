@@ -202,25 +202,32 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
   try{
-    // Ensure fare columns exist on pool_requests (safest place to store fare — no trips join needed)
-    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_per_passenger DECIMAL(10,2) NULL"); } catch(_){}
-    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_responded TINYINT(1) DEFAULT 0"); } catch(_){}
-
-    const[rows]=await db.query(`
-      SELECT pr.*,
-        pg.status AS group_status,
-        pg.trip_id AS group_trip_id,
-        t.from_loc AS fare_from_loc,
-        t.to_loc AS fare_to_loc,
-        (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
-      FROM pool_requests pr
-      LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
-      LEFT JOIN trips t ON t.id=pg.trip_id
-      WHERE pr.passenger_id=?
-      ORDER BY pr.created_at DESC
-    `,[req.user.id]);
+    // Join trips to expose proposed_fare — columns added lazily by propose-fare route
+    let rows;
+    try {
+      [rows] = await db.query(`
+        SELECT pr.*, pg.status AS group_status, pg.trip_id AS group_trip_id,
+          t.proposed_fare AS fare_per_passenger,
+          t.from_loc AS fare_from_loc, t.to_loc AS fare_to_loc,
+          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
+        FROM pool_requests pr
+        LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
+        LEFT JOIN trips t ON t.id=pg.trip_id
+        WHERE pr.passenger_id=? ORDER BY pr.created_at DESC
+      `, [req.user.id]);
+    } catch(_) {
+      // Fallback if proposed_fare column doesn't exist yet
+      [rows] = await db.query(`
+        SELECT pr.*, pg.status AS group_status, pg.trip_id AS group_trip_id,
+          NULL AS fare_per_passenger, NULL AS fare_from_loc, NULL AS fare_to_loc,
+          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
+        FROM pool_requests pr
+        LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
+        WHERE pr.passenger_id=? ORDER BY pr.created_at DESC
+      `, [req.user.id]);
+    }
     res.json(rows);
-  }catch(err){console.error('requests/mine error:',err);res.status(500).json({error:'Server error'});}
+  }catch(err){console.error(err);res.status(500).json({error:'Server error'});}
 });
 
 router.delete('/requests/:id',requireAuth,requireRole('passenger'),async(req,res)=>{
@@ -367,26 +374,7 @@ router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(re
     } catch(chatErr) { console.error('pool_chat insert warning:', chatErr.message); }
 
     await notify(req.user.id,`✅ Smart Pool accepted! ${members.length} passenger(s) on ${group.desired_date}. First pickup: ${ordered[0].origin_label||'first stop'}.`);
-
-    // ── Emit fare:offer server-side so passengers get modal immediately ──
-    // This is reliable vs client-side emit which can race with socket auth
-    if (customFare && customFare >= 1) {
-      try {
-        const { io } = require('../server');
-        const tripFromLoc = ordered[0].origin_label || 'Pickup';
-        const tripToLoc   = fPax.dest_label || 'Destination';
-        for (const m of members) {
-          io.to(`user:${m.passenger_id}`).emit('fare:offer', {
-            tripId,
-            fare_per_passenger: customFare,
-            from_loc: tripFromLoc,
-            to_loc:   tripToLoc,
-          });
-        }
-      } catch(_) {}
-    }
-
-    res.json({tripId,message:'Pool trip created',member_count:members.length, from_loc: ordered[0].origin_label||'Pickup', to_loc: fPax.dest_label||'Destination', fare_per_passenger: customFare||price});
+    res.json({tripId,message:'Pool trip created',member_count:members.length});
   }catch(err){console.error('POST /pool/invitations/:id/accept ERROR:', err);res.status(500).json({error:'Server error', detail: err.message});}
 });
 
@@ -490,31 +478,28 @@ router.post('/trips/:tripId/propose-fare', requireAuth, requireRole('driver'), a
     const [driverRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
     const driverName = driverRows[0]?.name || 'Driver';
 
-    // Ensure fare columns exist on pool_requests
-    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_per_passenger DECIMAL(10,2) NULL"); } catch(_){}
-    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_responded TINYINT(1) DEFAULT 0"); } catch(_){}
-    // Store fare directly on each passenger's pool_request row
-    await db.query(
-      "UPDATE pool_requests SET fare_per_passenger=?, fare_responded=0 WHERE pool_group_id=(SELECT pool_group_id FROM pool_groups WHERE trip_id=? LIMIT 1)",
-      [fare_per_passenger, req.params.tripId]
-    );
+    // Ensure proposed_fare column exists (safe on all MySQL versions)
+    try { await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+    await db.query('UPDATE trips SET proposed_fare=? WHERE id=?', [fare_per_passenger, req.params.tripId]);
 
-    // Notify each passenger via notification
+    // Get trip locations for socket payload
+    const [[tripRow]] = await db.query('SELECT from_loc, to_loc FROM trips WHERE id=?', [req.params.tripId]).catch(()=>[[{}]]);
+
+    // Notify each passenger via DB notification + socket event
     for (const b of bookings) {
       await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
         [b.passenger_id, `💰 Driver proposed a fare of ${fare_per_passenger} EGP per passenger for your pool ride. Open the app to accept or decline.`]);
     }
 
-    // Emit fare:offer socket event directly to each passenger's room
+    // Emit socket event to each passenger so modal appears instantly
     try {
       const { io } = require('../server');
-      const [[trip]] = await db.query('SELECT from_loc, to_loc FROM trips WHERE id=?', [req.params.tripId]);
       for (const b of bookings) {
         io.to(`user:${b.passenger_id}`).emit('fare:offer', {
           tripId: parseInt(req.params.tripId),
-          fare_per_passenger,
-          from_loc: trip?.from_loc || '',
-          to_loc:   trip?.to_loc   || '',
+          fare_per_passenger: parseFloat(fare_per_passenger),
+          from_loc: tripRow?.from_loc || '',
+          to_loc:   tripRow?.to_loc   || '',
         });
       }
     } catch(_) {}
@@ -569,16 +554,11 @@ router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,r
     );
     if (!booking) return res.status(404).json({error:'No active booking found for this trip'});
 
-    // Mark fare as responded so polling doesn't re-show the modal
-    await db.query(
-      "UPDATE pool_requests SET fare_responded=1 WHERE passenger_id=? AND status IN ('confirmed','pending')",
-      [req.user.id]
-    ).catch(()=>{});
-
     if (response === 'refuse') {
       await db.query("UPDATE bookings SET status='cancelled' WHERE id=?", [booking.id]);
+      // Also cancel pool_request so the group seat count is correct
       await db.query(
-        "UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND status IN ('confirmed','pending')",
+        "UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND status='confirmed'",
         [req.user.id]
       ).catch(()=>{});
       const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
@@ -588,7 +568,7 @@ router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,r
       }
       return res.json({ ok:true, action:'left_group' });
     } else {
-      // accept — mark responded and notify driver
+      // accept — notify driver
       const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
       const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
       if (trip?.driver_id) {

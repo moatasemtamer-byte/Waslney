@@ -44,7 +44,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(DIST, 'index.html'));
 });
 
-// ── EXPORT io so routes can emit events ───────────────────
+// ── EXPORT io for use in routes ──────────────────────────
 module.exports = { io };
 
 // ── START ─────────────────────────────────────────────────

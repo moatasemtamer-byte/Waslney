@@ -357,7 +357,7 @@ export default function PassengerDash(){
       // Show notification instead of forcing chat open
       notify('Pool trip confirmed!','Your pool group has a driver. Open chat from Activity tab.','success');
     });
-    // Fare offer from driver — use functional updater so stale closure doesn't block it
+    // Fare offer from driver
     socket.on('fare:offer',({tripId, bookingId, fare_per_passenger, from_loc, to_loc})=>{
       setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
     });
@@ -366,32 +366,31 @@ export default function PassengerDash(){
 
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
 
-  // Tab-specific data refresh
+  // Tab-specific refresh
   useEffect(()=>{
     if(tab==='activity'){loadBookings();loadMyPoolRequests();}
   },[tab]);
 
-  // Always-running fare offer polling (tab-independent, runs immediately then every 6s)
+  // Always-running fare offer polling — independent of active tab
   useEffect(()=>{
     async function checkFare(){
       try{
         const reqs=await api.getMyPoolRequests();
         setMyPoolRequests(reqs);
-        // Use functional updater — only set if no offer already shown
-        const withFare = reqs.find(r => r.fare_per_passenger && !r.fare_responded);
-        if (withFare) {
-          setFareOffer(prev => prev ? prev : {
+        const withFare=reqs.find(r=>r.fare_per_passenger&&!r.fare_responded);
+        if(withFare){
+          setFareOffer(prev=>prev?prev:{
             tripId: withFare.group_trip_id,
             bookingId: withFare.booking_id,
             fare_per_passenger: withFare.fare_per_passenger,
-            from_loc: withFare.fare_from_loc || withFare.origin_label,
-            to_loc:   withFare.fare_to_loc   || withFare.dest_label,
+            from_loc: withFare.fare_from_loc||withFare.origin_label,
+            to_loc:   withFare.fare_to_loc||withFare.dest_label,
           });
         }
       }catch{}
     }
-    checkFare(); // run immediately on mount
-    const interval=setInterval(checkFare,6000);
+    checkFare();
+    const interval=setInterval(checkFare,8000);
     return()=>clearInterval(interval);
   },[]);
 
@@ -509,13 +508,12 @@ export default function PassengerDash(){
   async function handleFareAccept() {
     if (!fareOffer) return;
     try {
-      const tripId = fareOffer.tripId;
+      const tripId=fareOffer.tripId;
       await api.respondToFare(tripId, 'accept');
       notify('Fare accepted!', 'You remain in the pool group.', 'success');
       setFareOffer(null);
       loadBookings();
       loadMyPoolRequests();
-      // Open group chat so passenger can communicate with driver/group
       await openPoolChat(tripId);
     } catch(e) { notify('Error', e.message, 'error'); }
   }
