@@ -357,9 +357,9 @@ export default function PassengerDash(){
       // Show notification instead of forcing chat open
       notify('Pool trip confirmed!','Your pool group has a driver. Open chat from Activity tab.','success');
     });
-    // Fare offer from driver
+    // Fare offer from driver — use functional updater so stale closure doesn't block it
     socket.on('fare:offer',({tripId, bookingId, fare_per_passenger, from_loc, to_loc})=>{
-      setFareOffer({ tripId, bookingId, fare_per_passenger, from_loc, to_loc });
+      setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
     });
     return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');};
   },[user.id]);
@@ -371,16 +371,16 @@ export default function PassengerDash(){
     if(tab==='activity'){loadBookings();loadMyPoolRequests();}
   },[tab]);
 
-  // Always-running fare offer polling (tab-independent)
+  // Always-running fare offer polling (tab-independent, runs immediately then every 6s)
   useEffect(()=>{
-    const interval=setInterval(async()=>{
+    async function checkFare(){
       try{
         const reqs=await api.getMyPoolRequests();
         setMyPoolRequests(reqs);
-        // Check for pending fare offer using proposed_fare from trips join
+        // Use functional updater — only set if no offer already shown
         const withFare = reqs.find(r => r.fare_per_passenger && !r.fare_responded);
-        if (withFare && !fareOffer) {
-          setFareOffer({
+        if (withFare) {
+          setFareOffer(prev => prev ? prev : {
             tripId: withFare.group_trip_id,
             bookingId: withFare.booking_id,
             fare_per_passenger: withFare.fare_per_passenger,
@@ -389,9 +389,11 @@ export default function PassengerDash(){
           });
         }
       }catch{}
-    },8000);
+    }
+    checkFare(); // run immediately on mount
+    const interval=setInterval(checkFare,6000);
     return()=>clearInterval(interval);
-  },[fareOffer]);
+  },[]);
 
   useEffect(()=>{if(tab==='home'){loadActivePoolGroup();loadBookings();}},[tab]);
 

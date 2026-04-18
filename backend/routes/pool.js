@@ -202,13 +202,24 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
   try{
-    // Ensure proposed_fare column exists (safe no-op if already present)
-    try { await db.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
-    const[rows]=await db.query(`
+    // Check if proposed_fare column exists — compatible with all MySQL versions
+    let hasFareCol = false;
+    try {
+      const [cols] = await db.query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='trips' AND COLUMN_NAME='proposed_fare' AND TABLE_SCHEMA=DATABASE()");
+      hasFareCol = cols.length > 0;
+      if (!hasFareCol) {
+        await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL');
+        hasFareCol = true;
+      }
+    } catch(_){ hasFareCol = false; }
+
+    // Build query — only reference proposed_fare if column confirmed to exist
+    const fareCol = hasFareCol ? 'COALESCE(t.proposed_fare, NULL)' : 'NULL';
+    const [rows] = await db.query(`
       SELECT pr.*,
         pg.status AS group_status,
         pg.trip_id AS group_trip_id,
-        COALESCE(t.proposed_fare, NULL) AS fare_per_passenger,
+        ${fareCol} AS fare_per_passenger,
         t.from_loc AS fare_from_loc,
         t.to_loc AS fare_to_loc,
         (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
@@ -217,7 +228,7 @@ router.get('/requests/mine',requireAuth,async(req,res)=>{
       LEFT JOIN trips t ON t.id=pg.trip_id
       WHERE pr.passenger_id=?
       ORDER BY pr.created_at DESC
-    `,[req.user.id]);
+    `, [req.user.id]);
     res.json(rows);
   }catch(err){console.error('requests/mine error:',err);res.status(500).json({error:'Server error'});}
 });
@@ -366,7 +377,26 @@ router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(re
     } catch(chatErr) { console.error('pool_chat insert warning:', chatErr.message); }
 
     await notify(req.user.id,`✅ Smart Pool accepted! ${members.length} passenger(s) on ${group.desired_date}. First pickup: ${ordered[0].origin_label||'first stop'}.`);
-    res.json({tripId,message:'Pool trip created',member_count:members.length});
+
+    // ── Emit fare:offer server-side so passengers get modal immediately ──
+    // This is reliable vs client-side emit which can race with socket auth
+    if (customFare && customFare >= 1) {
+      try {
+        const { io } = require('../server');
+        const tripFromLoc = ordered[0].origin_label || 'Pickup';
+        const tripToLoc   = fPax.dest_label || 'Destination';
+        for (const m of members) {
+          io.to(`user:${m.passenger_id}`).emit('fare:offer', {
+            tripId,
+            fare_per_passenger: customFare,
+            from_loc: tripFromLoc,
+            to_loc:   tripToLoc,
+          });
+        }
+      } catch(_) {}
+    }
+
+    res.json({tripId,message:'Pool trip created',member_count:members.length, from_loc: ordered[0].origin_label||'Pickup', to_loc: fPax.dest_label||'Destination', fare_per_passenger: customFare||price});
   }catch(err){console.error('POST /pool/invitations/:id/accept ERROR:', err);res.status(500).json({error:'Server error', detail: err.message});}
 });
 
@@ -470,8 +500,11 @@ router.post('/trips/:tripId/propose-fare', requireAuth, requireRole('driver'), a
     const [driverRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
     const driverName = driverRows[0]?.name || 'Driver';
 
-    // Save proposed fare to trips table (or a new column)
-    try { await db.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+    // Ensure proposed_fare column exists (MySQL-version-safe)
+    try {
+      const [cols] = await db.query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='trips' AND COLUMN_NAME='proposed_fare' AND TABLE_SCHEMA=DATABASE()");
+      if (cols.length === 0) await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL');
+    } catch(_){}
     await db.query('UPDATE trips SET proposed_fare=? WHERE id=?', [fare_per_passenger, req.params.tripId]);
 
     // Notify each passenger via notification
