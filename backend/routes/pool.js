@@ -573,16 +573,28 @@ router.post('/trips/:tripId/fare-response', requireAuth, requireRole('passenger'
 // ── PASSENGER: Respond to fare offer (accept / refuse) ────────────────────────
 // Called immediately when passenger taps Accept or Refuse in the fare modal.
 // Looks up the booking by passenger_id + trip_id — no bookingId needed from client.
-router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,res)=>{
+router.post('/fare-response', requireAuth, async(req,res)=>{
   const { tripId, response } = req.body;
   if (!tripId) return res.status(400).json({error:'tripId required'});
   if (!['accept','refuse'].includes(response))
     return res.status(400).json({error:"response must be 'accept' or 'refuse'"});
   try {
+    // Find booking - check confirmed or any active status
     const [[booking]] = await db.query(
-      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
+      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status IN('confirmed','pending')",
       [tripId, req.user.id]
     );
+    // If no booking found, just process the pool_request cancellation anyway
+    if (!booking && response === 'refuse') {
+      await db.query(
+        "UPDATE pool_requests SET status='cancelled', fare_responded=1 WHERE passenger_id=? AND (status='confirmed' OR status='pending')",
+        [req.user.id]
+      ).catch(()=>{});
+      const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
+      const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
+      if (trip?.driver_id) await notify(trip.driver_id, `❌ ${u?.name||'A passenger'} refused the fare and left.`);
+      return res.json({ ok:true, action:'left_group' });
+    }
     if (!booking) return res.status(404).json({error:'No active booking found for this trip'});
 
     if (response === 'refuse') {
