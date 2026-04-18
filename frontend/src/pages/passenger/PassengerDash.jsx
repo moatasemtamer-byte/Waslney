@@ -219,6 +219,7 @@ function ActiveTripBanner({ bookings, poolRequests, onOpenChat }) {
 // ── Fare Accept/Refuse Modal ──
 function FareResponseModal({ fareOffer, onAccept, onRefuse, onClose }) {
   if (!fareOffer) return null;
+  // Don't show if already responded (safety check)
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 600, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
       <div style={{ background: '#0d1117', borderRadius: '24px 24px 0 0', padding: '28px 20px 44px', border: '1px solid rgba(251,191,36,0.2)' }}>
@@ -510,10 +511,12 @@ export default function PassengerDash(){
     try {
       const tripId=fareOffer.tripId;
       await api.respondToFare(tripId, 'accept');
-      notify('Fare accepted!', 'You remain in the pool group.', 'success');
+      notify('Fare accepted! 🎉', 'You are confirmed in the pool. Opening group chat…');
       setFareOffer(null);
-      loadBookings();
-      loadMyPoolRequests();
+      await loadBookings();
+      await loadMyPoolRequests();
+      // Switch to activity tab and open the chat
+      changeTab('activity');
       await openPoolChat(tripId);
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -522,16 +525,18 @@ export default function PassengerDash(){
     if (!fareOffer) return;
     try {
       await api.respondToFare(fareOffer.tripId, 'refuse');
-      notify('You left the group', 'Your booking has been cancelled.', 'warning');
+      notify('Left the group', 'You can search for a new pool ride anytime.', 'info');
       setFareOffer(null);
-      loadBookings();
-      loadMyPoolRequests();
+      setSelBooking(null);
+      sessionStorage.removeItem('selBookingId');
       // Close chat if open for this trip
       if (poolChat?.tripId === fareOffer.tripId) {
         setPoolChat(null);
         poolChatRef.current = null;
         setPoolChatStops([]);
       }
+      await loadBookings();
+      await loadMyPoolRequests();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
@@ -553,7 +558,11 @@ export default function PassengerDash(){
         new Promise(r=>setTimeout(r,2500))
       ]);
       setPoolWaiting(false);setPoolResult(result);
-      loadMyPoolRequests();
+      await loadMyPoolRequests();
+      // If matched, switch to activity so passenger sees their group
+      if(result.matched){
+        setTimeout(()=>changeTab('activity'),1500);
+      }
     }catch(e){setPoolWaiting(false);notify('Error',e.message,'error');}
     finally{setPoolSubmitting(false);}
   }

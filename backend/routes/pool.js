@@ -202,25 +202,28 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
   try{
-    // Join trips to expose proposed_fare — columns added lazily by propose-fare route
+    // Ensure fare_responded column exists
+    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_responded TINYINT(1) DEFAULT 0"); } catch(_){}
+
     let rows;
     try {
       [rows] = await db.query(`
         SELECT pr.*, pg.status AS group_status, pg.trip_id AS group_trip_id,
           t.proposed_fare AS fare_per_passenger,
           t.from_loc AS fare_from_loc, t.to_loc AS fare_to_loc,
-          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
+          COALESCE(pr.fare_responded, 0) AS fare_responded,
+          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status IN('pending','confirmed')) AS group_size
         FROM pool_requests pr
         LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
         LEFT JOIN trips t ON t.id=pg.trip_id
         WHERE pr.passenger_id=? ORDER BY pr.created_at DESC
       `, [req.user.id]);
     } catch(_) {
-      // Fallback if proposed_fare column doesn't exist yet
       [rows] = await db.query(`
         SELECT pr.*, pg.status AS group_status, pg.trip_id AS group_trip_id,
           NULL AS fare_per_passenger, NULL AS fare_from_loc, NULL AS fare_to_loc,
-          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
+          0 AS fare_responded,
+          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status IN('pending','confirmed')) AS group_size
         FROM pool_requests pr
         LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
         WHERE pr.passenger_id=? ORDER BY pr.created_at DESC
@@ -588,7 +591,11 @@ router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,r
       }
       return res.json({ ok:true, action:'left_group' });
     } else {
-      // accept — notify driver
+      // accept — mark responded and notify driver
+      await db.query(
+        "UPDATE pool_requests SET fare_responded=1 WHERE passenger_id=? AND (status='confirmed' OR status='pending')",
+        [req.user.id]
+      ).catch(()=>{});
       const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
       const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
       if (trip?.driver_id) {
