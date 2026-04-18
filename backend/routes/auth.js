@@ -1,7 +1,7 @@
 // backend/routes/auth.js
 require('dotenv').config();
 const express = require('express');
-const bcrypt  = require('bcrypt');
+const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const db      = require('../db');
 const { requireAuth } = require('../auth');
