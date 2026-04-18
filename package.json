@@ -1,21 +1,14 @@
 {
   "name": "waslney",
   "version": "1.0.0",
+  "description": "Waslney shared rides app",
+  "main": "backend/server.js",
   "scripts": {
-    "install-all": "cd frontend && npm install && cd ../backend && npm install",
-    "build": "cd frontend && npm install && npm run build",
     "start": "node backend/server.js",
-    "dev": "cd frontend && npm run dev"
+    "build": "cd frontend && npm install && npm run build",
+    "install-backend": "cd backend && npm install"
   },
-  "dependencies": {
-    "leaflet": "^1.9.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-leaflet": "^4.2.1",
-    "socket.io-client": "^4.7.5"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.2.0"
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

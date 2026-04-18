@@ -13,9 +13,7 @@ const io     = new Server(server, {
 
 // ── MIDDLEWARE ────────────────────────────────────────────
 app.use(cors());
-// Raised limit: driver registration sends up to 4 base64 images (~25 MB total)
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+app.use(express.json());
 
 // ── API ROUTES ────────────────────────────────────────────
 app.use('/api/auth',          require('./routes/auth'));
@@ -36,16 +34,13 @@ require('./socket/tracking')(io);
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 
 // ── SERVE FRONTEND BUILD ──────────────────────────────────
-const DIST = path.join(__dirname, '../frontend/dist');
+const DIST = path.join(__dirname, 'public');
 app.use(express.static(DIST));
 
 // All non-API routes serve index.html (React SPA routing)
 app.get('*', (req, res) => {
   res.sendFile(path.join(DIST, 'index.html'));
 });
-
-// ── EXPORT io for use in routes ──────────────────────────
-module.exports = { io };
 
 // ── START ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
