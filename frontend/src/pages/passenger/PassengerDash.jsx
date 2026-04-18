@@ -3,7 +3,7 @@ import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, WaslneyLogo, Badge, DetailRow, CapBar, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import TripMap, { ProximityMap } from '../../components/TripMap.jsx';
-import socket, { connectSocket, watchTrip } from '../../socket.js';
+import socket, { connectSocket, watchTrip, joinPoolChat, sendPoolChatMessage } from '../../socket.js';
 
 const SEARCH_RADIUS_M = 10000;
 
@@ -626,7 +626,22 @@ export default function PassengerDash(){
     socket.on('fare:offer',({tripId, bookingId, fare_per_passenger, from_loc, to_loc})=>{
       setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
     });
-    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');};
+    // Real-time chat — append incoming messages instantly without re-fetching
+    socket.on('pool:chat:message', (msg) => {
+      setPoolChat(prev => {
+        if (!prev || prev.tripId !== msg.trip_id) return prev;
+        // Avoid duplicates (in case server echoes back our own send)
+        const alreadyExists = prev.messages.some(
+          m => m.created_at === msg.created_at && m.user_id === msg.user_id && m.message === msg.message
+        );
+        if (alreadyExists) return prev;
+        const updated = { ...prev, messages: [...prev.messages, msg] };
+        poolChatRef.current = updated;
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+        return updated;
+      });
+    });
+    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');socket.off('pool:chat:message');};
   },[user.id]);
 
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
@@ -845,17 +860,18 @@ export default function PassengerDash(){
       setPoolChat(chatState);
       poolChatRef.current=chatState;
       setPoolChatStops(tripDetail?.stops||[]);
+      // Join socket room for real-time messages
+      joinPoolChat(tripId);
       setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);
     }
     catch(e){notify('Error',e.message,'error');}
   }
 
-  async function sendChatMessage(){
+  function sendChatMessage(){
     if(!chatInput.trim()||!poolChat)return;
-    setSendingChat(true);
-    try{await api.sendPoolMessage(poolChat.tripId,chatInput.trim());setChatInput('');const messages=await api.getPoolChat(poolChat.tripId);setPoolChat(prev=>({...prev,messages}));setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:'smooth'}),100);}
-    catch(e){notify('Error',e.message,'error');}
-    finally{setSendingChat(false);}
+    // Send via socket — server saves to DB and broadcasts to all members instantly
+    sendPoolChatMessage(poolChat.tripId, chatInput.trim());
+    setChatInput('');
   }
 
   const hasChatGroup = myPoolRequests.some(r=>r.group_trip_id&&r.group_status==='confirmed');

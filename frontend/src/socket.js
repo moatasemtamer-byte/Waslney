@@ -35,4 +35,13 @@ export function emitFareOffer(tripId, passengerIds, bookings, farePerPassenger, 
 // Alias — DriverDash may import either name depending on version
 export const emitFareProposed = emitFareOffer;
 
+// ── POOL CHAT real-time helpers ───────────────────────────────
+export function joinPoolChat(tripId) {
+  socket.emit('pool:chat:join', { tripId });
+}
+
+export function sendPoolChatMessage(tripId, message) {
+  socket.emit('pool:chat:send', { tripId, message });
+}
+
 export default socket;

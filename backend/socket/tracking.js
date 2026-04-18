@@ -104,6 +104,51 @@ module.exports = function setupTracking(io) {
       io.to(`trip:${tripId}`).emit('checkin:update', { bookingId, status });
     });
 
+    // ── POOL CHAT — real-time messaging ──────────────────
+    // Client emits 'pool:chat:join' when opening chat → joins trip room for messages
+    socket.on('pool:chat:join', ({ tripId }) => {
+      socket.join(`trip:${tripId}`);
+      const conn = connections.get(socket.id) || {};
+      connections.set(socket.id, { ...conn, tripId });
+    });
+
+    // Client emits 'pool:chat:send' with message text → server saves to DB then broadcasts
+    socket.on('pool:chat:send', async ({ tripId, message }) => {
+      const conn = connections.get(socket.id);
+      if (!conn || !conn.userId) return;
+      const trimmed = (message || '').trim();
+      if (!trimmed) return;
+      try {
+        // Verify sender is a member (booking or driver)
+        const [[booking]] = await db.query(
+          "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
+          [tripId, conn.userId]
+        ).catch(() => [[null]]);
+        const [[driver]] = await db.query(
+          'SELECT id FROM trips WHERE id=? AND driver_id=?',
+          [tripId, conn.userId]
+        ).catch(() => [[null]]);
+        if (!booking && !driver) return; // not a member, ignore
+
+        await db.query(
+          'INSERT INTO pool_chat_messages(trip_id,user_id,message) VALUES(?,?,?)',
+          [tripId, conn.userId, trimmed]
+        );
+
+        // Broadcast to everyone in the trip room (including sender so they see it confirmed)
+        io.to(`trip:${tripId}`).emit('pool:chat:message', {
+          trip_id: tripId,
+          user_id: conn.userId,
+          sender_name: conn.name,
+          sender_role: conn.role,
+          message: trimmed,
+          created_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.error('pool:chat:send error:', err.message);
+      }
+    });
+
     // ── DISCONNECT ────────────────────────────────────────
     socket.on('disconnect', () => {
       connections.delete(socket.id);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-import socket_module, { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareOffer, connectSocket } from '../../socket.js';
+import socket_module, { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareOffer, connectSocket, joinPoolChat, sendPoolChatMessage } from '../../socket.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import TripMap from '../../components/TripMap.jsx';
 
@@ -44,6 +44,20 @@ export default function DriverDash() {
       loadNotifs();
     });
 
+    // Real-time chat — append incoming messages instantly
+    socket_module.on('pool:chat:message', (msg) => {
+      setPoolChat(prev => {
+        if (!prev || prev.tripId !== msg.trip_id) return prev;
+        const alreadyExists = prev.messages.some(
+          m => m.created_at === msg.created_at && m.user_id === msg.user_id && m.message === msg.message
+        );
+        if (alreadyExists) return prev;
+        const updated = { ...prev, messages: [...prev.messages, msg] };
+        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+        return updated;
+      });
+    });
+
     // Fallback polling every 30s in case socket event is missed
     const pollInterval = setInterval(() => {
       loadPoolInvitations();
@@ -52,6 +66,7 @@ export default function DriverDash() {
 
     return () => {
       socket_module.off('pool:new_invitation');
+      socket_module.off('pool:chat:message');
       clearInterval(pollInterval);
     };
   }, []);
@@ -125,21 +140,17 @@ export default function DriverDash() {
       ]);
       setPoolChat({ tripId, messages });
       setPoolChatStops(tripDetail?.stops || []);
+      // Join socket room for real-time messages
+      joinPoolChat(tripId);
       setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior:'smooth' }), 100);
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
-  async function sendChatMessage() {
+  function sendChatMessage() {
     if (!chatInput.trim() || !poolChat) return;
-    setSendingChat(true);
-    try {
-      await api.sendPoolMessage(poolChat.tripId, chatInput.trim());
-      setChatInput('');
-      const messages = await api.getPoolChat(poolChat.tripId);
-      setPoolChat(prev => ({ ...prev, messages }));
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior:'smooth' }), 100);
-    } catch(e) { notify('Error', e.message, 'error'); }
-    finally { setSendingChat(false); }
+    // Send via socket — server saves and broadcasts to all members instantly
+    sendPoolChatMessage(poolChat.tripId, chatInput.trim());
+    setChatInput('');
   }
 
   async function saveEditedStops() {
