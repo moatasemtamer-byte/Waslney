@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
-import { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareOffer } from '../../socket.js';
+import socket_module, { emitTripStarted, emitTripCompleted, emitCheckinUpdate, emitPoolConfirmed, emitFareOffer, connectSocket } from '../../socket.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import TripMap from '../../components/TripMap.jsx';
 
@@ -34,7 +34,16 @@ export default function DriverDash() {
 
   const unread = notifs.filter(n => !n.is_read).length;
 
-  useEffect(() => { loadTrips(); loadRatings(); loadNotifs(); loadPoolInvitations(); }, []);
+  useEffect(() => {
+    loadTrips(); loadRatings(); loadNotifs(); loadPoolInvitations();
+    // FIX 1: connect socket & listen for new pool invitations so driver sees match in real-time
+    if (user?.id) connectSocket(user.id, 'driver');
+    socket_module.on('pool:new_invitation', () => {
+      loadPoolInvitations();
+      loadNotifs();
+    });
+    return () => { socket_module.off('pool:new_invitation'); };
+  }, []);
 
   async function loadPoolInvitations() {
     setPoolLoading(true);
@@ -168,13 +177,7 @@ export default function DriverDash() {
     try {
       await api.completeTrip(tripId);
       emitTripCompleted(tripId);
-      // Close any open chat for this trip
-      if (poolChat?.tripId === tripId) {
-        setPoolChat(null);
-        poolChatRef.current = null;
-      }
-      setConfirmEndTrip(false);
-      notify('Trip ended!', 'All passengers notified. Chat closed.');
+      notify('Trip completed!', 'All passengers notified.');
       setSelTrip(null); setTripDetail(null);
       loadTrips();
     } catch(e) { notify('Error', e.message, 'error'); }
@@ -398,9 +401,9 @@ export default function DriverDash() {
                   </button>
                 )}
                 {selTrip.status === 'active' && (
-                  <button onClick={() => setConfirmEndTrip(true)}
-                    style={{ ...btnPrimary, background:'#ef4444', color:'#fff', marginBottom:20, fontSize:15, fontWeight:800 }}>
-                    🏁 End Trip
+                  <button onClick={() => handleComplete(selTrip.id)}
+                    style={{ ...btnPrimary, background:C.amber, color:'#000', marginBottom:20 }}>
+                    ✅ Complete trip
                   </button>
                 )}
                 {/* Driver can always open chat from trip detail if pool trip */}

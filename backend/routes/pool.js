@@ -58,6 +58,8 @@ async function suggestDrivers(groupId){
       if(ex.length)continue;
       await db.query('INSERT INTO pool_invitations(group_id,driver_id,expires_at)VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 MINUTE))',[groupId,d.driver_id]);
       await notify(d.driver_id,`🚗 Smart Pool: ${reqs.length} passenger(s) need a ride to ${g.dest_label||'destination'} on ${g.desired_date} at ${g.desired_time}. Check Pool tab!`);
+      // FIX 1: emit socket so driver dashboard refreshes immediately without manual reload
+      try { const {io}=require('../server'); io.to(`user:${d.driver_id}`).emit('pool:new_invitation',{groupId}); } catch(_){}
     }
   }catch(e){console.error('suggestDrivers',e);}
 }
@@ -121,58 +123,50 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
   if(!origin_lat||!origin_lng||!dest_lat||!dest_lng||!desired_time||!desired_date)return res.status(400).json({error:'Missing fields'});
   const seatsN=Math.max(1,Math.min(16,parseInt(seats)||1));
   try{
-    // ── DEDUP: UPDATE existing request in-place instead of cancelling ──
-    // Cancelling removes the passenger from matching pool — UPDATE keeps them matchable
+    // ── DEDUP: cancel old pending requests from this passenger for same date/dest ──
+    // This prevents the "search again = new seat" bug
     const[existingReqs]=await db.query(
       `SELECT * FROM pool_requests WHERE passenger_id=? AND desired_date=? AND status='pending'`,
       [req.user.id, desired_date]
     );
-    let reqId = null;
     for(const old of existingReqs){
+      // Cancel if destination is within 10km (same trip intent) and time within 60 min
       const destDist = haversine(+old.dest_lat,+old.dest_lng,+dest_lat,+dest_lng);
       const timeDiff = Math.abs(toMin(old.desired_time)-toMin(desired_time));
-      if(destDist <= 15000 && timeDiff <= 90){
-        // UPDATE in place — keeps group membership intact
-        await db.query(
-          `UPDATE pool_requests SET origin_lat=?,origin_lng=?,origin_label=?,dest_lat=?,dest_lng=?,dest_label=?,desired_time=?,seats=? WHERE id=?`,
-          [origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,seatsN,old.id]
-        );
-        reqId = old.id;
-        console.log('[Pool] Updated existing request', reqId, 'for passenger', req.user.id);
-        break;
+      if(destDist <= 10000 && timeDiff <= 60){
+        await db.query("UPDATE pool_requests SET status='cancelled' WHERE id=?",[old.id]);
+        // Notify group members if this req was in a group
+        if(old.pool_group_id){
+          const[members]=await db.query(
+            "SELECT passenger_id FROM pool_requests WHERE pool_group_id=? AND passenger_id!=? AND status='pending'",
+            [old.pool_group_id,req.user.id]
+          );
+          for(const m of members) await notify(m.passenger_id,'ℹ️ A passenger updated their Smart Pool request.');
+        }
       }
     }
 
-    // Only create new request if no existing one was updated
-    if(!reqId){
-      const[r]=await db.query(
-        `INSERT INTO pool_requests(passenger_id,origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats)VALUES(?,?,?,?,?,?,?,?,?,?)`,
-        [req.user.id,origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,desired_date,seatsN]
-      );
-      reqId=r.insertId;
-      console.log('[Pool] Created new request', reqId, 'for passenger', req.user.id);
-    }
+    const[r]=await db.query(
+      `INSERT INTO pool_requests(passenger_id,origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats)VALUES(?,?,?,?,?,?,?,?,?,?)`,
+      [req.user.id,origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,desired_date,seatsN]
+    );
+    const reqId=r.insertId;
 
-    // Find candidates: same date, ±60 min window (relaxed), not same user
+    // Find candidates: same date, ±30 min window, not same user
     const[candidates]=await db.query(
       `SELECT pr.*,u.name AS passenger_name FROM pool_requests pr
        JOIN users u ON u.id=pr.passenger_id
        WHERE pr.id!=? AND pr.status='pending' AND pr.desired_date=?
        AND pr.passenger_id!=?
-       AND ABS(TIME_TO_SEC(TIMEDIFF(pr.desired_time,?)))<=3600`,
+       AND ABS(TIME_TO_SEC(TIMEDIFF(pr.desired_time,?)))<=1800`,
       [reqId,desired_date,req.user.id,desired_time]
     );
-    console.log('[Pool] New request:', req.user.id, 'date:', desired_date, 'time:', desired_time);
-    console.log('[Pool] Candidates found:', candidates.length);
     const compatible=candidates.filter(c=>{
       const od=haversine(+c.origin_lat,+c.origin_lng,+origin_lat,+origin_lng);
       const dd=haversine(+c.dest_lat,+c.dest_lng,+dest_lat,+dest_lng);
       const score=matchScore(c,{origin_lat,origin_lng,dest_lat,dest_lng,desired_time});
-      console.log(`  Candidate ${c.passenger_id}: od=${Math.round(od)}m dd=${Math.round(dd)}m score=${score.toFixed(2)}`);
-      // Relaxed thresholds: 20km origin, 15km dest, score<0.9
-      return od<=20000 && dd<=15000 && score<0.9;
+      return od<=15000 && dd<=10000 && score<0.85;
     });
-    console.log('[Pool] Compatible:', compatible.length);
 
     let groupId=null,matched=false,groupMembers=[];
     if(compatible.length>0){
@@ -210,9 +204,7 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
   try{
-    // Ensure fare_responded column exists
-    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_responded TINYINT(1) DEFAULT 0"); } catch(_){}
-
+    // Join trips to expose proposed_fare — columns added lazily by propose-fare route
     let rows;
     try {
       [rows] = await db.query(`
@@ -220,18 +212,18 @@ router.get('/requests/mine',requireAuth,async(req,res)=>{
           t.proposed_fare AS fare_per_passenger,
           t.from_loc AS fare_from_loc, t.to_loc AS fare_to_loc,
           COALESCE(pr.fare_responded, 0) AS fare_responded,
-          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status IN('pending','confirmed')) AS group_size
+          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
         FROM pool_requests pr
         LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
         LEFT JOIN trips t ON t.id=pg.trip_id
         WHERE pr.passenger_id=? ORDER BY pr.created_at DESC
       `, [req.user.id]);
     } catch(_) {
+      // Fallback if proposed_fare column doesn't exist yet
       [rows] = await db.query(`
         SELECT pr.*, pg.status AS group_status, pg.trip_id AS group_trip_id,
           NULL AS fare_per_passenger, NULL AS fare_from_loc, NULL AS fare_to_loc,
-          0 AS fare_responded,
-          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status IN('pending','confirmed')) AS group_size
+          (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
         FROM pool_requests pr
         LEFT JOIN pool_groups pg ON pg.id=pr.pool_group_id
         WHERE pr.passenger_id=? ORDER BY pr.created_at DESC
@@ -573,35 +565,36 @@ router.post('/trips/:tripId/fare-response', requireAuth, requireRole('passenger'
 // ── PASSENGER: Respond to fare offer (accept / refuse) ────────────────────────
 // Called immediately when passenger taps Accept or Refuse in the fare modal.
 // Looks up the booking by passenger_id + trip_id — no bookingId needed from client.
-router.post('/fare-response', requireAuth, async(req,res)=>{
+router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,res)=>{
   const { tripId, response } = req.body;
   if (!tripId) return res.status(400).json({error:'tripId required'});
   if (!['accept','refuse'].includes(response))
     return res.status(400).json({error:"response must be 'accept' or 'refuse'"});
   try {
-    // Find booking - check confirmed or any active status
+    // FIX 2+3: Add fare_responded column if missing, then mark responded immediately
+    // This stops the 8-second polling from re-showing the modal after accept/refuse
+    try { await db.query('ALTER TABLE pool_requests ADD COLUMN fare_responded TINYINT(1) NOT NULL DEFAULT 0'); } catch(_){}
+
+    // Find booking — may not exist yet if driver accepted but booking hasn't committed (race)
+    // So we look up by passenger+trip regardless of status for the respond action
     const [[booking]] = await db.query(
-      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status IN('confirmed','pending')",
+      "SELECT id FROM bookings WHERE trip_id=? AND passenger_id=? AND status='confirmed'",
       [tripId, req.user.id]
     );
-    // If no booking found, just process the pool_request cancellation anyway
-    if (!booking && response === 'refuse') {
-      await db.query(
-        "UPDATE pool_requests SET status='cancelled', fare_responded=1 WHERE passenger_id=? AND (status='confirmed' OR status='pending')",
-        [req.user.id]
-      ).catch(()=>{});
-      const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
-      const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
-      if (trip?.driver_id) await notify(trip.driver_id, `❌ ${u?.name||'A passenger'} refused the fare and left.`);
-      return res.json({ ok:true, action:'left_group' });
-    }
-    if (!booking) return res.status(404).json({error:'No active booking found for this trip'});
+
+    // Mark fare as responded on pool_requests so polling stops showing modal
+    await db.query(
+      "UPDATE pool_requests SET fare_responded=1 WHERE passenger_id=? AND status='confirmed'",
+      [req.user.id]
+    ).catch(()=>{});
 
     if (response === 'refuse') {
-      await db.query("UPDATE bookings SET status='cancelled' WHERE id=?", [booking.id]);
+      if (booking) {
+        await db.query("UPDATE bookings SET status='cancelled' WHERE id=?", [booking.id]);
+      }
       // Also cancel pool_request so the group seat count is correct
       await db.query(
-        "UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND status='confirmed'",
+        "UPDATE pool_requests SET status='cancelled', fare_responded=1 WHERE passenger_id=? AND status='confirmed'",
         [req.user.id]
       ).catch(()=>{});
       const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
@@ -612,10 +605,7 @@ router.post('/fare-response', requireAuth, async(req,res)=>{
       return res.json({ ok:true, action:'left_group' });
     } else {
       // accept — mark responded and notify driver
-      await db.query(
-        "UPDATE pool_requests SET fare_responded=1 WHERE passenger_id=? AND (status='confirmed' OR status='pending')",
-        [req.user.id]
-      ).catch(()=>{});
+      if (!booking) return res.status(404).json({error:'No active booking found for this trip'});
       const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
       const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
       if (trip?.driver_id) {
@@ -625,20 +615,6 @@ router.post('/fare-response', requireAuth, async(req,res)=>{
     }
   } catch(err) { console.error('fare-response error:', err); res.status(500).json({error:err.message}); }
 });
-
-// ── DEBUG: see all pending pool requests (remove in production) ──
-router.get('/debug/requests', async(req,res)=>{
-  try{
-    const [rows] = await db.query(`
-      SELECT id, passenger_id, origin_label, dest_label, desired_date, desired_time, 
-             status, pool_group_id, seats, created_at
-      FROM pool_requests 
-      ORDER BY created_at DESC LIMIT 50
-    `);
-    res.json({ count: rows.length, requests: rows });
-  }catch(e){ res.status(500).json({error:e.message}); }
-});
-
 
 module.exports=router;
 module.exports.suggestDriversForGroup=suggestDrivers;
