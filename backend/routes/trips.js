@@ -180,43 +180,33 @@ router.post('/:id/start', requireAuth, requireRole('driver'), async (req, res) =
 // POST /api/trips/:id/complete
 router.post('/:id/complete', requireAuth, requireRole('driver'), async (req, res) => {
   try {
-    const tripId = req.params.id;
-    await db.query("UPDATE trips SET status='completed' WHERE id=? AND driver_id=?", [tripId, req.user.id]);
-    await db.query("UPDATE bookings SET status='completed' WHERE trip_id=? AND status='confirmed'", [tripId]);
-
-    const [bookings] = await db.query("SELECT passenger_id FROM bookings WHERE trip_id=?", [tripId]);
+    await db.query("UPDATE trips SET status='completed' WHERE id=? AND driver_id=?", [req.params.id, req.user.id]);
+    await db.query("UPDATE bookings SET status='completed' WHERE trip_id=? AND status='confirmed'", [req.params.id]);
+    const [bookings] = await db.query("SELECT passenger_id FROM bookings WHERE trip_id=? AND status='completed'", [req.params.id]);
     for (const b of bookings) {
-      await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
-        [b.passenger_id, '🏁 Your trip is complete! Chat has been closed. Please rate your driver ⭐']);
+      await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
+        [b.passenger_id, `Your trip is complete! Please rate your driver.`]);
     }
-
-    // Emit socket so passengers see trip end instantly
+    // Pool trip cleanup — delete chat, group, invitations, requests
     try {
-      const { io } = require('../server');
-      io.to(`trip:${tripId}`).emit('trip:completed', { tripId: parseInt(tripId) });
-    } catch(_) {}
-
-    // Pool trip full cleanup
-    try {
-      const [[trip]] = await db.query('SELECT is_pool FROM trips WHERE id=?', [tripId]);
-      if (trip?.is_pool) {
-        const [[poolGroup]] = await db.query('SELECT id FROM pool_groups WHERE trip_id=?', [tripId]);
+      const [[trip]] = await db.query('SELECT is_pool FROM trips WHERE id=?', [req.params.id]);
+      if (trip && trip.is_pool) {
+        const [[poolGroup]] = await db.query('SELECT id FROM pool_groups WHERE trip_id=?', [req.params.id]);
         if (poolGroup) {
           const gid = poolGroup.id;
-          await db.query('DELETE FROM pool_chat_messages WHERE trip_id=?', [tripId]);
-          await db.query('DELETE FROM pool_chats WHERE trip_id=?', [tripId]);
+          const [members] = await db.query('SELECT passenger_id FROM pool_requests WHERE pool_group_id=?', [gid]);
+          for (const m of members) {
+            await db.query('INSERT INTO notifications(user_id,message)VALUES(?,?)',
+              [m.passenger_id, '🏁 Smart Pool complete! Group chat has been closed. Rate your driver ⭐']);
+          }
+          await db.query('DELETE FROM pool_chat_messages WHERE trip_id=?', [req.params.id]);
+          await db.query('DELETE FROM pool_chats WHERE trip_id=?', [req.params.id]);
           await db.query('DELETE FROM pool_invitations WHERE group_id=?', [gid]);
-          await db.query('UPDATE pool_requests SET pool_group_id=NULL, status='completed' WHERE pool_group_id=?', [gid]);
+          await db.query("UPDATE pool_requests SET pool_group_id=NULL, status='completed' WHERE pool_group_id=?", [gid]);
           await db.query('DELETE FROM pool_groups WHERE id=?', [gid]);
         }
       }
     } catch(pe) { console.error('Pool cleanup:', pe.message); }
-
-    // Also clean regular trip chat messages
-    try {
-      await db.query('DELETE FROM pool_chat_messages WHERE trip_id=?', [tripId]);
-    } catch(_) {}
-
     res.json({ message: 'Trip completed' });
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });
