@@ -202,24 +202,14 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
 
 router.get('/requests/mine',requireAuth,async(req,res)=>{
   try{
-    // Check if proposed_fare column exists — compatible with all MySQL versions
-    let hasFareCol = false;
-    try {
-      const [cols] = await db.query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='trips' AND COLUMN_NAME='proposed_fare' AND TABLE_SCHEMA=DATABASE()");
-      hasFareCol = cols.length > 0;
-      if (!hasFareCol) {
-        await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL');
-        hasFareCol = true;
-      }
-    } catch(_){ hasFareCol = false; }
+    // Ensure fare columns exist on pool_requests (safest place to store fare — no trips join needed)
+    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_per_passenger DECIMAL(10,2) NULL"); } catch(_){}
+    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_responded TINYINT(1) DEFAULT 0"); } catch(_){}
 
-    // Build query — only reference proposed_fare if column confirmed to exist
-    const fareCol = hasFareCol ? 'COALESCE(t.proposed_fare, NULL)' : 'NULL';
-    const [rows] = await db.query(`
+    const[rows]=await db.query(`
       SELECT pr.*,
         pg.status AS group_status,
         pg.trip_id AS group_trip_id,
-        ${fareCol} AS fare_per_passenger,
         t.from_loc AS fare_from_loc,
         t.to_loc AS fare_to_loc,
         (SELECT COUNT(*) FROM pool_requests pr2 WHERE pr2.pool_group_id=pr.pool_group_id AND pr2.status='pending') AS group_size
@@ -228,7 +218,7 @@ router.get('/requests/mine',requireAuth,async(req,res)=>{
       LEFT JOIN trips t ON t.id=pg.trip_id
       WHERE pr.passenger_id=?
       ORDER BY pr.created_at DESC
-    `, [req.user.id]);
+    `,[req.user.id]);
     res.json(rows);
   }catch(err){console.error('requests/mine error:',err);res.status(500).json({error:'Server error'});}
 });
@@ -500,12 +490,14 @@ router.post('/trips/:tripId/propose-fare', requireAuth, requireRole('driver'), a
     const [driverRows] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]);
     const driverName = driverRows[0]?.name || 'Driver';
 
-    // Ensure proposed_fare column exists (MySQL-version-safe)
-    try {
-      const [cols] = await db.query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='trips' AND COLUMN_NAME='proposed_fare' AND TABLE_SCHEMA=DATABASE()");
-      if (cols.length === 0) await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL');
-    } catch(_){}
-    await db.query('UPDATE trips SET proposed_fare=? WHERE id=?', [fare_per_passenger, req.params.tripId]);
+    // Ensure fare columns exist on pool_requests
+    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_per_passenger DECIMAL(10,2) NULL"); } catch(_){}
+    try { await db.query("ALTER TABLE pool_requests ADD COLUMN fare_responded TINYINT(1) DEFAULT 0"); } catch(_){}
+    // Store fare directly on each passenger's pool_request row
+    await db.query(
+      "UPDATE pool_requests SET fare_per_passenger=?, fare_responded=0 WHERE pool_group_id=(SELECT pool_group_id FROM pool_groups WHERE trip_id=? LIMIT 1)",
+      [fare_per_passenger, req.params.tripId]
+    );
 
     // Notify each passenger via notification
     for (const b of bookings) {
@@ -577,11 +569,16 @@ router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,r
     );
     if (!booking) return res.status(404).json({error:'No active booking found for this trip'});
 
+    // Mark fare as responded so polling doesn't re-show the modal
+    await db.query(
+      "UPDATE pool_requests SET fare_responded=1 WHERE passenger_id=? AND status IN ('confirmed','pending')",
+      [req.user.id]
+    ).catch(()=>{});
+
     if (response === 'refuse') {
       await db.query("UPDATE bookings SET status='cancelled' WHERE id=?", [booking.id]);
-      // Also cancel pool_request so the group seat count is correct
       await db.query(
-        "UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND status='confirmed'",
+        "UPDATE pool_requests SET status='cancelled' WHERE passenger_id=? AND status IN ('confirmed','pending')",
         [req.user.id]
       ).catch(()=>{});
       const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
@@ -591,7 +588,7 @@ router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,r
       }
       return res.json({ ok:true, action:'left_group' });
     } else {
-      // accept — notify driver
+      // accept — mark responded and notify driver
       const [[trip]] = await db.query('SELECT driver_id FROM trips WHERE id=?', [tripId]).catch(()=>[[null]]);
       const [[u]] = await db.query('SELECT name FROM users WHERE id=?', [req.user.id]).catch(()=>[[null]]);
       if (trip?.driver_id) {
