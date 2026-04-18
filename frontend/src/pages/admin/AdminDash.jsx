@@ -4,6 +4,7 @@ import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
+import socket_module, { connectSocket } from '../../socket.js';
 
 // ── Full-screen photo lightbox ─────────────────────────────────────────────
 function Lightbox({ src, label, onClose }) {
@@ -98,7 +99,26 @@ export default function AdminDash() {
   });
   const f = k => e => setForm({ ...form, [k]: e.target.value });
 
-  useEffect(() => { loadAll(); loadPendingDrivers(); }, []);
+  useEffect(() => {
+    loadAll();
+    loadPendingDrivers();
+    // Connect socket as admin for real-time updates
+    connectSocket(user.id, 'admin');
+    // Trip status changes (driver starts or completes trip)
+    socket_module.on('trip:status:changed', ({ tripId, status }) => {
+      setTrips(prev => prev.map(t => String(t.id) === String(tripId) ? { ...t, status } : t));
+    });
+    // Booking confirmed/cancelled (passenger books)
+    socket_module.on('booking:updated', ({ tripId, bookedSeats }) => {
+      if (bookedSeats !== undefined) {
+        setTrips(prev => prev.map(t => String(t.id) === String(tripId) ? { ...t, booked_seats: bookedSeats } : t));
+      }
+    });
+    return () => {
+      socket_module.off('trip:status:changed');
+      socket_module.off('booking:updated');
+    };
+  }, []);
   useEffect(() => { if (tab === 'review') loadPendingDrivers(); }, [tab]);
   useEffect(() => { if (tab === 'drivers') loadAllDrivers(); }, [tab]);
 

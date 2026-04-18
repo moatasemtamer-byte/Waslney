@@ -58,6 +58,11 @@ export default function DriverDash() {
       });
     });
 
+    // Real-time booking updates — passenger books or cancels, update seat count live
+    socket_module.on('booking:updated', ({ tripId, bookedSeats }) => {
+      setTrips(prev => prev.map(t => String(t.id) === String(tripId) ? { ...t, booked_seats: bookedSeats } : t));
+    });
+
     // Fallback polling every 30s in case socket event is missed
     const pollInterval = setInterval(() => {
       loadPoolInvitations();
@@ -67,6 +72,7 @@ export default function DriverDash() {
     return () => {
       socket_module.off('pool:new_invitation');
       socket_module.off('pool:chat:message');
+      socket_module.off('booking:updated');
       clearInterval(pollInterval);
     };
   }, []);

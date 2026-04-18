@@ -2,6 +2,10 @@ const router = require('express').Router();
 const db     = require('../db');
 const { requireAuth, requireRole } = require('../auth');
 
+function getIo() {
+  try { return require('../server').io; } catch(_) { return null; }
+}
+
 // GET /api/bookings/mine
 router.get('/mine', requireAuth, async (req, res) => {
   try {
@@ -91,6 +95,17 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
       WHERE b.id = ?
     `, [bookingId]);
 
+    // Notify admin + driver in real-time about updated seat count
+    const io = getIo();
+    if (io) {
+      const [[{ newBooked }]] = await db.query(
+        "SELECT COALESCE(SUM(seats),0) AS newBooked FROM bookings WHERE trip_id=? AND status='confirmed'",
+        [trip_id]
+      );
+      io.to('admin').emit('booking:updated', { tripId: trip_id, bookedSeats: newBooked });
+      io.to(`trip:${trip_id}`).emit('booking:updated', { tripId: trip_id, bookedSeats: newBooked });
+    }
+
     res.status(201).json(booking[0]);
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });
@@ -106,6 +121,16 @@ router.put('/:id/cancel', requireAuth, async (req, res) => {
     if (booking.passenger_id !== req.user.id && req.user.role !== 'admin')
       return res.status(403).json({ error: 'Forbidden' });
     await db.query("UPDATE bookings SET status='cancelled' WHERE id=?", [req.params.id]);
+    // Notify admin + driver that seat count changed
+    const io = getIo();
+    if (io) {
+      const [[{ newBooked }]] = await db.query(
+        "SELECT COALESCE(SUM(seats),0) AS newBooked FROM bookings WHERE trip_id=? AND status='confirmed'",
+        [booking.trip_id]
+      );
+      io.to('admin').emit('booking:updated', { tripId: booking.trip_id, bookedSeats: newBooked });
+      io.to(`trip:${booking.trip_id}`).emit('booking:updated', { tripId: booking.trip_id, bookedSeats: newBooked });
+    }
     res.json({ message: 'Booking cancelled' });
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });

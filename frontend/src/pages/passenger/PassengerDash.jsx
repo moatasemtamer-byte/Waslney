@@ -626,6 +626,23 @@ export default function PassengerDash(){
     socket.on('fare:offer',({tripId, bookingId, fare_per_passenger, from_loc, to_loc})=>{
       setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
     });
+    // Trip started by driver — update booking trip_status instantly, no refresh needed
+    socket.on('trip:started', ({ tripId }) => {
+      setMyBookings(prev => prev.map(b =>
+        b.trip_id === tripId ? { ...b, trip_status: 'active' } : b
+      ));
+      setSelBooking(prev => prev?.trip_id === tripId ? { ...prev, trip_status: 'active' } : prev);
+      notify('🚐 Trip started!', 'Your driver is on the way.', 'success');
+    });
+    // Trip completed by driver — update booking status instantly, then reload for rating prompt
+    socket.on('trip:completed', ({ tripId }) => {
+      setMyBookings(prev => prev.map(b =>
+        b.trip_id === tripId ? { ...b, trip_status: 'completed', status: 'completed' } : b
+      ));
+      setSelBooking(prev => prev?.trip_id === tripId ? { ...prev, trip_status: 'completed', status: 'completed' } : prev);
+      notify('🏁 Trip completed!', 'Please rate your driver.', 'info');
+      loadBookings();
+    });
     // Real-time chat — append incoming messages instantly without re-fetching
     socket.on('pool:chat:message', (msg) => {
       setPoolChat(prev => {
@@ -641,7 +658,14 @@ export default function PassengerDash(){
         return updated;
       });
     });
-    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');socket.off('pool:chat:message');};
+    return()=>{
+      socket.off('checkin:update');
+      socket.off('pool:confirmed');
+      socket.off('fare:offer');
+      socket.off('pool:chat:message');
+      socket.off('trip:started');
+      socket.off('trip:completed');
+    };
   },[user.id]);
 
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);

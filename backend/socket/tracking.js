@@ -71,8 +71,14 @@ module.exports = function setupTracking(io) {
     });
 
     // ── TRIP EVENTS ───────────────────────────────────────
-    socket.on('trip:started',   ({ tripId }) => { io.to(`trip:${tripId}`).emit('trip:started',   { tripId }); });
-    socket.on('trip:completed', ({ tripId }) => { io.to(`trip:${tripId}`).emit('trip:completed', { tripId }); });
+    socket.on('trip:started',   ({ tripId }) => {
+      io.to(`trip:${tripId}`).emit('trip:started',   { tripId });
+      io.to('admin').emit('trip:status:changed', { tripId, status: 'active' });
+    });
+    socket.on('trip:completed', ({ tripId }) => {
+      io.to(`trip:${tripId}`).emit('trip:completed', { tripId });
+      io.to('admin').emit('trip:status:changed', { tripId, status: 'completed' });
+    });
 
     // ── POOL CONFIRMED — notify passengers instantly ──────
     // Driver emits this after accepting; each passenger in their user room gets it

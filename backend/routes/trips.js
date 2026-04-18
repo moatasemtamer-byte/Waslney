@@ -2,6 +2,11 @@ const router = require('express').Router();
 const db     = require('../db');
 const { requireAuth, requireRole } = require('../auth');
 
+// Helper to get the io instance safely (avoids circular-require issues)
+function getIo() {
+  try { return require('../server').io; } catch(_) { return null; }
+}
+
 // GET /api/trips
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -171,6 +176,13 @@ router.put('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 router.post('/:id/start', requireAuth, requireRole('driver'), async (req, res) => {
   try {
     await db.query("UPDATE trips SET status='active' WHERE id=? AND driver_id=?", [req.params.id, req.user.id]);
+    // Emit real-time event so all passengers + admin update instantly (no refresh needed)
+    const io = getIo();
+    if (io) {
+      const tripId = req.params.id;
+      io.to(`trip:${tripId}`).emit('trip:started', { tripId });
+      io.to('admin').emit('trip:status:changed', { tripId, status: 'active' });
+    }
     res.json({ message: 'Trip started' });
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });
@@ -186,6 +198,13 @@ router.post('/:id/complete', requireAuth, requireRole('driver'), async (req, res
     for (const b of bookings) {
       await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
         [b.passenger_id, `Your trip is complete! Please rate your driver.`]);
+    }
+    // Emit real-time event so all passengers + admin update instantly (no refresh needed)
+    const io = getIo();
+    if (io) {
+      const tripId = req.params.id;
+      io.to(`trip:${tripId}`).emit('trip:completed', { tripId });
+      io.to('admin').emit('trip:status:changed', { tripId, status: 'completed' });
     }
     // Pool trip cleanup — delete chat, group, invitations, requests
     try {
