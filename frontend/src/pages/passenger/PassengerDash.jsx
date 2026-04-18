@@ -118,14 +118,14 @@ function BottomNav({active,onSet,bookingCount,isAdmin,pendingCount}){
     ?[{id:'review',icon:'📋',label:'Review',badge:pendingCount},{id:'account',icon:'👤',label:'Account'}]
     :[{id:'home',icon:'🏠',label:'Home'},{id:'activity',icon:'📋',label:'Activity',badge:bookingCount},{id:'account',icon:'👤',label:'Account'}];
   return(
-    <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#000',borderTop:'1px solid #1a1a1a',display:'flex',zIndex:200,paddingBottom:'env(safe-area-inset-bottom)'}}>
+    <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#0B0F19',borderTop:'1px solid #1F2937',display:'flex',zIndex:200,paddingBottom:'env(safe-area-inset-bottom)'}}>
       {tabs.map(t=>(
         <button key={t.id} onClick={()=>onSet(t.id)}
           style={{flex:1,background:'transparent',border:'none',cursor:'pointer',padding:'12px 0 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:4,position:'relative'}}>
           <span style={{fontSize:22}}>{t.icon}</span>
-          <span style={{fontSize:10,color:active===t.id?'#fbbf24':'#555',fontFamily:"'Sora',sans-serif",fontWeight:active===t.id?700:400}}>{t.label}</span>
-          {t.badge>0&&<span style={{position:'absolute',top:8,right:'calc(50% - 18px)',background:'#fbbf24',color:'#000',borderRadius:'50%',fontSize:9,width:16,height:16,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>{t.badge}</span>}
-          {active===t.id&&<div style={{position:'absolute',bottom:0,left:'25%',right:'25%',height:2,background:'#fbbf24',borderRadius:2}}/>}
+          <span style={{fontSize:10,color:active===t.id?'#2563EB':'#6B7280',fontFamily:"'Sora',sans-serif",fontWeight:active===t.id?700:400}}>{t.label}</span>
+          {t.badge>0&&<span style={{position:'absolute',top:8,right:'calc(50% - 18px)',background:'#2563EB',color:'#fff',borderRadius:'50%',fontSize:9,width:16,height:16,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>{t.badge}</span>}
+          {active===t.id&&<div style={{position:'absolute',bottom:0,left:'25%',right:'25%',height:2,background:'#2563EB',borderRadius:2}}/>}
         </button>
       ))}
     </div>
@@ -1026,228 +1026,506 @@ export default function PassengerDash(){
 
         {/* ── HOME TAB ── */}
         {tab==='home'&&!selTrip&&(
-          <div style={{paddingTop:24}}>
-            <div style={{marginBottom:24}}>
-              <h2 style={{fontSize:26,fontWeight:800,color:'#fff',marginBottom:4}}>Good day, {user.name.split(' ')[0]} 👋</h2>
-              <p style={{fontSize:13,color:'#555'}}>{locationLabel}</p>
-            </div>
+          <div style={{paddingTop:20,animation:'fadeInUp .35s ease-out'}}>
 
-            {/* Search bar */}
-            <div style={{background:'#111',borderRadius:20,padding:'16px',marginBottom:0,border:'1px solid #1a1a1a'}}>
-              <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                <div style={{display:'flex',alignItems:'center',gap:10}}>
-                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,paddingLeft:4}}>
-                    <div style={{width:10,height:10,borderRadius:'50%',background:'#fbbf24',border:'2px solid #000',boxShadow:'0 0 0 2px #fbbf24'}}/>
-                    <div style={{width:1,height:20,background:'#333'}}/>
-                    <div style={{width:10,height:10,borderRadius:3,background:'#60a5fa'}}/>
-                  </div>
-                  <div style={{flex:1,display:'flex',flexDirection:'column',gap:8}}>
-                    <PlaceSearch icon="📍" placeholder="Your location / pickup area" value={fromCoord} onChange={setFromCoord}/>
-                    <PlaceSearch icon="🏁" placeholder="Where to?" value={toCoord} onChange={setToCoord}/>
-                  </div>
-                </div>
-                <button onClick={searchTrips} disabled={searching||!toCoord}
-                  style={{background:toCoord?'#fbbf24':'#1a1a1a',color:toCoord?'#000':'#555',border:'none',borderRadius:12,padding:'14px',fontSize:14,fontWeight:700,cursor:toCoord?'pointer':'default',fontFamily:"'Sora',sans-serif",marginTop:4,transition:'all .2s'}}>
-                  {searching?'Searching…':'🔍 Find trips near me'}
-                </button>
+            {/* ── GREETING ── */}
+            <div style={{marginBottom:20,paddingTop:4}}>
+              <div style={{fontSize:13,color:'#6B7280',marginBottom:4,fontFamily:"'Sora',sans-serif"}}>
+                📍 {locationLabel}
               </div>
-              <p style={{fontSize:11,color:'#444',marginTop:10,textAlign:'center'}}>Finds stops within 10km · matches by area name</p>
+              <h2 style={{fontSize:24,fontWeight:800,color:'#F9FAFB',margin:0,lineHeight:1.2,fontFamily:"'Sora',sans-serif"}}>
+                Where to, {user.name.split(' ')[0]}?
+              </h2>
             </div>
 
-            <div style={{marginTop:16}}>
-              {activePoolChatRequest&&(
-                <div onClick={()=>{setTripDetailPool(activePoolChatRequest);setTripDetailBooking(null);setTripDetailOpen(true);}} style={{background:'linear-gradient(135deg,#0a0f1e,#0d1117)',border:'2px solid rgba(96,165,250,0.3)',borderRadius:20,padding:'16px 20px',marginBottom:14,display:'flex',alignItems:'center',gap:14,cursor:'pointer'}}>
-                  <div style={{width:44,height:44,borderRadius:12,background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>👥</div>
+            {/* ── PRIMARY BOOKING CARD ── */}
+            <div style={{
+              background:'#111827',
+              borderRadius:20,
+              border:'1px solid #1F2937',
+              overflow:'hidden',
+              marginBottom:16,
+              boxShadow:'0 4px 24px rgba(0,0,0,0.4)',
+            }}>
+              {/* Route inputs */}
+              <div style={{padding:'16px 16px 12px'}}>
+                <div style={{display:'flex',alignItems:'stretch',gap:12}}>
+                  {/* Route line */}
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',paddingTop:14,paddingBottom:14,flexShrink:0}}>
+                    <div style={{width:10,height:10,borderRadius:'50%',background:'#9CA3AF',border:'2px solid #374151',flexShrink:0}}/>
+                    <div style={{width:1,flex:1,background:'linear-gradient(to bottom,#374151,#374151)',minHeight:24,margin:'4px 0'}}/>
+                    <div style={{width:10,height:10,borderRadius:3,background:'#2563EB',flexShrink:0}}/>
+                  </div>
+                  {/* Inputs */}
+                  <div style={{flex:1,display:'flex',flexDirection:'column',gap:6}}>
+                    <div style={{
+                      background:'#0B0F19',
+                      borderRadius:12,
+                      border:`1px solid ${fromCoord?'rgba(37,99,235,0.4)':'#1F2937'}`,
+                      overflow:'hidden',
+                      transition:'border-color .2s',
+                    }}>
+                      <PlaceSearch icon="📍" placeholder="Pickup location" value={fromCoord} onChange={setFromCoord}/>
+                    </div>
+                    <div style={{
+                      background:'#0B0F19',
+                      borderRadius:12,
+                      border:`1px solid ${toCoord?'rgba(37,99,235,0.5)':'#1F2937'}`,
+                      overflow:'hidden',
+                      transition:'border-color .2s',
+                    }}>
+                      <PlaceSearch icon="🏁" placeholder="Where to?" value={toCoord} onChange={setToCoord}/>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div style={{height:1,background:'#1F2937',margin:'0 16px'}}/>
+
+              {/* CTA Button */}
+              <div style={{padding:'12px 16px 16px'}}>
+                <button
+                  onClick={searchTrips}
+                  disabled={searching||!toCoord}
+                  style={{
+                    width:'100%',
+                    padding:'16px',
+                    borderRadius:14,
+                    border:'none',
+                    fontSize:16,
+                    fontWeight:700,
+                    fontFamily:"'Sora',sans-serif",
+                    cursor:toCoord?'pointer':'default',
+                    background:toCoord
+                      ?'linear-gradient(135deg,#2563EB,#1D4ED8)'
+                      :'#1F2937',
+                    color:toCoord?'#fff':'#6B7280',
+                    boxShadow:toCoord?'0 6px 20px rgba(37,99,235,0.35)':'none',
+                    transition:'all .2s',
+                    display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+                  }}>
+                  {searching
+                    ?<><span style={{width:16,height:16,border:'2px solid rgba(255,255,255,0.3)',borderTopColor:'#fff',borderRadius:'50%',display:'inline-block',animation:'spin .7s linear infinite'}}/> Searching…</>
+                    :<>🔍 Find Rides</>}
+                </button>
+                {!toCoord&&(
+                  <p style={{fontSize:11,color:'#6B7280',textAlign:'center',margin:'8px 0 0',fontFamily:"'Sora',sans-serif"}}>
+                    Enter a destination to find available rides near you
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* ── ACTIVE POOL GROUP CARD (confirmed, waiting for driver) ── */}
+            {activePoolGroup&&(
+              <div
+                onClick={()=>{setTripDetailPool(activePoolGroup);setTripDetailBooking(null);setTripDetailOpen(true);}}
+                style={{
+                  background:'linear-gradient(135deg,rgba(20,83,45,0.5),rgba(15,40,30,0.8))',
+                  border:'1.5px solid rgba(34,197,94,0.4)',
+                  borderRadius:18,
+                  padding:'16px 18px',
+                  marginBottom:14,
+                  cursor:'pointer',
+                  boxShadow:'0 4px 24px rgba(34,197,94,0.08)',
+                  position:'relative',
+                  overflow:'hidden',
+                }}>
+                {/* Pulse dot */}
+                <div style={{position:'absolute',top:16,right:16,width:10,height:10,borderRadius:'50%',background:'#22C55E',animation:'activePulse 2s infinite'}}/>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                  <div style={{width:40,height:40,borderRadius:12,background:'rgba(34,197,94,0.15)',border:'1px solid rgba(34,197,94,0.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>👥</div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:'#22C55E',textTransform:'uppercase',letterSpacing:'.07em',fontFamily:"'Sora',sans-serif"}}>● Smart Pool Active</div>
+                    <div style={{fontSize:13,fontWeight:700,color:'#F9FAFB',marginTop:2,fontFamily:"'Sora',sans-serif"}}>
+                      {activePoolGroup.group_size||1} passenger{(activePoolGroup.group_size||1)!==1?'s':''} matched
+                    </div>
+                  </div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:2,flexShrink:0}}>
+                    <div style={{width:6,height:6,borderRadius:'50%',background:'#F59E0B'}}/>
+                    <div style={{width:1,height:10,background:'#374151'}}/>
+                    <div style={{width:6,height:6,borderRadius:2,background:'#22C55E'}}/>
+                  </div>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:14,fontWeight:800,color:'#60a5fa'}}>Your Pool Group</div>
-                    <div style={{fontSize:12,color:'#4b7ab5',marginTop:2}}>{activePoolChatRequest.origin_label||'Pickup'} → {activePoolChatRequest.dest_label||'Destination'}</div>
-                  </div>
-                  <button onClick={()=>openPoolChat(activePoolChatRequest.group_trip_id)}
-                    style={{background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',border:'none',borderRadius:10,padding:'8px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif",whiteSpace:'nowrap'}}>
-                    💬 Open Chat
-                  </button>
-                </div>
-              )}
-
-              {activePoolGroup&&(
-                <div onClick={()=>{setTripDetailPool(activePoolGroup);setTripDetailBooking(null);setTripDetailOpen(true);}} style={{background:'linear-gradient(135deg,#0a1628,#0f2347)',border:'2px solid rgba(74,222,128,0.4)',borderRadius:20,padding:'18px 20px',marginBottom:16,position:'relative',overflow:'hidden',boxShadow:'0 4px 24px rgba(74,222,128,0.1)',cursor:'pointer'}}>
-                  <div style={{position:'absolute',top:16,right:16,width:12,height:12,borderRadius:'50%',background:'#4ade80',boxShadow:'0 0 0 0 rgba(74,222,128,0.6)',animation:'poolPulse 1.5s infinite'}}/>
-                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
-                    <div style={{width:42,height:42,borderRadius:12,background:'linear-gradient(135deg,#14532d,#16a34a)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>👥</div>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:14,fontWeight:800,color:'#4ade80',fontFamily:"'Sora',sans-serif"}}>Smart Pool Group Active</div>
-                      <div style={{fontSize:12,color:'rgba(74,222,128,0.7)',marginTop:1}}>
-                        {activePoolGroup.group_size||1} passenger{(activePoolGroup.group_size||1)!==1?'s':''} matched · Waiting for driver
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{background:'rgba(74,222,128,0.08)',borderRadius:12,padding:'10px 14px',marginBottom:14,border:'1px solid rgba(74,222,128,0.15)'}}>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
-                        <div style={{width:7,height:7,borderRadius:'50%',background:'#fbbf24'}}/>
-                        <div style={{width:1,height:12,background:'#333'}}/>
-                        <div style={{width:7,height:7,borderRadius:2,background:'#4ade80'}}/>
-                      </div>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:12,color:'#ccc',marginBottom:5}}>{activePoolGroup.origin_label||'Your location'}</div>
-                        <div style={{fontSize:13,color:'#fff',fontWeight:700}}>{activePoolGroup.dest_label||'Destination'}</div>
-                      </div>
-                    </div>
-                    <div style={{fontSize:11,color:'rgba(74,222,128,0.6)',marginTop:8,paddingTop:8,borderTop:'1px solid rgba(74,222,128,0.1)'}}>{activePoolGroup.desired_date?.slice(0,10)} · {activePoolGroup.desired_time}</div>
-                  </div>
-                  <div style={{fontSize:12,color:'rgba(74,222,128,0.7)',textAlign:'center',lineHeight:1.5}}>
-                    🚗 Nearby drivers are being notified. You'll get a notification when one accepts.
+                    <div style={{fontSize:12,color:'#9CA3AF'}}>{activePoolGroup.origin_label||'Your location'}</div>
+                    <div style={{fontSize:13,color:'#F9FAFB',fontWeight:600,marginTop:2}}>{activePoolGroup.dest_label||'Destination'}</div>
                   </div>
                 </div>
-              )}
-              <SmartPoolBanner onClick={openSmartPool}/>
-            </div>
-
-            {searched&&!searching&&matchedTrips.length===0&&(
-              <NoTripsPoolCard destName={toCoord?.name} onClick={openSmartPool}/>
+                <div style={{
+                  background:'rgba(245,158,11,0.1)',
+                  border:'1px solid rgba(245,158,11,0.25)',
+                  borderRadius:10,
+                  padding:'9px 12px',
+                  display:'flex',alignItems:'center',gap:8,
+                }}>
+                  <span style={{fontSize:13}}>⏳</span>
+                  <span style={{fontSize:12,color:'#F59E0B',fontFamily:"'Sora',sans-serif",fontWeight:600}}>Searching for a driver nearby…</span>
+                </div>
+              </div>
             )}
 
-            {matchedTrips.length>0&&(
+            {/* ── CONFIRMED POOL GROUP (driver found, chat available) ── */}
+            {activePoolChatRequest&&(
+              <div style={{
+                background:'linear-gradient(135deg,#0B0F19,#111827)',
+                border:'1.5px solid rgba(37,99,235,0.4)',
+                borderRadius:18,
+                padding:'16px 18px',
+                marginBottom:14,
+                display:'flex',alignItems:'center',gap:14,
+              }}>
+                <div style={{width:40,height:40,borderRadius:12,background:'rgba(37,99,235,0.15)',border:'1px solid rgba(37,99,235,0.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>👥</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:700,color:'#2563EB',textTransform:'uppercase',letterSpacing:'.07em',fontFamily:"'Sora',sans-serif"}}>Your Pool Group</div>
+                  <div style={{fontSize:12,color:'#9CA3AF',marginTop:3,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',fontFamily:"'Sora',sans-serif"}}>
+                    {activePoolChatRequest.origin_label||'Pickup'} → {activePoolChatRequest.dest_label||'Destination'}
+                  </div>
+                </div>
+                <button
+                  onClick={e=>{e.stopPropagation();openPoolChat(activePoolChatRequest.group_trip_id);}}
+                  style={{background:'linear-gradient(135deg,#2563EB,#1D4ED8)',border:'none',borderRadius:10,padding:'9px 14px',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif",whiteSpace:'nowrap',flexShrink:0,boxShadow:'0 4px 12px rgba(37,99,235,0.3)'}}>
+                  💬 Chat
+                </button>
+              </div>
+            )}
+
+            {/* ── SEARCH RESULTS ── */}
+            {searching&&(
+              <div style={{padding:'32px 0',textAlign:'center'}}>
+                <div style={{width:40,height:40,border:'3px solid #1F2937',borderTopColor:'#2563EB',borderRadius:'50%',animation:'spin .8s linear infinite',margin:'0 auto 16px'}}/>
+                <div style={{fontSize:14,color:'#9CA3AF',fontFamily:"'Sora',sans-serif"}}>Finding rides near you…</div>
+              </div>
+            )}
+
+            {!searching&&searched&&matchedTrips.length===0&&(
+              <div style={{
+                background:'#111827',
+                border:'1px solid #1F2937',
+                borderRadius:18,
+                padding:'24px 20px',
+                textAlign:'center',
+                marginBottom:16,
+              }}>
+                <div style={{fontSize:36,marginBottom:12}}>🔍</div>
+                <div style={{fontSize:15,fontWeight:700,color:'#F9FAFB',marginBottom:6,fontFamily:"'Sora',sans-serif"}}>No rides found near you</div>
+                <div style={{fontSize:13,color:'#6B7280',lineHeight:1.6,marginBottom:16,fontFamily:"'Sora',sans-serif"}}>
+                  No scheduled trips match your route right now. Try Smart Pool — share a ride with others going the same way.
+                </div>
+                <button onClick={openSmartPool} style={{
+                  background:'linear-gradient(135deg,#2563EB,#1D4ED8)',
+                  border:'none',borderRadius:12,padding:'13px 20px',color:'#fff',fontSize:14,fontWeight:700,
+                  cursor:'pointer',fontFamily:"'Sora',sans-serif",boxShadow:'0 4px 16px rgba(37,99,235,0.3)',width:'100%',
+                }}>
+                  🚀 Try Smart Pool Instead
+                </button>
+              </div>
+            )}
+
+            {!searching&&matchedTrips.length>0&&(
               <div>
-                <p style={{fontSize:13,color:'#555',marginBottom:16}}>{matchedTrips.length} trip{matchedTrips.length!==1?'s':''} found</p>
-                {matchedTrips.map(t=>{
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                  <span style={{fontSize:13,fontWeight:700,color:'#9CA3AF',fontFamily:"'Sora',sans-serif"}}>
+                    {matchedTrips.length} ride{matchedTrips.length!==1?'s':''} available
+                  </span>
+                  <span style={{fontSize:11,color:'#6B7280',fontFamily:"'Sora',sans-serif"}}>Sorted by distance</span>
+                </div>
+                {matchedTrips.map((t,idx)=>{
                   const avail=t.total_seats-t.booked_seats;
+                  const isFull=avail<=0;
+                  const estPrice=seats*t.price;
                   return(
-                    <div key={t.id} onClick={()=>{setSelTrip(t);setSelPickup(t.bestPickup||null);setSelDropoff(t.bestDropoff||null);setSeats(1);}}
-                      style={{background:'#111',borderRadius:16,padding:'20px',marginBottom:12,cursor:'pointer',border:'1px solid #1a1a1a',transition:'border-color .15s'}}
-                      onMouseEnter={e=>e.currentTarget.style.borderColor='#fbbf2466'} onMouseLeave={e=>e.currentTarget.style.borderColor='#1a1a1a'}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>{t.from_loc} → {t.to_loc}</div>
-                          <div style={{fontSize:12,color:'#555'}}>{fmtDate(t.date)} · {t.pickup_time}</div>
+                    <div key={t.id}
+                      onClick={()=>{if(!isFull){setSelTrip(t);setSelPickup(t.bestPickup||null);setSelDropoff(t.bestDropoff||null);setSeats(1);}}}
+                      style={{
+                        background:'#111827',
+                        borderRadius:18,
+                        padding:'18px',
+                        marginBottom:10,
+                        cursor:isFull?'default':'pointer',
+                        border:'1px solid #1F2937',
+                        transition:'border-color .15s,transform .1s',
+                        opacity:isFull?0.5:1,
+                        animation:`fadeInUp .3s ease-out ${idx*0.05}s both`,
+                      }}
+                      onMouseEnter={e=>{if(!isFull){e.currentTarget.style.borderColor='rgba(37,99,235,0.5)';e.currentTarget.style.transform='translateY(-1px)';}}}
+                      onMouseLeave={e=>{e.currentTarget.style.borderColor='#1F2937';e.currentTarget.style.transform='translateY(0)';}}>
+                      {/* Header row */}
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:15,fontWeight:700,color:'#F9FAFB',marginBottom:3,fontFamily:"'Sora',sans-serif",whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                            {t.from_loc} → {t.to_loc}
+                          </div>
+                          <div style={{fontSize:12,color:'#6B7280',fontFamily:"'Sora',sans-serif"}}>
+                            {fmtDate(t.date)} · 🕐 {t.pickup_time}
+                          </div>
                         </div>
-                        <div style={{textAlign:'right',marginLeft:16}}>
-                          <div style={{fontSize:24,fontWeight:800,color:'#fbbf24'}}>{t.price}</div>
-                          <div style={{fontSize:11,color:'#555'}}>EGP/seat</div>
+                        <div style={{textAlign:'right',marginLeft:12,flexShrink:0}}>
+                          <div style={{fontSize:22,fontWeight:800,color:'#F9FAFB',fontFamily:"'Sora',sans-serif",lineHeight:1}}>{t.price}</div>
+                          <div style={{fontSize:10,color:'#6B7280',fontFamily:"'Sora',sans-serif"}}>EGP / seat</div>
                         </div>
                       </div>
+                      {/* Pickup stop */}
                       {t.bestPickup&&(
-                        <div style={{background:'rgba(251,191,36,0.08)',borderRadius:10,padding:'10px 12px',marginBottom:8}}>
-                          <div style={{fontSize:12,color:'#fbbf24',fontWeight:600,marginBottom:2}}>🟢 {t.bestPickup.label||'Nearest pickup'}</div>
-                          {t.bestPickupDist>0&&<div style={{fontSize:11,color:'#666'}}>{formatDist(t.bestPickupDist)} · {estimateWalkTime(t.bestPickupDist)}</div>}
+                        <div style={{
+                          background:'rgba(37,99,235,0.07)',
+                          border:'1px solid rgba(37,99,235,0.18)',
+                          borderRadius:10,
+                          padding:'9px 12px',
+                          marginBottom:10,
+                          display:'flex',alignItems:'center',gap:8,
+                        }}>
+                          <span style={{fontSize:13}}>📍</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,color:'#60a5fa',fontWeight:600,fontFamily:"'Sora',sans-serif",whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.bestPickup.label||'Nearest pickup stop'}</div>
+                            {t.bestPickupDist>0&&<div style={{fontSize:11,color:'#6B7280',fontFamily:"'Sora',sans-serif"}}>{formatDist(t.bestPickupDist)} · {estimateWalkTime(t.bestPickupDist)}</div>}
+                          </div>
                         </div>
                       )}
+                      {/* Footer row */}
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                         <div style={{display:'flex',alignItems:'center',gap:8}}>
-                          <Badge type={avail<=0?'red':avail<=3?'amber':'green'}>{avail<=0?'Full':`${avail} seats left`}</Badge>
-                          <span style={{fontSize:12,color:'#fbbf24'}}>★ {parseFloat(t.avg_rating).toFixed(1)}</span>
+                          <span style={{
+                            fontSize:11,fontWeight:700,padding:'4px 9px',borderRadius:20,fontFamily:"'Sora',sans-serif",
+                            background:isFull?'rgba(239,68,68,0.12)':avail<=3?'rgba(245,158,11,0.12)':'rgba(34,197,94,0.1)',
+                            color:isFull?'#EF4444':avail<=3?'#F59E0B':'#22C55E',
+                          }}>
+                            {isFull?'Full':`${avail} seats left`}
+                          </span>
+                          {t.avg_rating>0&&<span style={{fontSize:12,color:'#F59E0B',fontFamily:"'Sora',sans-serif"}}>★ {parseFloat(t.avg_rating).toFixed(1)}</span>}
                         </div>
-                        <span style={{fontSize:12,color:'#444'}}>View →</span>
+                        {!isFull&&(
+                          <div style={{fontSize:12,color:'#2563EB',fontWeight:700,fontFamily:"'Sora',sans-serif"}}>
+                            Book →
+                          </div>
+                        )}
                       </div>
-                      <CapBar booked={t.booked_seats} total={t.total_seats}/>
+                      {/* Seat bar */}
+                      <div style={{marginTop:10,height:3,background:'#1F2937',borderRadius:4,overflow:'hidden'}}>
+                        <div style={{height:'100%',borderRadius:4,background:isFull?'#EF4444':avail<=3?'#F59E0B':'#22C55E',width:`${Math.min(100,(t.booked_seats/t.total_seats)*100)}%`,transition:'width .4s'}}/>
+                      </div>
                     </div>
                   );
                 })}
-                <PoolUpsell onClick={openSmartPool}/>
+                {/* Smart Pool upsell after results */}
+                <div
+                  onClick={openSmartPool}
+                  style={{
+                    background:'rgba(37,99,235,0.06)',
+                    border:'1px dashed rgba(37,99,235,0.3)',
+                    borderRadius:16,
+                    padding:'14px 16px',
+                    marginTop:4,
+                    marginBottom:4,
+                    cursor:'pointer',
+                    display:'flex',alignItems:'center',gap:12,
+                  }}>
+                  <span style={{fontSize:20}}>💸</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:700,color:'#60a5fa',fontFamily:"'Sora',sans-serif"}}>Want to pay less?</div>
+                    <div style={{fontSize:12,color:'#6B7280',fontFamily:"'Sora',sans-serif"}}>Share your ride with Smart Pool & save</div>
+                  </div>
+                  <span style={{color:'#2563EB',fontSize:16}}>›</span>
+                </div>
+              </div>
+            )}
+
+            {/* ── SMART POOL BANNER (when no search yet) ── */}
+            {!searched&&(
+              <div
+                onClick={openSmartPool}
+                style={{
+                  background:'linear-gradient(135deg,#0f172a,#111827)',
+                  border:'1px solid #1F2937',
+                  borderRadius:18,
+                  padding:'18px',
+                  marginBottom:12,
+                  cursor:'pointer',
+                  transition:'border-color .2s',
+                }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(37,99,235,0.4)'}
+                onMouseLeave={e=>e.currentTarget.style.borderColor='#1F2937'}>
+                <div style={{display:'flex',alignItems:'flex-start',gap:14}}>
+                  <div style={{
+                    width:44,height:44,borderRadius:14,flexShrink:0,
+                    background:'linear-gradient(135deg,#1D4ED8,#2563EB)',
+                    display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,
+                    boxShadow:'0 4px 16px rgba(37,99,235,0.3)',
+                  }}>🚀</div>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                      <span style={{fontSize:14,fontWeight:800,color:'#F9FAFB',fontFamily:"'Sora',sans-serif"}}>Smart Pool</span>
+                      <span style={{fontSize:10,fontWeight:700,background:'rgba(34,197,94,0.15)',color:'#22C55E',padding:'2px 8px',borderRadius:20,fontFamily:"'Sora',sans-serif"}}>SAVE MONEY</span>
+                    </div>
+                    <div style={{fontSize:12,color:'#9CA3AF',lineHeight:1.6,marginBottom:12,fontFamily:"'Sora',sans-serif"}}>
+                      Share your ride with others going the same way. Pay less, travel together.
+                    </div>
+                    <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+                      {[['💸','Cheaper fares'],['🌱','Eco-friendly'],['👥','Meet locals']].map(([ico,lbl])=>(
+                        <div key={lbl} style={{display:'flex',alignItems:'center',gap:5}}>
+                          <span style={{fontSize:12}}>{ico}</span>
+                          <span style={{fontSize:11,color:'#6B7280',fontFamily:"'Sora',sans-serif"}}>{lbl}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <button style={{
+                  width:'100%',
+                  marginTop:14,
+                  padding:'13px',
+                  borderRadius:12,
+                  border:'1px solid rgba(37,99,235,0.4)',
+                  background:'rgba(37,99,235,0.1)',
+                  color:'#60a5fa',
+                  fontSize:14,
+                  fontWeight:700,
+                  cursor:'pointer',
+                  fontFamily:"'Sora',sans-serif",
+                }}>
+                  Join Smart Pool →
+                </button>
               </div>
             )}
 
             {/* ── SMART POOL MODAL ── */}
             {showPool&&(
-              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.9)',zIndex:400,display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>
-                <div style={{background:'#0d1117',borderRadius:'24px 24px 0 0',padding:'28px 20px 44px',maxHeight:'92vh',overflowY:'auto',border:'1px solid rgba(96,165,250,0.2)'}}>
-                  <div style={{display:'flex',alignItems:'flex-start',marginBottom:24}}>
-                    <div style={{width:44,height:44,borderRadius:14,background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,marginRight:14,flexShrink:0,boxShadow:'0 4px 16px rgba(59,130,246,0.35)'}}>🚀</div>
+              <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:400,display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>
+                <div style={{
+                  background:'#111827',
+                  borderRadius:'24px 24px 0 0',
+                  padding:'0 0 40px',
+                  maxHeight:'92vh',
+                  overflowY:'auto',
+                  border:'1px solid rgba(37,99,235,0.2)',
+                  borderBottom:'none',
+                  animation:'slideUp .3s ease-out',
+                }}>
+                  {/* Handle */}
+                  <div style={{display:'flex',justifyContent:'center',paddingTop:12,paddingBottom:4}}>
+                    <div style={{width:36,height:4,background:'#374151',borderRadius:2}}/>
+                  </div>
+                  {/* Header */}
+                  <div style={{padding:'16px 20px 20px',borderBottom:'1px solid #1F2937',display:'flex',alignItems:'center',gap:14}}>
+                    <div style={{width:44,height:44,borderRadius:14,background:'linear-gradient(135deg,#1D4ED8,#2563EB)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0,boxShadow:'0 4px 16px rgba(37,99,235,0.35)'}}>🚀</div>
                     <div style={{flex:1}}>
-                      <div style={{fontSize:20,fontWeight:800,color:'#fff',fontFamily:"'Sora',sans-serif"}}>Smart Pool</div>
-                      <div style={{fontSize:12,color:'#60a5fa',marginTop:3,fontFamily:"'Sora',sans-serif"}}>Share your ride · Save money · Go together</div>
+                      <div style={{fontSize:18,fontWeight:800,color:'#F9FAFB',fontFamily:"'Sora',sans-serif"}}>Smart Pool</div>
+                      <div style={{fontSize:12,color:'#6B7280',fontFamily:"'Sora',sans-serif"}}>Share your ride · Pay less · Go together</div>
                     </div>
-                    <button onClick={()=>setShowPool(false)} style={{background:'rgba(255,255,255,0.06)',border:'none',color:'#888',fontSize:18,cursor:'pointer',width:32,height:32,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                    <button onClick={()=>setShowPool(false)} style={{background:'#1F2937',border:'none',color:'#9CA3AF',fontSize:16,cursor:'pointer',width:32,height:32,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
                   </div>
 
+                  <div style={{padding:'20px'}}>
                   {poolWaiting?(
-                    <div style={{textAlign:'center',padding:'20px 0 32px'}}>
-                      <div style={{position:'relative',width:140,height:140,margin:'0 auto 28px',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                        <div style={{position:'absolute',inset:0,borderRadius:'50%',border:'2px solid rgba(59,130,246,0.15)',animation:'poolGlow 1.8s ease-in-out infinite'}}/>
-                        <div style={{position:'absolute',inset:10,borderRadius:'50%',border:'2px solid rgba(59,130,246,0.25)',animation:'poolGlow 1.8s ease-in-out infinite',animationDelay:'0.3s'}}/>
-                        <div style={{position:'absolute',inset:22,borderRadius:'50%',border:'2px solid rgba(59,130,246,0.4)',animation:'poolGlow 1.8s ease-in-out infinite',animationDelay:'0.6s'}}/>
-                        <div style={{width:60,height:60,borderRadius:'50%',background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,animation:'poolPulse 1.4s ease-in-out infinite',boxShadow:'0 0 30px rgba(59,130,246,0.5)'}}>🚀</div>
-                        <div style={{position:'absolute',inset:0,borderRadius:'50%',overflow:'hidden',pointerEvents:'none'}}>
-                          <div style={{position:'absolute',left:0,right:0,height:2,background:'linear-gradient(90deg,transparent,rgba(96,165,250,0.8),transparent)',animation:'poolScan 1.6s linear infinite'}}/>
-                        </div>
+                    <div style={{textAlign:'center',padding:'24px 0'}}>
+                      <div style={{position:'relative',width:120,height:120,margin:'0 auto 24px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        <div style={{position:'absolute',inset:0,borderRadius:'50%',border:'2px solid rgba(37,99,235,0.12)',animation:'poolGlow 2s ease-in-out infinite'}}/>
+                        <div style={{position:'absolute',inset:10,borderRadius:'50%',border:'2px solid rgba(37,99,235,0.2)',animation:'poolGlow 2s ease-in-out infinite',animationDelay:'0.4s'}}/>
+                        <div style={{position:'absolute',inset:22,borderRadius:'50%',border:'2px solid rgba(37,99,235,0.35)',animation:'poolGlow 2s ease-in-out infinite',animationDelay:'0.8s'}}/>
+                        <div style={{width:50,height:50,borderRadius:'50%',background:'linear-gradient(135deg,#1D4ED8,#2563EB)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,animation:'poolPulse 1.5s ease-in-out infinite',boxShadow:'0 0 24px rgba(37,99,235,0.5)'}}>🚀</div>
                       </div>
-                      <div style={{fontSize:22,fontWeight:800,color:'#fff',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>Searching for riders…</div>
-                      <div style={{fontSize:13,color:'#60a5fa',lineHeight:1.7,fontFamily:"'Sora',sans-serif"}}>Looking for passengers going<br/>the same way at the same time</div>
+                      <div style={{fontSize:20,fontWeight:800,color:'#F9FAFB',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>Searching for riders…</div>
+                      <div style={{fontSize:13,color:'#9CA3AF',lineHeight:1.7,fontFamily:"'Sora',sans-serif"}}>
+                        Looking for passengers going<br/>the same way at the same time
+                      </div>
                     </div>
                   ):poolResult?(
-                    <div style={{textAlign:'center',padding:'8px 0',animation:'fadeInUp 0.4s ease-out'}}>
-                      <div style={{fontSize:56,marginBottom:14,animation:'poolPulse 0.6s ease-out'}}>{poolResult.matched?'🎉':'✅'}</div>
-                      <div style={{fontSize:20,fontWeight:800,color:'#fff',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>
-                        {poolResult.matched?`Matched! ${poolResult.compatible_count+1} riders grouped`:'Request submitted!'}
+                    <div style={{textAlign:'center',padding:'12px 0',animation:'fadeInUp .4s ease-out'}}>
+                      <div style={{fontSize:52,marginBottom:16}}>{poolResult.matched?'🎉':'✅'}</div>
+                      <div style={{fontSize:20,fontWeight:800,color:'#F9FAFB',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>
+                        {poolResult.matched?`${poolResult.compatible_count+1} riders grouped!`:'Request submitted!'}
                       </div>
-                      <div style={{fontSize:13,color:'#60a5fa',lineHeight:1.7,marginBottom:20,fontFamily:"'Sora',sans-serif"}}>
+                      <div style={{fontSize:13,color:'#9CA3AF',lineHeight:1.7,marginBottom:24,fontFamily:"'Sora',sans-serif"}}>
                         {poolResult.matched
-                          ?`You've been grouped with ${poolResult.compatible_count} other passenger${poolResult.compatible_count!==1?'s':''}. A nearby driver will be notified.`
-                          :"Your request is open. We'll notify you when others join and a driver accepts."}
+                          ?`You've been grouped with ${poolResult.compatible_count} other${poolResult.compatible_count!==1?'s':''}. A nearby driver will be notified.`
+                          :"We'll notify you when others join and a driver accepts your group."}
                       </div>
-                      <button onClick={()=>setShowPool(false)}
-                        style={{background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',color:'#fff',border:'none',borderRadius:14,padding:'15px',fontSize:15,fontWeight:700,cursor:'pointer',width:'100%',fontFamily:"'Sora',sans-serif",boxShadow:'0 6px 20px rgba(59,130,246,0.35)'}}>
-                        {poolResult.matched?'🎉 Awesome, got it!':'Got it!'}
+                      <button onClick={()=>setShowPool(false)} style={{
+                        background:'linear-gradient(135deg,#2563EB,#1D4ED8)',color:'#fff',border:'none',
+                        borderRadius:14,padding:'15px',fontSize:15,fontWeight:700,cursor:'pointer',width:'100%',
+                        fontFamily:"'Sora',sans-serif",boxShadow:'0 6px 20px rgba(37,99,235,0.35)',
+                      }}>
+                        {poolResult.matched?'🎉 Got it, thanks!':'Got it!'}
                       </button>
                     </div>
                   ):(
-                    <div style={{display:'flex',flexDirection:'column',gap:16}}>
-                      <div style={{background:'rgba(30,58,95,0.3)',borderRadius:14,padding:'14px 16px',border:'1px solid rgba(96,165,250,0.1)'}}>
-                        <div style={{fontSize:11,color:'#4b7ab5',marginBottom:10,textTransform:'uppercase',letterSpacing:'.08em'}}>Route</div>
-                        <div style={{display:'flex',alignItems:'center',gap:10}}>
-                          <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
-                            <div style={{width:8,height:8,borderRadius:'50%',background:'#fbbf24'}}/>
-                            <div style={{width:1,height:14,background:'#333'}}/>
-                            <div style={{width:8,height:8,borderRadius:2,background:'#60a5fa'}}/>
+                    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                      {/* Route preview */}
+                      <div style={{background:'#0B0F19',borderRadius:14,padding:'14px 16px',border:'1px solid #1F2937'}}>
+                        <div style={{fontSize:10,color:'#6B7280',marginBottom:10,textTransform:'uppercase',letterSpacing:'.08em',fontFamily:"'Sora',sans-serif"}}>Your Route</div>
+                        <div style={{display:'flex',alignItems:'stretch',gap:10}}>
+                          <div style={{display:'flex',flexDirection:'column',alignItems:'center',paddingTop:2,paddingBottom:2,flexShrink:0}}>
+                            <div style={{width:7,height:7,borderRadius:'50%',background:'#F59E0B',flexShrink:0}}/>
+                            <div style={{width:1,flex:1,background:'#374151',minHeight:12,margin:'3px 0'}}/>
+                            <div style={{width:7,height:7,borderRadius:2,background:'#2563EB',flexShrink:0}}/>
                           </div>
                           <div style={{flex:1}}>
-                            <div style={{fontSize:13,color:'#ccc',marginBottom:8}}>{fromCoord?.name||'Your location'}</div>
-                            <div style={{fontSize:13,color:'#fff',fontWeight:600}}>{toCoord?.name||<span style={{color:'#555'}}>Set destination above</span>}</div>
+                            <div style={{fontSize:13,color:'#9CA3AF',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>{fromCoord?.name||'Your location'}</div>
+                            <div style={{fontSize:13,color:toCoord?'#F9FAFB':'#6B7280',fontWeight:600,fontFamily:"'Sora',sans-serif"}}>{toCoord?.name||'Set destination above first'}</div>
                           </div>
                         </div>
                       </div>
-
+                      {/* Date / Time */}
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
                         <div>
-                          <label style={{fontSize:11,color:'#4b7ab5',display:'block',marginBottom:6,fontFamily:"'Sora',sans-serif",textTransform:'uppercase',letterSpacing:'.06em'}}>Date</label>
+                          <label style={{fontSize:11,color:'#6B7280',display:'block',marginBottom:6,fontFamily:"'Sora',sans-serif",textTransform:'uppercase',letterSpacing:'.06em'}}>Date</label>
                           <input type="date" value={poolDate} onChange={e=>setPoolDate(e.target.value)}
                             min={new Date().toISOString().slice(0,10)}
-                            style={{width:'100%',boxSizing:'border-box',background:'#111',border:'1px solid rgba(96,165,250,0.2)',borderRadius:12,padding:'13px 12px',color:'#fff',fontFamily:"'Sora',sans-serif",fontSize:13,outline:'none'}}/>
+                            style={{width:'100%',boxSizing:'border-box',background:'#0B0F19',border:'1px solid #1F2937',borderRadius:12,padding:'13px 12px',color:'#F9FAFB',fontFamily:"'Sora',sans-serif",fontSize:13,outline:'none'}}/>
                         </div>
                         <div>
-                          <label style={{fontSize:11,color:'#4b7ab5',display:'block',marginBottom:6,fontFamily:"'Sora',sans-serif",textTransform:'uppercase',letterSpacing:'.06em'}}>Time</label>
+                          <label style={{fontSize:11,color:'#6B7280',display:'block',marginBottom:6,fontFamily:"'Sora',sans-serif",textTransform:'uppercase',letterSpacing:'.06em'}}>Time</label>
                           <input type="time" value={poolTime} onChange={e=>setPoolTime(e.target.value)}
-                            style={{width:'100%',boxSizing:'border-box',background:'#111',border:'1px solid rgba(96,165,250,0.2)',borderRadius:12,padding:'13px 12px',color:'#fff',fontFamily:"'Sora',sans-serif",fontSize:13,outline:'none'}}/>
+                            style={{width:'100%',boxSizing:'border-box',background:'#0B0F19',border:'1px solid #1F2937',borderRadius:12,padding:'13px 12px',color:'#F9FAFB',fontFamily:"'Sora',sans-serif",fontSize:13,outline:'none'}}/>
                         </div>
                       </div>
-
+                      {/* Seats */}
                       <div>
-                        <label style={{fontSize:11,color:'#4b7ab5',display:'block',marginBottom:8,fontFamily:"'Sora',sans-serif",textTransform:'uppercase',letterSpacing:'.06em'}}>Seats needed</label>
+                        <label style={{fontSize:11,color:'#6B7280',display:'block',marginBottom:8,fontFamily:"'Sora',sans-serif",textTransform:'uppercase',letterSpacing:'.06em'}}>Seats needed</label>
                         <div style={{display:'flex',gap:8}}>
                           {[1,2,3,4].map(n=>(
                             <button key={n} onClick={()=>setPoolSeats(n)}
-                              style={{flex:1,background:poolSeats===n?'linear-gradient(135deg,#1d4ed8,#3b82f6)':'#111',color:poolSeats===n?'#fff':'#555',border:`1px solid ${poolSeats===n?'#3b82f6':'#1a1a1a'}`,borderRadius:10,padding:'12px 0',fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:"'Sora',sans-serif",transition:'all .15s',boxShadow:poolSeats===n?'0 4px 12px rgba(59,130,246,0.3)':'none'}}>
+                              style={{
+                                flex:1,
+                                background:poolSeats===n?'linear-gradient(135deg,#2563EB,#1D4ED8)':'#0B0F19',
+                                color:poolSeats===n?'#fff':'#6B7280',
+                                border:`1.5px solid ${poolSeats===n?'#2563EB':'#1F2937'}`,
+                                borderRadius:10,padding:'12px 0',fontSize:15,fontWeight:700,cursor:'pointer',
+                                fontFamily:"'Sora',sans-serif",transition:'all .15s',
+                                boxShadow:poolSeats===n?'0 4px 12px rgba(37,99,235,0.3)':'none',
+                              }}>
                               {n}
                             </button>
                           ))}
                         </div>
                       </div>
-
-                      <div style={{background:'rgba(30,58,95,0.25)',borderRadius:12,padding:'12px 14px',fontSize:12,color:'#60a5fa',lineHeight:1.65,border:'1px solid rgba(96,165,250,0.08)'}}>
-                        <div style={{fontWeight:700,marginBottom:6,color:'#93c5fd'}}>How Smart Pool works</div>
-                        <div>📍 Pickup within <strong style={{color:'#fff'}}>15 km</strong> of others</div>
-                        <div>🏁 Destination within <strong style={{color:'#fff'}}>10 km</strong></div>
-                        <div>⏰ Time within <strong style={{color:'#fff'}}>±15 minutes</strong></div>
-                        <div>🚗 Nearest driver notified automatically</div>
-                        <div>💸 Price drops as more people join</div>
+                      {/* How it works */}
+                      <div style={{background:'rgba(37,99,235,0.06)',borderRadius:12,padding:'12px 14px',border:'1px solid rgba(37,99,235,0.12)'}}>
+                        <div style={{fontSize:11,fontWeight:700,color:'#60a5fa',marginBottom:8,fontFamily:"'Sora',sans-serif"}}>How Smart Pool works</div>
+                        {[['📍','Pickup within 15 km of others'],['🏁','Destination within 10 km'],['⏰','Travel time within ±15 minutes'],['🚗','Nearest driver auto-notified'],['💸','Price drops as more join']].map(([ic,tx])=>(
+                          <div key={tx} style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
+                            <span style={{fontSize:12}}>{ic}</span>
+                            <span style={{fontSize:12,color:'#9CA3AF',fontFamily:"'Sora',sans-serif"}}>{tx}</span>
+                          </div>
+                        ))}
                       </div>
-
+                      {/* CTA */}
                       <button onClick={submitPoolRequest} disabled={poolSubmitting||!poolDate||!poolTime||!toCoord}
-                        style={{background:(poolDate&&poolTime&&toCoord)?'linear-gradient(135deg,#1d4ed8,#3b82f6)':'#1a1a1a',color:(poolDate&&poolTime&&toCoord)?'#fff':'#333',border:'none',borderRadius:14,padding:'16px',fontSize:15,fontWeight:700,cursor:(poolDate&&poolTime&&toCoord)?'pointer':'default',fontFamily:"'Sora',sans-serif",transition:'all .2s',boxShadow:(poolDate&&poolTime&&toCoord)?'0 6px 20px rgba(59,130,246,0.35)':'none'}}>
+                        style={{
+                          background:(poolDate&&poolTime&&toCoord)?'linear-gradient(135deg,#2563EB,#1D4ED8)':'#1F2937',
+                          color:(poolDate&&poolTime&&toCoord)?'#fff':'#6B7280',
+                          border:'none',borderRadius:14,padding:'16px',fontSize:15,fontWeight:700,
+                          cursor:(poolDate&&poolTime&&toCoord)?'pointer':'default',fontFamily:"'Sora',sans-serif",
+                          transition:'all .2s',
+                          boxShadow:(poolDate&&poolTime&&toCoord)?'0 6px 20px rgba(37,99,235,0.35)':'none',
+                        }}>
                         {poolSubmitting?'⏳ Matching you…':'🚀 Start Smart Pool'}
                       </button>
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
             )}
