@@ -374,6 +374,26 @@ router.post('/invitations/:id/accept',requireAuth,requireRole('driver'),async(re
     } catch(chatErr) { console.error('pool_chat insert warning:', chatErr.message); }
 
     await notify(req.user.id,`✅ Smart Pool accepted! ${members.length} passenger(s) on ${group.desired_date}. First pickup: ${ordered[0].origin_label||'first stop'}.`);
+
+    // If driver set a custom fare, save it and notify passengers via socket immediately
+    if(customFare && customFare >= 1){
+      try { await db.query('ALTER TABLE trips ADD COLUMN proposed_fare DECIMAL(10,2) NULL'); } catch(_){}
+      await db.query('UPDATE trips SET proposed_fare=? WHERE id=?', [customFare, tripId]).catch(()=>{});
+      try {
+        const { io } = require('../server');
+        const fromLoc = ordered[0].origin_label || 'Pickup';
+        const toLoc   = fPax.dest_label || 'Destination';
+        for(const m of members){
+          io.to(`user:${m.passenger_id}`).emit('fare:offer', {
+            tripId,
+            fare_per_passenger: customFare,
+            from_loc: fromLoc,
+            to_loc:   toLoc,
+          });
+        }
+      } catch(_){}
+    }
+
     res.json({tripId,message:'Pool trip created',member_count:members.length});
   }catch(err){console.error('POST /pool/invitations/:id/accept ERROR:', err);res.status(500).json({error:'Server error', detail: err.message});}
 });
