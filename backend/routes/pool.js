@@ -47,7 +47,7 @@ async function suggestDrivers(groupId){
     const avgLat=reqs.reduce((s,r)=>s+(+r.origin_lat),0)/reqs.length;
     const avgLng=reqs.reduce((s,r)=>s+(+r.origin_lng),0)/reqs.length;
     const[nearbyDrivers]=await db.query(`SELECT dl.driver_id,dl.lat,dl.lng,u.name FROM driver_locations dl JOIN users u ON u.id=dl.driver_id WHERE dl.updated_at>DATE_SUB(NOW(),INTERVAL 24 HOUR)`).catch(()=>[[]]);;
-    const[allDriverUsers]=await db.query(`SELECT id AS driver_id, 0 AS lat, 0 AS lng, name FROM users WHERE role='driver'`);
+    const[allDriverUsers]=await db.query(`SELECT id AS driver_id, 0 AS lat, 0 AS lng, name FROM users WHERE role='driver' AND account_status='active'`);
     const nearbyIds=new Set(nearbyDrivers.map(d=>d.driver_id));
     const drivers=[
       ...nearbyDrivers.filter(d=>haversine(+d.lat,+d.lng,avgLat,avgLng)<=15000),
@@ -56,7 +56,7 @@ async function suggestDrivers(groupId){
     for(const d of drivers){
       const[ex]=await db.query('SELECT id FROM pool_invitations WHERE group_id=? AND driver_id=?',[groupId,d.driver_id]);
       if(ex.length)continue;
-      await db.query('INSERT INTO pool_invitations(group_id,driver_id,expires_at)VALUES(?,?,DATE_ADD(NOW(),INTERVAL 30 MINUTE))',[groupId,d.driver_id]);
+      await db.query('INSERT INTO pool_invitations(group_id,driver_id,expires_at)VALUES(?,?,DATE_ADD(NOW(),INTERVAL 2 HOUR))',[groupId,d.driver_id]);
       await notify(d.driver_id,`🚗 Smart Pool: ${reqs.length} passenger(s) need a ride to ${g.dest_label||'destination'} on ${g.desired_date} at ${g.desired_time}. Check Pool tab!`);
       // FIX 1: emit socket so driver dashboard refreshes immediately without manual reload
       try { const {io}=require('../server'); io.to(`user:${d.driver_id}`).emit('pool:new_invitation',{groupId}); } catch(_){}

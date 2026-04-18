@@ -36,13 +36,24 @@ export default function DriverDash() {
 
   useEffect(() => {
     loadTrips(); loadRatings(); loadNotifs(); loadPoolInvitations();
-    // FIX 1: connect socket & listen for new pool invitations so driver sees match in real-time
+
+    // Connect socket and listen for real-time pool invitations
     if (user?.id) connectSocket(user.id, 'driver');
     socket_module.on('pool:new_invitation', () => {
       loadPoolInvitations();
       loadNotifs();
     });
-    return () => { socket_module.off('pool:new_invitation'); };
+
+    // Fallback polling every 30s in case socket event is missed
+    const pollInterval = setInterval(() => {
+      loadPoolInvitations();
+      loadNotifs();
+    }, 30000);
+
+    return () => {
+      socket_module.off('pool:new_invitation');
+      clearInterval(pollInterval);
+    };
   }, []);
 
   async function loadPoolInvitations() {
