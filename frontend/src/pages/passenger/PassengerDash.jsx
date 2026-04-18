@@ -507,11 +507,14 @@ export default function PassengerDash(){
   async function handleFareAccept() {
     if (!fareOffer) return;
     try {
-      await api.respondToFare(fareOffer.tripId, 'accept');
+      const tripId = fareOffer.tripId;
+      await api.respondToFare(tripId, 'accept');
       notify('Fare accepted!', 'You remain in the pool group.', 'success');
       setFareOffer(null);
       loadBookings();
       loadMyPoolRequests();
+      // Open group chat so passenger can communicate with driver/group
+      await openPoolChat(tripId);
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
