@@ -121,50 +121,58 @@ router.post('/requests',requireAuth,requireRole('passenger'),async(req,res)=>{
   if(!origin_lat||!origin_lng||!dest_lat||!dest_lng||!desired_time||!desired_date)return res.status(400).json({error:'Missing fields'});
   const seatsN=Math.max(1,Math.min(16,parseInt(seats)||1));
   try{
-    // ── DEDUP: cancel old pending requests from this passenger for same date/dest ──
-    // This prevents the "search again = new seat" bug
+    // ── DEDUP: UPDATE existing request in-place instead of cancelling ──
+    // Cancelling removes the passenger from matching pool — UPDATE keeps them matchable
     const[existingReqs]=await db.query(
       `SELECT * FROM pool_requests WHERE passenger_id=? AND desired_date=? AND status='pending'`,
       [req.user.id, desired_date]
     );
+    let reqId = null;
     for(const old of existingReqs){
-      // Cancel if destination is within 10km (same trip intent) and time within 60 min
       const destDist = haversine(+old.dest_lat,+old.dest_lng,+dest_lat,+dest_lng);
       const timeDiff = Math.abs(toMin(old.desired_time)-toMin(desired_time));
-      if(destDist <= 10000 && timeDiff <= 60){
-        await db.query("UPDATE pool_requests SET status='cancelled' WHERE id=?",[old.id]);
-        // Notify group members if this req was in a group
-        if(old.pool_group_id){
-          const[members]=await db.query(
-            "SELECT passenger_id FROM pool_requests WHERE pool_group_id=? AND passenger_id!=? AND status='pending'",
-            [old.pool_group_id,req.user.id]
-          );
-          for(const m of members) await notify(m.passenger_id,'ℹ️ A passenger updated their Smart Pool request.');
-        }
+      if(destDist <= 15000 && timeDiff <= 90){
+        // UPDATE in place — keeps group membership intact
+        await db.query(
+          `UPDATE pool_requests SET origin_lat=?,origin_lng=?,origin_label=?,dest_lat=?,dest_lng=?,dest_label=?,desired_time=?,seats=? WHERE id=?`,
+          [origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,seatsN,old.id]
+        );
+        reqId = old.id;
+        console.log('[Pool] Updated existing request', reqId, 'for passenger', req.user.id);
+        break;
       }
     }
 
-    const[r]=await db.query(
-      `INSERT INTO pool_requests(passenger_id,origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats)VALUES(?,?,?,?,?,?,?,?,?,?)`,
-      [req.user.id,origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,desired_date,seatsN]
-    );
-    const reqId=r.insertId;
+    // Only create new request if no existing one was updated
+    if(!reqId){
+      const[r]=await db.query(
+        `INSERT INTO pool_requests(passenger_id,origin_lat,origin_lng,origin_label,dest_lat,dest_lng,dest_label,desired_time,desired_date,seats)VALUES(?,?,?,?,?,?,?,?,?,?)`,
+        [req.user.id,origin_lat,origin_lng,origin_label||'',dest_lat,dest_lng,dest_label||'',desired_time,desired_date,seatsN]
+      );
+      reqId=r.insertId;
+      console.log('[Pool] Created new request', reqId, 'for passenger', req.user.id);
+    }
 
-    // Find candidates: same date, ±30 min window, not same user
+    // Find candidates: same date, ±60 min window (relaxed), not same user
     const[candidates]=await db.query(
       `SELECT pr.*,u.name AS passenger_name FROM pool_requests pr
        JOIN users u ON u.id=pr.passenger_id
        WHERE pr.id!=? AND pr.status='pending' AND pr.desired_date=?
        AND pr.passenger_id!=?
-       AND ABS(TIME_TO_SEC(TIMEDIFF(pr.desired_time,?)))<=1800`,
+       AND ABS(TIME_TO_SEC(TIMEDIFF(pr.desired_time,?)))<=3600`,
       [reqId,desired_date,req.user.id,desired_time]
     );
+    console.log('[Pool] New request:', req.user.id, 'date:', desired_date, 'time:', desired_time);
+    console.log('[Pool] Candidates found:', candidates.length);
     const compatible=candidates.filter(c=>{
       const od=haversine(+c.origin_lat,+c.origin_lng,+origin_lat,+origin_lng);
       const dd=haversine(+c.dest_lat,+c.dest_lng,+dest_lat,+dest_lng);
       const score=matchScore(c,{origin_lat,origin_lng,dest_lat,dest_lng,desired_time});
-      return od<=15000 && dd<=10000 && score<0.85;
+      console.log(`  Candidate ${c.passenger_id}: od=${Math.round(od)}m dd=${Math.round(dd)}m score=${score.toFixed(2)}`);
+      // Relaxed thresholds: 20km origin, 15km dest, score<0.9
+      return od<=20000 && dd<=15000 && score<0.9;
     });
+    console.log('[Pool] Compatible:', compatible.length);
 
     let groupId=null,matched=false,groupMembers=[];
     if(compatible.length>0){
