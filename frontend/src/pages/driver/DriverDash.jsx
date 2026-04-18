@@ -168,7 +168,13 @@ export default function DriverDash() {
     try {
       await api.completeTrip(tripId);
       emitTripCompleted(tripId);
-      notify('Trip completed!', 'All passengers notified.');
+      // Close any open chat for this trip
+      if (poolChat?.tripId === tripId) {
+        setPoolChat(null);
+        poolChatRef.current = null;
+      }
+      setConfirmEndTrip(false);
+      notify('Trip ended!', 'All passengers notified. Chat closed.');
       setSelTrip(null); setTripDetail(null);
       loadTrips();
     } catch(e) { notify('Error', e.message, 'error'); }
@@ -392,9 +398,9 @@ export default function DriverDash() {
                   </button>
                 )}
                 {selTrip.status === 'active' && (
-                  <button onClick={() => handleComplete(selTrip.id)}
-                    style={{ ...btnPrimary, background:C.amber, color:'#000', marginBottom:20 }}>
-                    ✅ Complete trip
+                  <button onClick={() => setConfirmEndTrip(true)}
+                    style={{ ...btnPrimary, background:'#ef4444', color:'#fff', marginBottom:20, fontSize:15, fontWeight:800 }}>
+                    🏁 End Trip
                   </button>
                 )}
                 {/* Driver can always open chat from trip detail if pool trip */}

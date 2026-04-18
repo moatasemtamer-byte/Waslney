@@ -364,7 +364,7 @@ export default function PassengerDash(){
         setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
       }
     });
-    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');};
+    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');socket.off('trip:completed');};
   },[user.id]);
 
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
