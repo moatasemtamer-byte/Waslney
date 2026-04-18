@@ -132,85 +132,345 @@ function BottomNav({active,onSet,bookingCount,isAdmin,pendingCount}){
   );
 }
 
-// ── Active Trip Banner (appears on every page when there's an active/upcoming trip) ──
-function ActiveTripBanner({ bookings, poolRequests, onOpenChat }) {
-  // Find most relevant active trip
-  const activeBooking = bookings.find(b =>
-    b.status === 'confirmed' && (b.trip_status === 'active' || b.trip_status === 'upcoming')
+// ── Trip Detail Bottom Sheet ──
+function TripDetailSheet({ booking, poolRequest, userLocation, onOpenChat, onClose, onCancel }) {
+  if (!booking && !poolRequest) return null;
+
+  const isPool = !booking && !!poolRequest;
+  const isSearchingDriver = poolRequest && poolRequest.pool_group_id && !poolRequest.group_trip_id;
+  const isWaitingMatch = poolRequest && !poolRequest.pool_group_id && poolRequest.status === 'pending';
+  const isPoolConfirmed = poolRequest && poolRequest.group_trip_id && poolRequest.group_status === 'confirmed';
+  const isLive = booking?.trip_status === 'active' || booking?.checkin_status === 'picked';
+  const isUpcoming = !isLive;
+  const hasChatAvailable = (booking?.is_pool === 1 && booking?.trip_id) || isPoolConfirmed;
+  const chatTripId = isPoolConfirmed ? poolRequest.group_trip_id : booking?.trip_id;
+
+  const from = booking ? booking.from_loc : (poolRequest?.origin_label || 'Pickup');
+  const to = booking ? booking.to_loc : (poolRequest?.dest_label || 'Destination');
+  const stops = booking?.stops || [];
+  const pickupStop = stops.find(s => s.type === 'pickup');
+  const dropoffStop = stops.find(s => s.type === 'dropoff');
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 450, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }} />
+
+      {/* Sheet */}
+      <div style={{
+        position: 'relative',
+        background: '#0a0a0a',
+        borderRadius: '24px 24px 0 0',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        border: '1px solid rgba(255,255,255,0.08)',
+        animation: 'slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+      }}>
+        {/* Handle bar */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: '#2a2a2a' }} />
+        </div>
+
+        {/* Header */}
+        <div style={{ padding: '12px 20px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            {/* Status icon */}
+            <div style={{
+              width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+              background: isLive
+                ? 'linear-gradient(135deg,#14532d,#16a34a)'
+                : isSearchingDriver ? 'linear-gradient(135deg,#1d4ed8,#3b82f6)'
+                : isWaitingMatch ? 'linear-gradient(135deg,#581c87,#7c3aed)'
+                : 'linear-gradient(135deg,#0c1a35,#1d4ed8)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+              boxShadow: isLive ? '0 4px 16px rgba(74,222,128,0.3)' : '0 4px 16px rgba(59,130,246,0.2)',
+            }}>
+              {isLive ? '🟢' : isSearchingDriver ? '🚗' : isWaitingMatch ? '🔄' : '⏳'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 20,
+                  background: isLive ? 'rgba(74,222,128,0.15)' : isSearchingDriver ? 'rgba(59,130,246,0.15)' : isWaitingMatch ? 'rgba(124,58,237,0.2)' : 'rgba(96,165,250,0.12)',
+                  color: isLive ? '#4ade80' : isSearchingDriver ? '#60a5fa' : isWaitingMatch ? '#c084fc' : '#60a5fa',
+                  textTransform: 'uppercase', letterSpacing: '.07em',
+                }}>
+                  {isLive ? '● LIVE' : isSearchingDriver ? '🚗 Searching Driver' : isWaitingMatch ? '🔄 Finding Match' : '⏳ UPCOMING'}
+                </span>
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: '#fff', fontFamily: "'Sora',sans-serif", lineHeight: 1.2 }}>
+                {from} → {to}
+              </div>
+              {booking && (
+                <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                  {booking.date} · {booking.pickup_time} · {booking.driver_name}
+                </div>
+              )}
+              {poolRequest && (
+                <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                  {poolRequest.desired_date} · {poolRequest.desired_time}
+                </div>
+              )}
+            </div>
+            <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#666', fontSize: 18, cursor: 'pointer', width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
+          </div>
+        </div>
+
+        <div style={{ padding: '16px 20px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* ── WAITING FOR MATCH state ── */}
+          {isWaitingMatch && (
+            <div style={{ background: 'linear-gradient(135deg,#1a0533,#2d0d5e)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: 16, padding: '20px', textAlign: 'center' }}>
+              <div style={{ position: 'relative', width: 100, height: 100, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(124,58,237,0.2)', animation: 'poolGlow 2s ease-in-out infinite' }} />
+                <div style={{ position: 'absolute', inset: 12, borderRadius: '50%', border: '2px solid rgba(124,58,237,0.35)', animation: 'poolGlow 2s ease-in-out infinite', animationDelay: '0.4s' }} />
+                <div style={{ position: 'absolute', inset: 24, borderRadius: '50%', border: '2px solid rgba(124,58,237,0.5)', animation: 'poolGlow 2s ease-in-out infinite', animationDelay: '0.8s' }} />
+                <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'linear-gradient(135deg,#581c87,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, animation: 'poolPulse 1.8s ease-in-out infinite', boxShadow: '0 0 24px rgba(124,58,237,0.5)' }}>🔄</div>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#c084fc', marginBottom: 6, fontFamily: "'Sora',sans-serif" }}>Looking for riders near you</div>
+              <div style={{ fontSize: 12, color: 'rgba(192,132,252,0.7)', lineHeight: 1.6 }}>
+                We're matching you with passengers going the same way.<br />You'll get notified when someone joins.
+              </div>
+              <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {['📍 Within 15km', '⏰ ±15 min', '🏁 Same direction'].map(t => (
+                  <span key={t} style={{ fontSize: 11, color: '#7c3aed', background: 'rgba(124,58,237,0.15)', padding: '4px 10px', borderRadius: 20, border: '1px solid rgba(124,58,237,0.2)' }}>{t}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── SEARCHING FOR DRIVER state ── */}
+          {isSearchingDriver && (
+            <div style={{ background: 'linear-gradient(135deg,#0a1628,#0f2347)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 16, padding: '20px', textAlign: 'center' }}>
+              <div style={{ position: 'relative', width: 100, height: 100, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(59,130,246,0.15)', animation: 'poolGlow 1.8s ease-in-out infinite' }} />
+                <div style={{ position: 'absolute', inset: 12, borderRadius: '50%', border: '2px solid rgba(59,130,246,0.25)', animation: 'poolGlow 1.8s ease-in-out infinite', animationDelay: '0.3s' }} />
+                <div style={{ position: 'absolute', inset: 24, borderRadius: '50%', border: '2px solid rgba(59,130,246,0.4)', animation: 'poolGlow 1.8s ease-in-out infinite', animationDelay: '0.6s' }} />
+                <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'linear-gradient(135deg,#1d4ed8,#3b82f6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, animation: 'poolPulse 1.4s ease-in-out infinite', boxShadow: '0 0 24px rgba(59,130,246,0.5)' }}>🚗</div>
+                {/* Scan line */}
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', overflow: 'hidden', pointerEvents: 'none' }}>
+                  <div style={{ position: 'absolute', left: 0, right: 0, height: 2, background: 'linear-gradient(90deg,transparent,rgba(96,165,250,0.8),transparent)', animation: 'poolScan 1.6s linear infinite' }} />
+                </div>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#60a5fa', marginBottom: 6, fontFamily: "'Sora',sans-serif" }}>Waiting for a driver to accept</div>
+              <div style={{ fontSize: 12, color: 'rgba(96,165,250,0.7)', lineHeight: 1.6 }}>
+                Your group is ready. Nearby drivers are being notified.<br />Hang tight — you'll get a confirmation shortly!
+              </div>
+              {poolRequest?.group_size > 0 && (
+                <div style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(59,130,246,0.12)', padding: '6px 14px', borderRadius: 20, border: '1px solid rgba(59,130,246,0.2)' }}>
+                  <span style={{ fontSize: 13 }}>👥</span>
+                  <span style={{ fontSize: 12, color: '#60a5fa', fontWeight: 600 }}>{poolRequest.group_size} passenger{poolRequest.group_size !== 1 ? 's' : ''} in group</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── MAP (for confirmed bookings and active pool) ── */}
+          {(booking && stops.length > 0) && (
+            <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <TripMap
+                tripId={booking.trip_id}
+                stops={stops}
+                pickupLat={pickupStop?.lat}
+                pickupLng={pickupStop?.lng}
+                dropoffLat={dropoffStop?.lat}
+                dropoffLng={dropoffStop?.lng}
+                passengerLat={userLocation?.lat}
+                passengerLng={userLocation?.lng}
+                driverName={booking.driver_name}
+                checkinStatus={booking.checkin_status}
+                height={220}
+              />
+            </div>
+          )}
+
+          {/* ── LIVE status indicator ── */}
+          {isLive && booking && (
+            <div style={{ background: 'linear-gradient(135deg,#052e16,#064e24)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 14, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#4ade80', animation: 'activePulse 1.5s infinite', flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#4ade80' }}>
+                  {booking.checkin_status === 'picked' ? '✅ You\'ve been picked up!' : '🟢 Your driver is on the way'}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(74,222,128,0.6)', marginTop: 2 }}>
+                  {booking.checkin_status === 'picked' ? 'Enjoy your ride!' : 'Track your driver on the map above'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Trip Details card ── */}
+          {booking && (
+            <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: '16px 18px' }}>
+              <div style={{ fontSize: 11, color: '#555', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 12 }}>Trip Details</div>
+              {[
+                { label: 'Driver', val: booking.driver_name, icon: '🧑‍✈️' },
+                { label: 'Car', val: booking.driver_car, icon: '🚗' },
+                { label: 'Plate', val: booking.driver_plate, icon: '🪪' },
+                { label: 'Pickup time', val: booking.pickup_time, icon: '🕐', accent: '#fbbf24' },
+                { label: 'Seats', val: booking.seats, icon: '💺' },
+                { label: 'Total', val: `${booking.seats * (booking.pool_price || booking.price)} EGP`, icon: '💰', accent: '#fbbf24' },
+              ].filter(r => r.val).map((row, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '9px 0', borderBottom: i < 5 ? '1px solid rgba(255,255,255,0.04)' : 'none', gap: 10 }}>
+                  <span style={{ fontSize: 14, width: 20 }}>{row.icon}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: '#555' }}>{row.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: row.accent || '#fff' }}>{row.val}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Pool request details ── */}
+          {poolRequest && (
+            <div style={{ background: '#111', border: '1px solid rgba(96,165,250,0.1)', borderRadius: 16, padding: '16px 18px' }}>
+              <div style={{ fontSize: 11, color: '#4b7ab5', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 12 }}>Pool Details</div>
+              {[
+                { label: 'From', val: poolRequest.origin_label, icon: '📍' },
+                { label: 'To', val: poolRequest.dest_label, icon: '🏁' },
+                { label: 'Date', val: poolRequest.desired_date, icon: '📅' },
+                { label: 'Time', val: poolRequest.desired_time, icon: '🕐', accent: '#60a5fa' },
+                { label: 'Seats', val: poolRequest.seats, icon: '💺' },
+                { label: 'Group size', val: poolRequest.group_size > 0 ? `${poolRequest.group_size} passenger${poolRequest.group_size !== 1 ? 's' : ''}` : 'Just you so far', icon: '👥' },
+              ].filter(r => r.val).map((row, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '9px 0', borderBottom: i < 5 ? '1px solid rgba(255,255,255,0.04)' : 'none', gap: 10 }}>
+                  <span style={{ fontSize: 14, width: 20 }}>{row.icon}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: '#555' }}>{row.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: row.accent || '#fff' }}>{row.val}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Action buttons ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+            {hasChatAvailable && chatTripId && (
+              <button
+                onClick={() => { onClose(); onOpenChat(chatTripId); }}
+                style={{ background: 'linear-gradient(135deg,#1d4ed8,#3b82f6)', border: 'none', borderRadius: 14, padding: '15px', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Sora',sans-serif", boxShadow: '0 4px 16px rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                💬 Open Group Chat
+              </button>
+            )}
+            {booking && booking.status === 'confirmed' && (
+              <button
+                onClick={() => { onCancel(booking.id); onClose(); }}
+                style={{ background: 'transparent', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 14, padding: '14px', color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'Sora',sans-serif" }}>
+                Cancel Booking
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
-  const activePool = poolRequests.find(r => r.group_trip_id && r.group_status === 'confirmed');
+}
+
+// ── Active Trip Banner (appears on every page when there's an active/upcoming trip) ──
+function ActiveTripBanner({ bookings, poolRequests, onOpenChat, onOpenDetail }) {
+  // Priority: active live trip > upcoming confirmed > searching driver > waiting for match
+  const liveBooking = bookings.find(b => b.status === 'confirmed' && b.trip_status === 'active');
+  const upcomingBooking = bookings.find(b => b.status === 'confirmed' && b.trip_status === 'upcoming');
+  const activeBooking = liveBooking || upcomingBooking;
+  const confirmedPool = poolRequests.find(r => r.group_trip_id && r.group_status === 'confirmed');
+  const searchingDriverPool = poolRequests.find(r => r.pool_group_id && !r.group_trip_id && r.status === 'pending');
+  const waitingMatchPool = poolRequests.find(r => !r.pool_group_id && r.status === 'pending');
+
+  const activePool = confirmedPool || searchingDriverPool || waitingMatchPool;
 
   if (!activeBooking && !activePool) return null;
 
-  const isLive = activeBooking?.trip_status === 'active';
-  const isPool = !!activePool && !activeBooking;
+  const isLive = !!liveBooking;
+  const isSearchingDriver = !activeBooking && !!searchingDriverPool && !confirmedPool;
+  const isWaitingMatch = !activeBooking && !confirmedPool && !searchingDriverPool && !!waitingMatchPool;
+  const isPoolConfirmed = !activeBooking && !!confirmedPool;
 
-  const label = isPool
-    ? `🚗 Pool · ${activePool.origin_label || 'Pickup'} → ${activePool.dest_label || 'Destination'}`
-    : `${activeBooking.from_loc} → ${activeBooking.to_loc}`;
+  let statusColor, statusLabel, statusTag, bgGradient, borderColor;
+  if (isLive) {
+    statusColor = '#4ade80'; statusLabel = '🟢 ACTIVE TRIP'; statusTag = 'LIVE';
+    bgGradient = 'linear-gradient(90deg,#052e16,#064e24)';
+    borderColor = 'rgba(74,222,128,0.3)';
+  } else if (isSearchingDriver) {
+    statusColor = '#60a5fa'; statusLabel = '🚗 Searching for driver…'; statusTag = 'POOL';
+    bgGradient = 'linear-gradient(90deg,#0a1628,#0d1d3d)';
+    borderColor = 'rgba(59,130,246,0.3)';
+  } else if (isWaitingMatch) {
+    statusColor = '#c084fc'; statusLabel = '🔄 Finding match near you…'; statusTag = 'POOL';
+    bgGradient = 'linear-gradient(90deg,#1a0533,#1e0a45)';
+    borderColor = 'rgba(124,58,237,0.3)';
+  } else if (isPoolConfirmed) {
+    statusColor = '#60a5fa'; statusLabel = '👥 Pool Group Active'; statusTag = 'POOL';
+    bgGradient = 'linear-gradient(90deg,#0a1628,#0f2347)';
+    borderColor = 'rgba(96,165,250,0.2)';
+  } else {
+    statusColor = '#60a5fa'; statusLabel = '⏳ Upcoming Trip'; statusTag = 'SOON';
+    bgGradient = 'linear-gradient(90deg,#0a1628,#0f2347)';
+    borderColor = 'rgba(96,165,250,0.2)';
+  }
 
-  const tripId = isPool ? activePool.group_trip_id : activeBooking?.trip_id;
+  const routeLabel = activeBooking
+    ? `${activeBooking.from_loc} → ${activeBooking.to_loc}`
+    : activePool
+    ? `${activePool.origin_label || 'Pickup'} → ${activePool.dest_label || 'Destination'}`
+    : '';
+
+  const handleClick = () => onOpenDetail(activeBooking, activePool);
 
   return (
-    <div style={{
-      background: isLive
-        ? 'linear-gradient(90deg,#052e16,#064e24)'
-        : 'linear-gradient(90deg,#0a1628,#0f2347)',
-      borderBottom: `1px solid ${isLive ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.2)'}`,
-      padding: '8px 16px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      position: 'sticky',
-      top: 57,
-      zIndex: 90,
-    }}>
-      {/* Pulsing green dot */}
+    <div
+      onClick={handleClick}
+      style={{
+        background: bgGradient,
+        borderBottom: `1px solid ${borderColor}`,
+        padding: '8px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        position: 'sticky',
+        top: 57,
+        zIndex: 90,
+        cursor: 'pointer',
+        transition: 'opacity 0.15s',
+        userSelect: 'none',
+      }}
+      onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+      onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+    >
+      {/* Pulsing dot */}
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <div style={{
           width: 10, height: 10, borderRadius: '50%',
-          background: isLive ? '#4ade80' : '#60a5fa',
-          boxShadow: isLive ? '0 0 0 0 rgba(74,222,128,0.5)' : '0 0 0 0 rgba(96,165,250,0.5)',
+          background: statusColor,
           animation: 'activePulse 1.5s infinite',
         }} />
       </div>
+
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: isLive ? '#4ade80' : '#60a5fa', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {isLive ? '🟢 ACTIVE TRIP' : '⏳ Upcoming Trip'}
+        <div style={{ fontSize: 12, fontWeight: 700, color: statusColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {statusLabel}
         </div>
-        <div style={{ fontSize: 11, color: '#888', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {label}
+        <div style={{ fontSize: 11, color: '#666', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {routeLabel}
         </div>
       </div>
-      {(isPool || activeBooking?.is_pool === 1) && tripId && (
+
+      {/* Chat quick-action (pool only) */}
+      {(isPoolConfirmed) && confirmedPool && (
         <button
-          onClick={() => onOpenChat(tripId)}
-          style={{
-            background: 'rgba(29,78,216,0.25)',
-            border: '1px solid rgba(96,165,250,0.3)',
-            borderRadius: 8,
-            padding: '5px 10px',
-            color: '#60a5fa',
-            fontSize: 11,
-            fontWeight: 700,
-            cursor: 'pointer',
-            fontFamily: "'Sora',sans-serif",
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}>
+          onClick={e => { e.stopPropagation(); onOpenChat(confirmedPool.group_trip_id); }}
+          style={{ background: 'rgba(29,78,216,0.25)', border: '1px solid rgba(96,165,250,0.3)', borderRadius: 8, padding: '5px 10px', color: '#60a5fa', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Sora',sans-serif", whiteSpace: 'nowrap', flexShrink: 0 }}>
           💬 Chat
         </button>
       )}
-      <div style={{
-        fontSize: 10,
-        fontWeight: 700,
-        padding: '3px 8px',
-        borderRadius: 20,
-        background: isLive ? 'rgba(74,222,128,0.15)' : 'rgba(96,165,250,0.15)',
-        color: isLive ? '#4ade80' : '#60a5fa',
-        flexShrink: 0,
-      }}>
-        {isLive ? 'LIVE' : 'Soon'}
+
+      {/* Status tag + chevron */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div style={{
+          fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
+          background: isLive ? 'rgba(74,222,128,0.15)' : isWaitingMatch ? 'rgba(124,58,237,0.2)' : 'rgba(96,165,250,0.15)',
+          color: statusColor,
+        }}>
+          {statusTag}
+        </div>
+        <span style={{ color: '#333', fontSize: 14 }}>›</span>
       </div>
     </div>
   );
@@ -219,7 +479,6 @@ function ActiveTripBanner({ bookings, poolRequests, onOpenChat }) {
 // ── Fare Accept/Refuse Modal ──
 function FareResponseModal({ fareOffer, onAccept, onRefuse, onClose }) {
   if (!fareOffer) return null;
-  // Don't show if already responded (safety check)
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 600, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
       <div style={{ background: '#0d1117', borderRadius: '24px 24px 0 0', padding: '28px 20px 44px', border: '1px solid rgba(251,191,36,0.2)' }}>
@@ -330,6 +589,11 @@ export default function PassengerDash(){
   const[ratingStars,setRatingStars]=useState(0);
   const[rateComment,setRateComment]=useState('');
 
+  // Trip detail sheet
+  const[tripDetailOpen,setTripDetailOpen]=useState(false);
+  const[tripDetailBooking,setTripDetailBooking]=useState(null);
+  const[tripDetailPool,setTripDetailPool]=useState(null);
+
   // Notifications
   const[notifs,setNotifs]=useState([]);
   const[notifOpen,setNotifOpen]=useState(false);
@@ -360,11 +624,9 @@ export default function PassengerDash(){
     });
     // Fare offer from driver
     socket.on('fare:offer',({tripId, bookingId, fare_per_passenger, from_loc, to_loc})=>{
-      if(!respondedTripsRef.current.has(tripId)){
-        setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
-      }
+      setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
     });
-    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');socket.off('trip:completed');};
+    return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');};
   },[user.id]);
 
   useEffect(()=>{myBookings.forEach(b=>{if(b.trip_id)watchTrip(b.trip_id);});},[myBookings.length]);
@@ -374,21 +636,13 @@ export default function PassengerDash(){
     if(tab==='activity'){loadBookings();loadMyPoolRequests();}
   },[tab]);
 
-  // Track which tripIds the passenger has already responded to — prevents re-showing modal
-  const respondedTripsRef = useRef(new Set());
-
   // Always-running fare offer polling — independent of active tab
   useEffect(()=>{
     async function checkFare(){
       try{
         const reqs=await api.getMyPoolRequests();
         setMyPoolRequests(reqs);
-        const withFare=reqs.find(r=>
-          r.fare_per_passenger &&
-          !r.fare_responded &&
-          r.group_trip_id &&
-          !respondedTripsRef.current.has(r.group_trip_id)
-        );
+        const withFare=reqs.find(r=>r.fare_per_passenger&&!r.fare_responded);
         if(withFare){
           setFareOffer(prev=>prev?prev:{
             tripId: withFare.group_trip_id,
@@ -520,15 +774,11 @@ export default function PassengerDash(){
     if (!fareOffer) return;
     try {
       const tripId=fareOffer.tripId;
-      // Mark locally so polling doesn't re-show
-      respondedTripsRef.current.add(tripId);
       await api.respondToFare(tripId, 'accept');
-      notify('Fare accepted! 🎉', 'You are confirmed in the pool. Opening group chat…');
+      notify('Fare accepted!', 'You remain in the pool group.', 'success');
       setFareOffer(null);
-      await loadBookings();
-      await loadMyPoolRequests();
-      // Switch to activity tab and open the chat
-      changeTab('activity');
+      loadBookings();
+      loadMyPoolRequests();
       await openPoolChat(tripId);
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -536,21 +786,17 @@ export default function PassengerDash(){
   async function handleFareRefuse() {
     if (!fareOffer) return;
     try {
-      // Mark locally FIRST so polling doesn't re-show the modal
-      respondedTripsRef.current.add(fareOffer.tripId);
       await api.respondToFare(fareOffer.tripId, 'refuse');
-      notify('Left the group', 'You can search for a new pool ride anytime.', 'info');
+      notify('You left the group', 'Your booking has been cancelled.', 'warning');
       setFareOffer(null);
-      setSelBooking(null);
-      sessionStorage.removeItem('selBookingId');
+      loadBookings();
+      loadMyPoolRequests();
       // Close chat if open for this trip
       if (poolChat?.tripId === fareOffer.tripId) {
         setPoolChat(null);
         poolChatRef.current = null;
         setPoolChatStops([]);
       }
-      await loadBookings();
-      await loadMyPoolRequests();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
@@ -572,11 +818,7 @@ export default function PassengerDash(){
         new Promise(r=>setTimeout(r,2500))
       ]);
       setPoolWaiting(false);setPoolResult(result);
-      await loadMyPoolRequests();
-      // If matched, switch to activity so passenger sees their group
-      if(result.matched){
-        setTimeout(()=>changeTab('activity'),1500);
-      }
+      loadMyPoolRequests();
     }catch(e){setPoolWaiting(false);notify('Error',e.message,'error');}
     finally{setPoolSubmitting(false);}
   }
@@ -628,6 +870,7 @@ export default function PassengerDash(){
         @keyframes poolScan{0%{transform:translateY(-100%)}100%{transform:translateY(400%)}}
         @keyframes fadeInUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
         @keyframes activePulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,0.6)}70%{box-shadow:0 0 0 8px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+        @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
       `}</style>
 
       {/* ── FARE OFFER MODAL ── */}
@@ -707,7 +950,18 @@ export default function PassengerDash(){
         bookings={myBookings}
         poolRequests={myPoolRequests}
         onOpenChat={openPoolChat}
+        onOpenDetail={(bk,pr)=>{setTripDetailBooking(bk);setTripDetailPool(pr);setTripDetailOpen(true);}}
       />}
+      {tripDetailOpen&&(
+        <TripDetailSheet
+          booking={tripDetailBooking}
+          poolRequest={tripDetailPool}
+          userLocation={userLocation}
+          onOpenChat={openPoolChat}
+          onClose={()=>setTripDetailOpen(false)}
+          onCancel={cancelBooking}
+        />
+      )}
 
       {/* Notifications */}
       {notifOpen&&(
@@ -762,7 +1016,7 @@ export default function PassengerDash(){
 
             <div style={{marginTop:16}}>
               {activePoolChatRequest&&(
-                <div style={{background:'linear-gradient(135deg,#0a0f1e,#0d1117)',border:'2px solid rgba(96,165,250,0.3)',borderRadius:20,padding:'16px 20px',marginBottom:14,display:'flex',alignItems:'center',gap:14}}>
+                <div onClick={()=>{setTripDetailPool(activePoolChatRequest);setTripDetailBooking(null);setTripDetailOpen(true);}} style={{background:'linear-gradient(135deg,#0a0f1e,#0d1117)',border:'2px solid rgba(96,165,250,0.3)',borderRadius:20,padding:'16px 20px',marginBottom:14,display:'flex',alignItems:'center',gap:14,cursor:'pointer'}}>
                   <div style={{width:44,height:44,borderRadius:12,background:'linear-gradient(135deg,#1d4ed8,#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>👥</div>
                   <div style={{flex:1}}>
                     <div style={{fontSize:14,fontWeight:800,color:'#60a5fa'}}>Your Pool Group</div>
@@ -776,7 +1030,7 @@ export default function PassengerDash(){
               )}
 
               {activePoolGroup&&(
-                <div style={{background:'linear-gradient(135deg,#0a1628,#0f2347)',border:'2px solid rgba(74,222,128,0.4)',borderRadius:20,padding:'18px 20px',marginBottom:16,position:'relative',overflow:'hidden',boxShadow:'0 4px 24px rgba(74,222,128,0.1)'}}>
+                <div onClick={()=>{setTripDetailPool(activePoolGroup);setTripDetailBooking(null);setTripDetailOpen(true);}} style={{background:'linear-gradient(135deg,#0a1628,#0f2347)',border:'2px solid rgba(74,222,128,0.4)',borderRadius:20,padding:'18px 20px',marginBottom:16,position:'relative',overflow:'hidden',boxShadow:'0 4px 24px rgba(74,222,128,0.1)',cursor:'pointer'}}>
                   <div style={{position:'absolute',top:16,right:16,width:12,height:12,borderRadius:'50%',background:'#4ade80',boxShadow:'0 0 0 0 rgba(74,222,128,0.6)',animation:'poolPulse 1.5s infinite'}}/>
                   <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
                     <div style={{width:42,height:42,borderRadius:12,background:'linear-gradient(135deg,#14532d,#16a34a)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>👥</div>
