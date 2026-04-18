@@ -614,6 +614,20 @@ router.post('/fare-response', requireAuth, requireRole('passenger'), async(req,r
   } catch(err) { console.error('fare-response error:', err); res.status(500).json({error:err.message}); }
 });
 
+// ── DEBUG: see all pending pool requests (remove in production) ──
+router.get('/debug/requests', async(req,res)=>{
+  try{
+    const [rows] = await db.query(`
+      SELECT id, passenger_id, origin_label, dest_label, desired_date, desired_time, 
+             status, pool_group_id, seats, created_at
+      FROM pool_requests 
+      ORDER BY created_at DESC LIMIT 50
+    `);
+    res.json({ count: rows.length, requests: rows });
+  }catch(e){ res.status(500).json({error:e.message}); }
+});
+
+
 module.exports=router;
 module.exports.suggestDriversForGroup=suggestDrivers;
 module.exports.calcPrice=calcPrice;
