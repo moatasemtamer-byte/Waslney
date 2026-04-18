@@ -360,7 +360,9 @@ export default function PassengerDash(){
     });
     // Fare offer from driver
     socket.on('fare:offer',({tripId, bookingId, fare_per_passenger, from_loc, to_loc})=>{
-      setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
+      if(!respondedTripsRef.current.has(tripId)){
+        setFareOffer(prev => prev ? prev : { tripId, bookingId, fare_per_passenger, from_loc, to_loc });
+      }
     });
     return()=>{socket.off('checkin:update');socket.off('pool:confirmed');socket.off('fare:offer');};
   },[user.id]);
@@ -372,13 +374,21 @@ export default function PassengerDash(){
     if(tab==='activity'){loadBookings();loadMyPoolRequests();}
   },[tab]);
 
+  // Track which tripIds the passenger has already responded to — prevents re-showing modal
+  const respondedTripsRef = useRef(new Set());
+
   // Always-running fare offer polling — independent of active tab
   useEffect(()=>{
     async function checkFare(){
       try{
         const reqs=await api.getMyPoolRequests();
         setMyPoolRequests(reqs);
-        const withFare=reqs.find(r=>r.fare_per_passenger&&!r.fare_responded);
+        const withFare=reqs.find(r=>
+          r.fare_per_passenger &&
+          !r.fare_responded &&
+          r.group_trip_id &&
+          !respondedTripsRef.current.has(r.group_trip_id)
+        );
         if(withFare){
           setFareOffer(prev=>prev?prev:{
             tripId: withFare.group_trip_id,
@@ -510,6 +520,8 @@ export default function PassengerDash(){
     if (!fareOffer) return;
     try {
       const tripId=fareOffer.tripId;
+      // Mark locally so polling doesn't re-show
+      respondedTripsRef.current.add(tripId);
       await api.respondToFare(tripId, 'accept');
       notify('Fare accepted! 🎉', 'You are confirmed in the pool. Opening group chat…');
       setFareOffer(null);
@@ -524,6 +536,8 @@ export default function PassengerDash(){
   async function handleFareRefuse() {
     if (!fareOffer) return;
     try {
+      // Mark locally FIRST so polling doesn't re-show the modal
+      respondedTripsRef.current.add(fareOffer.tripId);
       await api.respondToFare(fareOffer.tripId, 'refuse');
       notify('Left the group', 'You can search for a new pool ride anytime.', 'info');
       setFareOffer(null);
