@@ -17,7 +17,8 @@ function Lightbox({ src, label, onClose }) {
       <p style={{ color:'#888', fontSize:12, marginBottom:16, letterSpacing:'.08em', textTransform:'uppercase' }}>{label}</p>
       <img
         src={src}
-        alt={label}
+        alt={label}git add Dockerfile
+
         style={{ maxWidth:'90vw', maxHeight:'80vh', objectFit:'contain', borderRadius:12, border:'1px solid #222' }}
         onClick={e => e.stopPropagation()}
       />
