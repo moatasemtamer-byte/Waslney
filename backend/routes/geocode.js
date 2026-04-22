@@ -1,4 +1,4 @@
-// Backend proxy for Nominatim — uses Node built-in https (no extra deps needed)
+// Backend proxy for Nominatim — keeps Nominatim calls server-side (no CORS issues).
 const router = require('express').Router();
 const https  = require('https');
 
@@ -23,6 +23,7 @@ function httpsGet(url) {
   });
 }
 
+// GET /api/geocode/search?q=Nasr+City
 router.get('/search', async (req, res) => {
   const { q } = req.query;
   if (!q || q.trim().length < 2) return res.json([]);
@@ -32,16 +33,31 @@ router.get('/search', async (req, res) => {
     const egUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=8&countrycodes=eg&addressdetails=1&accept-language=en`;
     let data = await httpsGet(egUrl);
 
-    // Fallback: append Egypt to query if no results
+    // Fallback: append Egypt if no results
     if (!Array.isArray(data) || !data.length) {
-      const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ' Egypt')}&format=json&limit=6&addressdetails=1&accept-language=en`;
-      data = await httpsGet(fallbackUrl);
+      const fbUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ' Egypt')}&format=json&limit=6&addressdetails=1&accept-language=en`;
+      data = await httpsGet(fbUrl);
     }
 
     res.json(Array.isArray(data) ? data : []);
   } catch (err) {
-    console.error('Geocode proxy error:', err.message);
-    res.json([]); // return empty array, not 500 — frontend handles gracefully
+    console.error('Geocode search proxy error:', err.message);
+    res.json([]); // empty array, not 500 — frontend handles gracefully
+  }
+});
+
+// GET /api/geocode/reverse?lat=30.06&lng=31.24
+router.get('/reverse', async (req, res) => {
+  const { lat, lng } = req.query;
+  if (!lat || !lng) return res.json(null);
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=en`;
+    const data = await httpsGet(url);
+    res.json(data || null);
+  } catch (err) {
+    console.error('Geocode reverse proxy error:', err.message);
+    res.json(null);
   }
 });
 
