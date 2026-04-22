@@ -74,19 +74,40 @@ router.get('/drivers/all', requireAuth, requireAdmin, async (req, res) => {
 // ── GET /api/users/pending-review  ───────────────────────────────────────────
 router.get('/pending-review', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT
-        u.id, u.name, u.phone, u.car, u.plate, u.profile_photo, u.created_at,
-        d.car_license_photo, d.driver_license_photo, d.criminal_record_photo,
-        d.submitted_at
-      FROM users u
-      JOIN driver_documents d ON d.user_id = u.id
-      WHERE u.role = 'driver'
-        AND u.account_status = 'pending_review'
-      ORDER BY d.submitted_at ASC
-    `);
-    res.json({ drivers: rows });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    // Check if driver_documents table exists before joining
+    const [[{ tbl_exists }]] = await db.query(
+      "SELECT COUNT(*) AS tbl_exists FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'driver_documents'"
+    );
+
+    let rows;
+    if (tbl_exists) {
+      [rows] = await db.query(`
+        SELECT
+          u.id, u.name, u.phone, u.car, u.plate, u.profile_photo, u.created_at,
+          d.car_license_photo, d.driver_license_photo, d.criminal_record_photo,
+          d.submitted_at
+        FROM users u
+        LEFT JOIN driver_documents d ON d.user_id = u.id
+        WHERE u.role = 'driver'
+          AND u.account_status = 'pending_review'
+        ORDER BY COALESCE(d.submitted_at, u.created_at) ASC
+      `);
+    } else {
+      [rows] = await db.query(`
+        SELECT id, name, phone, car, plate, profile_photo, created_at,
+               NULL AS car_license_photo, NULL AS driver_license_photo,
+               NULL AS criminal_record_photo, created_at AS submitted_at
+        FROM users
+        WHERE role = 'driver' AND account_status = 'pending_review'
+        ORDER BY created_at ASC
+      `);
+    }
+
+    res.json({ drivers: Array.isArray(rows) ? rows : [] });
+  } catch (e) {
+    console.error('pending-review error:', e.message);
+    res.json({ drivers: [] });
+  }
 });
 
 // ── POST /api/users/:id/approve  ─────────────────────────────────────────────
