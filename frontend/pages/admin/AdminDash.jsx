@@ -132,7 +132,7 @@ export default function AdminDash() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [t, d, u, sp] = await Promise.all([api.getTrips(), api.getDrivers(), api.getUsers(), api.getSavedPoints()]);
+      const [t, d, u, sp] = await Promise.all([api.getTrips(), api.getDrivers(), api.getUsers(), api.getSavedPoints().catch(()=>[])]);
       setTrips(t); setDrivers(d); setUsers(u); setSavedPoints(Array.isArray(sp) ? sp : []);
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setLoading(false); }
@@ -174,8 +174,7 @@ export default function AdminDash() {
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
-  function handlePointSaved(pt) {
-    // Refresh the saved points list after add/delete
+  function handlePointSaved() {
     api.getSavedPoints().then(sp => setSavedPoints(Array.isArray(sp) ? sp : [])).catch(() => {});
   }
 
@@ -290,8 +289,18 @@ export default function AdminDash() {
           <div style={card}>
             <p style={sectSt}>New trip</p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
-              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+              <SavedPointPicker
+                label="📍 Pickup area" type="pickup"
+                value={form.from_loc ? { name: form.from_loc } : null}
+                savedPoints={savedPoints} onPointSaved={handlePointSaved}
+                onChange={c => { setForm({...form, from_loc: c ? c.name : ''}); if (c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
+              />
+              <SavedPointPicker
+                label="🏁 Drop-off area" type="dropoff"
+                value={form.to_loc ? { name: form.to_loc } : null}
+                savedPoints={savedPoints} onPointSaved={handlePointSaved}
+                onChange={c => { setForm({...form, to_loc: c ? c.name : ''}); if (c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
+              />
               <Inp label="📅 Date"             type="date"   value={form.date}         onChange={f('date')} />
               <Inp label="🕐 Pickup time"      type="time"   value={form.pickup_time}  onChange={f('pickup_time')} />
               <Inp label="🕐 Est. drop-off"    type="time"   value={form.dropoff_time} onChange={f('dropoff_time')} />
@@ -346,8 +355,18 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
-                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+                <SavedPointPicker
+                  label="📍 Pickup area" type="pickup"
+                  value={editTrip.from_loc ? { name: editTrip.from_loc } : null}
+                  savedPoints={savedPoints} onPointSaved={handlePointSaved}
+                  onChange={c => { setEditTrip({...editTrip, from_loc: c ? c.name : ''}); if (c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
+                />
+                <SavedPointPicker
+                  label="🏁 Drop-off area" type="dropoff"
+                  value={editTrip.to_loc ? { name: editTrip.to_loc } : null}
+                  savedPoints={savedPoints} onPointSaved={handlePointSaved}
+                  onChange={c => { setEditTrip({...editTrip, to_loc: c ? c.name : ''}); if (c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
+                />
                 <Inp label="Date"          type="date"   value={editTrip.date?.slice(0,10)}  onChange={e=>setEditTrip({...editTrip,date:e.target.value})} />
                 <Inp label="Pickup time"   type="time"   value={editTrip.pickup_time}        onChange={e=>setEditTrip({...editTrip,pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time"   value={editTrip.dropoff_time||''}   onChange={e=>setEditTrip({...editTrip,dropoff_time:e.target.value})} />
