@@ -261,22 +261,23 @@ export default function TripMap({
 
 // ── StopPicker — admin clicks map to place pickup/dropoff pins ────────────────
 export const StopPicker = forwardRef(function StopPicker({ stops, onChange, height = 340 }, ref) {
-  const mapRef        = useRef(null);
-  const leafletMap    = useRef(null);
-  const markers       = useRef([]);
-  const stopsRef      = useRef(stops);
-  const nextTypeRef   = useRef('pickup');
-  const pendingCenter = useRef(null);
-  const areaMarker    = useRef(null);
+  const mapRef              = useRef(null);
+  const leafletMap          = useRef(null);
+  const markers             = useRef([]);
+  const savedPointMarkers   = useRef([]);   // red saved-point markers
+  const stopsRef            = useRef(stops);
+  const nextTypeRef         = useRef('pickup');
+  const pendingCenter       = useRef(null);
+  const areaMarker          = useRef(null);
   const [nextType, setNextType] = useState('pickup');
 
   // Saved points state
   const [savedPoints,   setSavedPoints]   = useState([]);
-  const [savingPoint,   setSavingPoint]   = useState(null);   // {lat, lng} of pin to save
+  const [savingPoint,   setSavingPoint]   = useState(null);
   const [saveName,      setSaveName]      = useState('');
   const [saveType,      setSaveType]      = useState('both');
   const [savedMsg,      setSavedMsg]      = useState('');
-  const [spFilter,      setSpFilter]      = useState('');     // search filter for dropdown
+  const [spFilter,      setSpFilter]      = useState('');
 
   // Load saved points on mount
   useEffect(() => {
@@ -327,6 +328,45 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
     if (leafletMap.current) leafletMap.current.setView([parseFloat(sp.lat), parseFloat(sp.lng)], 15);
   }
 
+  // Draw red saved-point markers on map whenever savedPoints or map changes
+  function drawSavedMarkers(map, points) {
+    // Clear old
+    savedPointMarkers.current.forEach(m => { try { map.removeLayer(m); } catch(_){} });
+    savedPointMarkers.current = [];
+    points.forEach(sp => {
+      const icon = L.divIcon({
+        html: `<div style="
+          width:28px;height:28px;border-radius:50%;
+          background:#ef4444;border:3px solid #fff;
+          box-shadow:0 0 10px rgba(239,68,68,0.7);
+          display:flex;align-items:center;justify-content:center;
+          cursor:pointer;font-size:13px;
+        ">📍</div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14], className: '',
+      });
+      const m = L.marker([parseFloat(sp.lat), parseFloat(sp.lng)], { icon, zIndexOffset: 500 })
+        .addTo(map)
+        .bindTooltip(`<b style="font-family:'Sora',sans-serif">${sp.name}</b><br/><span style="font-size:11px;color:#888">Click to add as stop</span>`, { direction:'top', offset:[0,-10] })
+        .on('click', () => {
+          addSavedPoint(sp);
+          // Flash the marker green briefly to confirm
+          m.setIcon(L.divIcon({
+            html: `<div style="width:28px;height:28px;border-radius:50%;background:#4ade80;border:3px solid #fff;box-shadow:0 0 10px rgba(74,222,128,0.7);display:flex;align-items:center;justify-content:center;font-size:13px;">✅</div>`,
+            iconSize:[28,28], iconAnchor:[14,14], className:'',
+          }));
+          setTimeout(() => { try { m.setIcon(icon); } catch(_){} }, 1200);
+        });
+      savedPointMarkers.current.push(m);
+    });
+  }
+
+  // Reload saved point markers when savedPoints list changes
+  useEffect(() => {
+    if (leafletMap.current && savedPoints.length > 0) {
+      drawSavedMarkers(leafletMap.current, savedPoints);
+    }
+  }, [savedPoints]);
+
   // Save a pin to the database
   async function handleSavePoint() {
     if (!saveName.trim() || !savingPoint) return;
@@ -351,7 +391,8 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(map);
     leafletMap.current = map;
 
-    if (pendingCenter.current) {
+    // Draw saved point markers (red) if already loaded
+    if (savedPoints.length > 0) drawSavedMarkers(map, savedPoints);
       const pc = pendingCenter.current; pendingCenter.current = null;
       const lat = parseFloat(pc.lat), lng = parseFloat(pc.lng);
       if (!isNaN(lat) && !isNaN(lng)) map.setView([lat, lng], 15);
