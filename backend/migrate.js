@@ -60,6 +60,18 @@ module.exports = async function runMigrations() {
     try { await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(30) NOT NULL DEFAULT 'active'`); } catch(_) {}
     try { await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS rejection_note TEXT DEFAULT NULL`); } catch(_) {}
 
+    // 7. Saved pickup/dropoff points
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS saved_points (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        name       VARCHAR(150) NOT NULL,
+        type       ENUM('pickup','dropoff','both') NOT NULL DEFAULT 'both',
+        lat        DECIMAL(10,7) NOT NULL,
+        lng        DECIMAL(10,7) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     console.log('✅  Migrations done');
   } catch (err) {
     console.error('⚠️  Migration warning:', err.message);

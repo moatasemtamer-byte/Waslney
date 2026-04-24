@@ -1,30 +1,11 @@
-// backend/routes/saved_points.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Saved pickup/drop-off points — admin can save frequently-used locations
-// and reuse them when creating trips.
-//
-// SQL to run once in your database:
-// ──────────────────────────────────────────────────────────────────────────
-// CREATE TABLE IF NOT EXISTS saved_points (
-//   id         INT AUTO_INCREMENT PRIMARY KEY,
-//   name       VARCHAR(120) NOT NULL,
-//   type       ENUM('pickup','dropoff','both') NOT NULL DEFAULT 'both',
-//   lat        DECIMAL(10,7) NOT NULL,
-//   lng        DECIMAL(10,7) NOT NULL,
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-// );
-// ──────────────────────────────────────────────────────────────────────────
-
 const router = require('express').Router();
 const db     = require('../db');
 const { requireAuth, requireRole } = require('../auth');
 
-// GET /api/saved-points — list all saved points
-router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
+// GET /api/saved-points — all logged-in users can read
+router.get('/', requireAuth, async (req, res) => {
   try {
-    const [rows] = await db.query(
-      'SELECT * FROM saved_points ORDER BY name ASC'
-    );
+    const [rows] = await db.query('SELECT * FROM saved_points ORDER BY name ASC');
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -32,12 +13,11 @@ router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
   }
 });
 
-// POST /api/saved-points — create a new saved point
+// POST /api/saved-points — admin only
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   const { name, type = 'both', lat, lng } = req.body;
-  if (!name || lat == null || lng == null) {
-    return res.status(400).json({ error: 'name, lat, lng are required' });
-  }
+  if (!name || lat == null || lng == null)
+    return res.status(400).json({ error: 'name, lat and lng are required' });
   try {
     const [result] = await db.query(
       'INSERT INTO saved_points (name, type, lat, lng) VALUES (?, ?, ?, ?)',
@@ -51,7 +31,7 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   }
 });
 
-// PUT /api/saved-points/:id — update a saved point
+// PUT /api/saved-points/:id — admin only
 router.put('/:id', requireAuth, requireRole('admin'), async (req, res) => {
   const { name, type, lat, lng } = req.body;
   try {
@@ -67,7 +47,7 @@ router.put('/:id', requireAuth, requireRole('admin'), async (req, res) => {
   }
 });
 
-// DELETE /api/saved-points/:id — remove a saved point
+// DELETE /api/saved-points/:id — admin only
 router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     await db.query('DELETE FROM saved_points WHERE id=?', [req.params.id]);

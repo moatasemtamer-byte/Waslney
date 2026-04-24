@@ -87,3 +87,9 @@ export const getNearbyPoolGroups  = (q)       => get(`/pool/groups/nearby?${new 
 
 export const respondToFare = (tripId, response) => post('/pool/fare-response', { tripId, response }); // response: 'accept'|'refuse'
 export const proposeFare   = (tripId, farePerPassenger) => post(`/pool/trips/${tripId}/propose-fare`, { fare_per_passenger: farePerPassenger });
+
+// ── SAVED POINTS ──────────────────────────────────────────
+export const getSavedPoints    = ()          => get('/saved-points');
+export const createSavedPoint  = (body)      => post('/saved-points', body);
+export const updateSavedPoint  = (id, body)  => put(`/saved-points/${id}`, body);
+export const deleteSavedPoint  = (id)        => del(`/saved-points/${id}`);

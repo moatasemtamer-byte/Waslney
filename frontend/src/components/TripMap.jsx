@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { getTripLocation } from '../api.js';
+import { getTripLocation, getSavedPoints, createSavedPoint } from '../api.js';
 import socket, { watchTrip } from '../socket.js';
 import { C } from './UI.jsx';
 
@@ -270,6 +270,19 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
   const areaMarker    = useRef(null);
   const [nextType, setNextType] = useState('pickup');
 
+  // Saved points state
+  const [savedPoints,   setSavedPoints]   = useState([]);
+  const [savingPoint,   setSavingPoint]   = useState(null);   // {lat, lng} of pin to save
+  const [saveName,      setSaveName]      = useState('');
+  const [saveType,      setSaveType]      = useState('both');
+  const [savedMsg,      setSavedMsg]      = useState('');
+  const [spFilter,      setSpFilter]      = useState('');     // search filter for dropdown
+
+  // Load saved points on mount
+  useEffect(() => {
+    getSavedPoints().then(setSavedPoints).catch(() => {});
+  }, []);
+
   // Expose panTo(loc) so parent can directly move the map
   useImperativeHandle(ref, () => ({
     panTo(loc) {
@@ -278,7 +291,6 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
       if (isNaN(lat) || isNaN(lng)) return;
       if (leafletMap.current) {
         leafletMap.current.setView([lat, lng], 15);
-        // Flash a temporary yellow label marker
         const icon = L.divIcon({
           html: `<div style="background:#fbbf2444;border:2px solid #fbbf24;border-radius:8px;padding:5px 12px;font-size:12px;color:#fbbf24;white-space:nowrap;font-family:'Sora',sans-serif;font-weight:600;box-shadow:0 2px 12px rgba(0,0,0,.6)">📍 ${loc.name || ''}</div>`,
           className: '', iconAnchor: [0, 0],
@@ -286,7 +298,6 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
         const m = L.marker([lat, lng], { icon, zIndexOffset: 9999 }).addTo(leafletMap.current);
         setTimeout(() => { try { leafletMap.current?.removeLayer(m); } catch(_){} }, 5000);
       } else {
-        // Map not initialised yet — queue it
         pendingCenter.current = loc;
       }
     }
@@ -309,6 +320,30 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
     setTimeout(() => { if (areaMarker.current && leafletMap.current) { try { leafletMap.current.removeLayer(areaMarker.current); } catch(_){} areaMarker.current = null; } }, 6000);
   }
 
+  // Add a saved point to the stops list and pan map to it
+  function addSavedPoint(sp) {
+    const newStop = { type: nextTypeRef.current, lat: parseFloat(sp.lat).toFixed(6), lng: parseFloat(sp.lng).toFixed(6), label: sp.name };
+    onChange([...stopsRef.current, newStop]);
+    if (leafletMap.current) leafletMap.current.setView([parseFloat(sp.lat), parseFloat(sp.lng)], 15);
+  }
+
+  // Save a pin to the database
+  async function handleSavePoint() {
+    if (!saveName.trim() || !savingPoint) return;
+    try {
+      const created = await createSavedPoint({ name: saveName.trim(), type: saveType, lat: savingPoint.lat, lng: savingPoint.lng });
+      setSavedPoints(prev => [...prev, created].sort((a,b) => a.name.localeCompare(b.name)));
+      setSavedMsg(`✅ "${created.name}" saved!`);
+      setTimeout(() => setSavedMsg(''), 3000);
+    } catch (e) {
+      setSavedMsg('❌ Failed to save (admin only)');
+      setTimeout(() => setSavedMsg(''), 3000);
+    }
+    setSavingPoint(null);
+    setSaveName('');
+    setSaveType('both');
+  }
+
   // Init map once on mount
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return;
@@ -325,6 +360,9 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
     map.on('click', (e) => {
       const { lat, lng } = e.latlng;
       onChange([...stopsRef.current, { type: nextTypeRef.current, lat: lat.toFixed(6), lng: lng.toFixed(6), label: '' }]);
+      setSavingPoint({ lat: lat.toFixed(6), lng: lng.toFixed(6) });
+      setSaveName('');
+      setSaveType('both');
     });
     setTimeout(() => map.invalidateSize(), 300);
 
@@ -357,9 +395,18 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
   const pickupCount  = stops.filter(s => s.type==='pickup').length;
   const dropoffCount = stops.filter(s => s.type==='dropoff').length;
 
+  // Filter saved points for dropdown
+  const filteredSP = savedPoints.filter(sp => {
+    const matchesFilter = sp.name.toLowerCase().includes(spFilter.toLowerCase());
+    const matchesType = sp.type === 'both' || sp.type === nextType;
+    return matchesFilter && matchesType;
+  });
+
   return (
     <div style={{ borderRadius:12, overflow:'hidden', border:`1px solid ${C.border}`, marginBottom:14 }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+      {/* ── Toolbar ── */}
       <div style={{ background:C.bg4, padding:'10px 14px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
         <span style={{ fontSize:12, color:C.text2 }}>Click map to add:</span>
         <button onClick={() => setNextType('pickup')}
@@ -372,13 +419,78 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
         </button>
         <span style={{ fontSize:11, color:C.text3 }}>{stops.length} total</span>
         {stops.length > 0 && (<>
-          <button onClick={() => onChange(stops.slice(0,-1))} style={{ marginLeft:'auto', background:C.redDim, color:C.red, border:`1px solid ${C.redBorder}`, borderRadius:6, padding:'3px 10px', fontSize:11, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>↩ Undo</button>
-          <button onClick={() => onChange([])}                style={{ background:C.redDim, color:C.red, border:`1px solid ${C.redBorder}`, borderRadius:6, padding:'3px 10px', fontSize:11, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>🗑 Clear</button>
+          <button onClick={() => { onChange(stops.slice(0,-1)); setSavingPoint(null); }} style={{ marginLeft:'auto', background:C.redDim, color:C.red, border:`1px solid ${C.redBorder}`, borderRadius:6, padding:'3px 10px', fontSize:11, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>↩ Undo</button>
+          <button onClick={() => { onChange([]); setSavingPoint(null); }}                style={{ background:C.redDim, color:C.red, border:`1px solid ${C.redBorder}`, borderRadius:6, padding:'3px 10px', fontSize:11, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>🗑 Clear</button>
         </>)}
       </div>
-      <div style={{ height, background:'#0f1923' }}>
+
+      {/* ── Saved Points Picker ── */}
+      {savedPoints.length > 0 && (
+        <div style={{ background:'rgba(30,58,95,0.25)', padding:'10px 14px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+          <span style={{ fontSize:12, color:'#60a5fa', fontWeight:600, whiteSpace:'nowrap' }}>⭐ Saved points:</span>
+          <input
+            value={spFilter}
+            onChange={e => setSpFilter(e.target.value)}
+            placeholder="Search saved points…"
+            style={{ background:C.bg4, border:`1px solid ${C.border}`, borderRadius:6, padding:'4px 10px', color:C.text, fontSize:12, fontFamily:"'Sora',sans-serif", outline:'none', width:160 }}
+          />
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap', flex:1 }}>
+            {filteredSP.slice(0, 12).map(sp => (
+              <button key={sp.id} onClick={() => addSavedPoint(sp)}
+                title={`${parseFloat(sp.lat).toFixed(4)}, ${parseFloat(sp.lng).toFixed(4)}`}
+                style={{ background: nextType==='pickup' ? 'rgba(74,222,128,0.1)' : 'rgba(96,165,250,0.1)',
+                  color: nextType==='pickup' ? '#4ade80' : '#60a5fa',
+                  border: `1px solid ${nextType==='pickup' ? 'rgba(74,222,128,0.3)' : 'rgba(96,165,250,0.3)'}`,
+                  borderRadius:8, padding:'4px 12px', fontSize:12, cursor:'pointer',
+                  fontFamily:"'Sora',sans-serif", whiteSpace:'nowrap' }}>
+                {nextType==='pickup'?'🟢':'🔵'} {sp.name}
+              </button>
+            ))}
+            {filteredSP.length > 12 && (
+              <span style={{ fontSize:11, color:C.text3, alignSelf:'center' }}>+{filteredSP.length-12} more — refine search</span>
+            )}
+            {filteredSP.length === 0 && spFilter && (
+              <span style={{ fontSize:11, color:C.text3, alignSelf:'center' }}>No saved points match "{spFilter}"</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Map ── */}
+      <div style={{ height, background:'#0f1923', position:'relative' }}>
         <div ref={mapRef} style={{ height:'100%', width:'100%' }} />
       </div>
+
+      {/* ── Save this pin panel (shows after clicking map) ── */}
+      {savingPoint && (
+        <div style={{ background:'rgba(251,191,36,0.08)', padding:'10px 14px', borderTop:`1px solid rgba(251,191,36,0.2)`, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+          <span style={{ fontSize:12, color:'#fbbf24', fontWeight:600 }}>💾 Save this point?</span>
+          <input
+            value={saveName}
+            onChange={e => setSaveName(e.target.value)}
+            onKeyDown={e => e.key==='Enter' && handleSavePoint()}
+            placeholder="Point name…"
+            style={{ background:C.bg4, border:`1px solid rgba(251,191,36,0.4)`, borderRadius:6, padding:'4px 10px', color:C.text, fontSize:12, fontFamily:"'Sora',sans-serif", outline:'none', flex:1, minWidth:140 }}
+          />
+          <select value={saveType} onChange={e => setSaveType(e.target.value)}
+            style={{ background:C.bg4, border:`1px solid ${C.border}`, borderRadius:6, padding:'4px 8px', color:C.text, fontSize:12, fontFamily:"'Sora',sans-serif", outline:'none' }}>
+            <option value="both">Both</option>
+            <option value="pickup">Pickup only</option>
+            <option value="dropoff">Drop-off only</option>
+          </select>
+          <button onClick={handleSavePoint} disabled={!saveName.trim()}
+            style={{ background:'rgba(251,191,36,0.2)', color:'#fbbf24', border:'1px solid rgba(251,191,36,0.4)', borderRadius:6, padding:'4px 14px', fontSize:12, cursor: saveName.trim()?'pointer':'not-allowed', fontFamily:"'Sora',sans-serif", fontWeight:600 }}>
+            Save
+          </button>
+          <button onClick={() => { setSavingPoint(null); setSaveName(''); }}
+            style={{ background:'transparent', color:C.text3, border:`1px solid ${C.border}`, borderRadius:6, padding:'4px 10px', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+            Skip
+          </button>
+          {savedMsg && <span style={{ fontSize:12, color: savedMsg.startsWith('✅') ? '#4ade80' : '#f87171' }}>{savedMsg}</span>}
+        </div>
+      )}
+
+      {/* ── Stop list ── */}
       {stops.length > 0 && (
         <div style={{ background:C.bg3, padding:'10px 14px', borderTop:`1px solid ${C.border}` }}>
           {stops.map((s, i) => (
