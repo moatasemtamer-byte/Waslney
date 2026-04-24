@@ -81,6 +81,20 @@ export async function reverseGeocode(lat, lng) {
   } catch { return null; }
 }
 
+
+// ── Parse Google Maps coordinate string ──────────────────────────────────────
+// Accepts: "30.0626, 31.2497"  or  Google Maps share URLs
+function parseCoords(raw) {
+  if (!raw) return null;
+  const urlMatch = raw.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/) ||
+                   raw.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/) ||
+                   raw.match(/ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+  if (urlMatch) return { lat: parseFloat(urlMatch[1]), lng: parseFloat(urlMatch[2]) };
+  const plain = raw.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+  if (plain) return { lat: parseFloat(plain[1]), lng: parseFloat(plain[2]) };
+  return null;
+}
+
 // ── PlaceSearch component ─────────────────────────────────────────────────────
 export function PlaceSearch({ label, placeholder, icon, value, onChange }) {
   const [query,   setQuery]   = useState(value?.name || '');
@@ -89,6 +103,11 @@ export function PlaceSearch({ label, placeholder, icon, value, onChange }) {
   const [loading, setLoading] = useState(false);
   const [noRes,   setNoRes]   = useState(false);
   const [ready,   setReady]   = useState(!!geocoderReady);
+  // ── Coordinate mode ──────────────────────────────────────────────────────
+  const [coordMode,  setCoordMode]  = useState(false);
+  const [coordInput, setCoordInput] = useState('');
+  const [coordError, setCoordError] = useState('');
+  const [coordOk,    setCoordOk]    = useState(false);
   const debRef   = useRef(null);
   const inputRef = useRef(null);
   const listRef  = useRef(null);
@@ -179,45 +198,139 @@ export function PlaceSearch({ label, placeholder, icon, value, onChange }) {
     } finally { setLoading(false); }
   }
 
+  // ── Handle coordinate input ──────────────────────────────────────────────
+  async function handleCoordInput(raw) {
+    setCoordInput(raw);
+    setCoordError('');
+    setCoordOk(false);
+    onChange(null);
+    if (!raw.trim()) return;
+    const parsed = parseCoords(raw.trim());
+    if (!parsed) {
+      setCoordError('Format: 30.0626, 31.2497  or paste a Google Maps link');
+      return;
+    }
+    const { lat, lng } = parsed;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      setCoordError('Coordinates out of range');
+      return;
+    }
+    // Reverse geocode for a human-readable name
+    setLoading(true);
+    try {
+      const name = await reverseGeocode(lat, lng) || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      setCoordOk(true);
+      onChange({ lat, lng, name });
+    } catch {
+      setCoordOk(true);
+      onChange({ lat, lng, name: `${lat.toFixed(5)}, ${lng.toFixed(5)}` });
+    } finally { setLoading(false); }
+  }
+
+  function switchMode(toCoord) {
+    setCoordMode(toCoord);
+    setCoordInput(''); setCoordError(''); setCoordOk(false);
+    setQuery(''); setResults([]); setOpen(false); setNoRes(false);
+    onChange(null);
+  }
+
   function pick(item) {
     setQuery(item.name); setResults([]); setOpen(false); setNoRes(false);
     onChange({ lat: item.lat, lng: item.lng, name: item.name });
   }
 
+  const modeBtn = (active) => ({
+    background: active ? 'rgba(251,191,36,0.12)' : 'transparent',
+    color: active ? '#fbbf24' : C.text3,
+    border: '1px solid ' + (active ? 'rgba(251,191,36,0.35)' : C.border),
+    borderRadius: 5, padding: '3px 10px', fontSize: 11, cursor: 'pointer',
+    fontFamily: "'Sora',sans-serif", fontWeight: active ? 700 : 400, transition: 'all .15s',
+  });
+
   return (
     <div style={{ marginBottom: 14 }}>
-      <label style={{ display:'block', fontSize:12, color:C.text3, marginBottom:6, fontFamily:"'Sora',sans-serif" }}>
-        {icon} {label}
-      </label>
-      <div ref={inputRef} style={{ position: 'relative' }}>
-        <input
-          value={query}
-          onChange={onInput}
-          onFocus={() => { if (results.length) { measure(); setOpen(true); } }}
-          placeholder={ready ? placeholder : 'Loading map search…'}
-          disabled={false}
-          style={{
-            width: '100%', boxSizing: 'border-box', background: C.bg3,
-            border: '1px solid ' + (value ? C.greenBorder : C.border),
-            borderRadius: 8, padding: '11px 42px 11px 14px',
-            color: C.text, fontFamily: "'Sora',sans-serif", fontSize: 14, outline: 'none',
-          }}
-        />
-        {loading && (
-          <div style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)',
-            width:14, height:14, border:'2px solid '+C.border, borderTopColor:C.green,
-            borderRadius:'50%', animation:'spin .6s linear infinite' }} />
-        )}
-        {!loading && value && (
-          <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', color:C.green, fontSize:16 }}>✓</span>
-        )}
-        {!loading && !value && noRes && query.length >= 2 && (
-          <span style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', color:C.red, fontSize:10 }}>no results</span>
-        )}
+      {/* Label row with mode toggle */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+        <label style={{ fontSize:12, color:C.text3, fontFamily:"'Sora',sans-serif" }}>
+          {icon} {label}
+        </label>
+        <div style={{ display:'flex', gap:4 }}>
+          <button onClick={() => switchMode(false)} style={modeBtn(!coordMode)}>🔍 Search</button>
+          <button onClick={() => switchMode(true)}  style={modeBtn(coordMode)}>📌 Coordinates</button>
+        </div>
       </div>
 
+      {/* ── Search mode ── */}
+      {!coordMode && (
+        <div ref={inputRef} style={{ position: 'relative' }}>
+          <input
+            value={query}
+            onChange={onInput}
+            onFocus={() => { if (results.length) { measure(); setOpen(true); } }}
+            placeholder={ready ? placeholder : 'Loading map search…'}
+            style={{
+              width: '100%', boxSizing: 'border-box', background: C.bg3,
+              border: '1px solid ' + (value ? C.greenBorder : C.border),
+              borderRadius: 8, padding: '11px 42px 11px 14px',
+              color: C.text, fontFamily: "'Sora',sans-serif", fontSize: 14, outline: 'none',
+            }}
+          />
+          {loading && (
+            <div style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)',
+              width:14, height:14, border:'2px solid '+C.border, borderTopColor:C.green,
+              borderRadius:'50%', animation:'spin .6s linear infinite' }} />
+          )}
+          {!loading && value && (
+            <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', color:C.green, fontSize:16 }}>✓</span>
+          )}
+          {!loading && !value && noRes && query.length >= 2 && (
+            <span style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', color:C.red, fontSize:10 }}>no results</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Coordinate mode ── */}
+      {coordMode && (
+        <div>
+          <div style={{ position:'relative' }}>
+            <input
+              value={coordInput}
+              onChange={e => handleCoordInput(e.target.value)}
+              placeholder="30.0626, 31.2497  or paste a Google Maps link"
+              style={{
+                width: '100%', boxSizing: 'border-box', background: C.bg3,
+                border: '1px solid ' + (coordOk ? C.greenBorder : coordError ? 'rgba(248,113,113,0.5)' : C.border),
+                borderRadius: 8, padding: '11px 42px 11px 14px',
+                color: C.text, fontFamily: "'Sora',sans-serif", fontSize: 13, outline: 'none',
+              }}
+            />
+            {loading && (
+              <div style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)',
+                width:14, height:14, border:'2px solid '+C.border, borderTopColor:C.green,
+                borderRadius:'50%', animation:'spin .6s linear infinite' }} />
+            )}
+            {!loading && coordOk && (
+              <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', color:C.green, fontSize:16 }}>✓</span>
+            )}
+          </div>
+          {coordError && (
+            <div style={{ fontSize:11, color:'#f87171', marginTop:5, display:'flex', alignItems:'center', gap:4 }}>
+              <span>⚠️</span> {coordError}
+            </div>
+          )}
+          {coordOk && value && (
+            <div style={{ fontSize:11, color:C.green, marginTop:5, display:'flex', alignItems:'center', gap:4 }}>
+              <span>✅</span> <span style={{ color:C.text2 }}>{value.name}</span>
+            </div>
+          )}
+          <div style={{ fontSize:10, color:C.text3, marginTop:6 }}>
+            Tip: In Google Maps, right-click any point → copy the coordinates shown, then paste here.
+          </div>
+        </div>
+      )}
+
       {/* Dropdown — position:fixed to escape any parent overflow clipping */}
-      {open && results.length > 0 && (
+      {!coordMode && open && results.length > 0 && (
         <div ref={listRef} style={{
           position: 'fixed', top: pos.top, left: pos.left, width: pos.width,
           zIndex: 99999, background: C.bg3,

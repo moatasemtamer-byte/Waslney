@@ -81,4 +81,8 @@ export const updatePoolStops      = (tid, s)  => put(`/pool/trips/${tid}/stops`,
 export const getPoolChat          = (tid)     => get(`/pool/chat/${tid}`);
 export const sendPoolMessage      = (tid, msg)=> post(`/pool/chat/${tid}`, { message: msg });
 export const getNearbyPoolGroups  = (q)       => get(`/pool/groups/nearby?${new URLSearchParams(q)}`);
-
+// ── SAVED POINTS (admin) ──────────────────────────────────
+export const getSavedPoints   = ()      => get('/saved-points');
+export const createSavedPoint = (b)     => post('/saved-points', b);
+export const updateSavedPoint = (id, b) => put(`/saved-points/${id}`, b);
+export const deleteSavedPoint = (id)    => del(`/saved-points/${id}`);

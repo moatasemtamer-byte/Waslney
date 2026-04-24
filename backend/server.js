@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express    = require('express');
 const http       = require('http');
@@ -26,6 +27,7 @@ app.use('/api/location',      require('./routes/location'));
 app.use('/api/users',         require('./routes/users'));
 app.use('/api/geocode',        require('./routes/geocode'));
 app.use('/api/pool',           require('./routes/pool'));
+app.use('/api/saved-points', require('./routes/saved_points'));
 
 // ── SOCKET.IO REAL-TIME TRACKING ──────────────────────────
 require('./socket/tracking')(io);
