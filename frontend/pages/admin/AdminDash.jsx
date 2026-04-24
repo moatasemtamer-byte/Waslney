@@ -104,6 +104,9 @@ export default function AdminDash() {
   const [mapCenter, setMapCenter] = useState(null);     // { lat, lng, name } for create form
   const [editMapCenter, setEditMapCenter] = useState(null); // { lat, lng, name } for edit form
 
+  // ── Last searched place — shown on the Overview AdminMap ─────────────────
+  const [searchedPlace, setSearchedPlace] = useState(null); // { lat, lng, name }
+
   useEffect(() => {
     loadAll();
     loadPendingDrivers();
@@ -262,7 +265,7 @@ export default function AdminDash() {
               </div>
             )}
             <p style={sectSt}>Live driver locations</p>
-            <AdminMap height={340} />
+            <AdminMap height={340} searchedPlace={searchedPlace} />
             <p style={sectSt}>Recent trips</p>
             {loading && <Spinner />}
             {trips.slice(0,6).map(t => (
@@ -283,8 +286,8 @@ export default function AdminDash() {
           <div style={card}>
             <p style={sectSt}>New trip</p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
-              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat) { setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); setSearchedPlace({lat:c.lat,lng:c.lng,name:c.name}); } }} />
+              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat) { setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); setSearchedPlace({lat:c.lat,lng:c.lng,name:c.name}); } }} />
               <Inp label="📅 Date"             type="date"   value={form.date}         onChange={f('date')} />
               <Inp label="🕐 Pickup time"      type="time"   value={form.pickup_time}  onChange={f('pickup_time')} />
               <Inp label="🕐 Est. drop-off"    type="time"   value={form.dropoff_time} onChange={f('dropoff_time')} />
@@ -339,8 +342,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
-                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat) { setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); setSearchedPlace({lat:c.lat,lng:c.lng,name:c.name}); } }} />
+                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat) { setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); setSearchedPlace({lat:c.lat,lng:c.lng,name:c.name}); } }} />
                 <Inp label="Date"          type="date"   value={editTrip.date?.slice(0,10)}  onChange={e=>setEditTrip({...editTrip,date:e.target.value})} />
                 <Inp label="Pickup time"   type="time"   value={editTrip.pickup_time}        onChange={e=>setEditTrip({...editTrip,pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time"   value={editTrip.dropoff_time||''}   onChange={e=>setEditTrip({...editTrip,dropoff_time:e.target.value})} />

@@ -466,8 +466,9 @@ export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
 }
 
 // ── Admin overview map ────────────────────────────────────
-export function AdminMap({ height = 380 }) {
+export function AdminMap({ height = 380, searchedPlace = null }) {
   const mapRef = useRef(null); const leafletMap = useRef(null); const pins = useRef({});
+  const searchMarker = useRef(null);
   const [drivers, setDrivers] = useState([]);
 
   useEffect(() => {
@@ -501,11 +502,81 @@ export function AdminMap({ height = 380 }) {
     });
   }, [drivers]);
 
+  // ── Pan to & mark searched place ─────────────────────────────────────────
+  useEffect(() => {
+    if (!searchedPlace) return;
+    let attempts = 0;
+    const tryShow = () => {
+      attempts++;
+      if (leafletMap.current && window.L) {
+        const L = window.L;
+        const lat = parseFloat(searchedPlace.lat), lng = parseFloat(searchedPlace.lng);
+        // Remove previous search marker
+        if (searchMarker.current) {
+          try { leafletMap.current.removeLayer(searchMarker.current); } catch(_) {}
+          searchMarker.current = null;
+        }
+        // Animated fly to the searched location
+        leafletMap.current.flyTo([lat, lng], 14, { duration: 1.2 });
+        // Pulsing search pin
+        const icon = L.divIcon({
+          html: `
+            <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:4px">
+              <div style="
+                width:36px;height:36px;border-radius:50%;
+                background:linear-gradient(135deg,#f59e0b,#ef4444);
+                border:3px solid #fff;
+                box-shadow:0 0 0 0 rgba(245,158,11,0.7);
+                display:flex;align-items:center;justify-content:center;
+                font-size:18px;
+                animation:searchPulse 1.5s ease-out infinite;
+              ">📍</div>
+              <div style="
+                background:rgba(0,0,0,0.82);
+                color:#fbbf24;
+                font-size:11px;font-weight:700;
+                padding:3px 9px;border-radius:5px;
+                white-space:nowrap;
+                font-family:'Sora',sans-serif;
+                border:1px solid rgba(251,191,36,0.4);
+                max-width:160px;overflow:hidden;text-overflow:ellipsis;
+              ">${searchedPlace.name || 'Searched location'}</div>
+            </div>`,
+          iconSize: [40, 70], iconAnchor: [20, 18], className: '',
+        });
+        // Add keyframe animation if not already present
+        if (!document.getElementById('search-pulse-style')) {
+          const style = document.createElement('style');
+          style.id = 'search-pulse-style';
+          style.textContent = `@keyframes searchPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.7); }
+            70%  { box-shadow: 0 0 0 14px rgba(245,158,11,0); }
+            100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
+          }`;
+          document.head.appendChild(style);
+        }
+        searchMarker.current = L.marker([lat, lng], { icon, zIndexOffset: 1000 })
+          .addTo(leafletMap.current)
+          .bindPopup(`<b>🔍 Searched:</b><br/>${searchedPlace.name}`)
+          .openPopup();
+      } else if (attempts < 25) {
+        setTimeout(tryShow, 200);
+      }
+    };
+    tryShow();
+  }, [searchedPlace]);
+
   return (
     <div style={{ borderRadius:12, overflow:'hidden', border:'1px solid #27272a', marginBottom:20 }}>
       <div ref={mapRef} style={{ height, width:'100%', background:'#18181b' }} />
-      <div style={{ background:'#18181b', padding:'8px 14px', borderTop:'1px solid #27272a' }}>
+      <div style={{ background:'#18181b', padding:'8px 14px', borderTop:'1px solid #27272a', display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
         <span style={{ fontSize:12, color:'#a1a1aa' }}>🚐 {drivers.length} driver{drivers.length!==1?'s':''} visible · Updates every 4 seconds</span>
+        {searchedPlace && (
+          <span style={{ fontSize:12, color:'#fbbf24', display:'flex', alignItems:'center', gap:5 }}>
+            <span>📍</span>
+            <span style={{ fontWeight:600 }}>Showing:</span> {searchedPlace.name}
+          </span>
+        )}
       </div>
     </div>
   );

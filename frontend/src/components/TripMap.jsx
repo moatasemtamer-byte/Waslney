@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getTripLocation } from '../api.js';
@@ -260,7 +260,7 @@ export default function TripMap({
 }
 
 // ── StopPicker — admin clicks map to place pickup/dropoff pins ────────────────
-export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
+export const StopPicker = forwardRef(function StopPicker({ stops, onChange, height = 340 }, ref) {
   const mapRef        = useRef(null);
   const leafletMap    = useRef(null);
   const markers       = useRef([]);
@@ -269,6 +269,28 @@ export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
   const pendingCenter = useRef(null);
   const areaMarker    = useRef(null);
   const [nextType, setNextType] = useState('pickup');
+
+  // Expose panTo(loc) so parent can directly move the map
+  useImperativeHandle(ref, () => ({
+    panTo(loc) {
+      if (!loc?.lat || !loc?.lng) return;
+      const lat = parseFloat(loc.lat), lng = parseFloat(loc.lng);
+      if (isNaN(lat) || isNaN(lng)) return;
+      if (leafletMap.current) {
+        leafletMap.current.setView([lat, lng], 15);
+        // Flash a temporary yellow label marker
+        const icon = L.divIcon({
+          html: `<div style="background:#fbbf2444;border:2px solid #fbbf24;border-radius:8px;padding:5px 12px;font-size:12px;color:#fbbf24;white-space:nowrap;font-family:'Sora',sans-serif;font-weight:600;box-shadow:0 2px 12px rgba(0,0,0,.6)">📍 ${loc.name || ''}</div>`,
+          className: '', iconAnchor: [0, 0],
+        });
+        const m = L.marker([lat, lng], { icon, zIndexOffset: 9999 }).addTo(leafletMap.current);
+        setTimeout(() => { try { leafletMap.current?.removeLayer(m); } catch(_){} }, 5000);
+      } else {
+        // Map not initialised yet — queue it
+        pendingCenter.current = loc;
+      }
+    }
+  }), []);
 
   useEffect(() => { stopsRef.current = stops; }, [stops]);
   useEffect(() => { nextTypeRef.current = nextType; }, [nextType]);
@@ -287,13 +309,6 @@ export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
     setTimeout(() => { if (areaMarker.current && leafletMap.current) { try { leafletMap.current.removeLayer(areaMarker.current); } catch(_){} areaMarker.current = null; } }, 6000);
   }
 
-  // Pan map when admin picks an area from the search box
-  useEffect(() => {
-    if (!centerOn) return;
-    if (leafletMap.current) applyCenter(leafletMap.current, centerOn);
-    else pendingCenter.current = centerOn;
-  }, [centerOn]);
-
   // Init map once on mount
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return;
@@ -301,7 +316,11 @@ export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(map);
     leafletMap.current = map;
 
-    if (pendingCenter.current) { applyCenter(map, pendingCenter.current); pendingCenter.current = null; }
+    if (pendingCenter.current) {
+      const pc = pendingCenter.current; pendingCenter.current = null;
+      const lat = parseFloat(pc.lat), lng = parseFloat(pc.lng);
+      if (!isNaN(lat) && !isNaN(lng)) map.setView([lat, lng], 15);
+    }
 
     map.on('click', (e) => {
       const { lat, lng } = e.latlng;
@@ -376,7 +395,7 @@ export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
       )}
     </div>
   );
-}
+});
 
 // ── AdminMap — live driver overview ──────────────────────────────────────────
 export function AdminMap({ height = 380 }) {

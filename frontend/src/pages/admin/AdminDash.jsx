@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PlaceSearch as AreaSearch } from '../../components/LeafletSearch.jsx';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
@@ -81,6 +81,10 @@ export default function AdminDash() {
   const [editTrip, setEditTrip] = useState(null);
   const [stops,    setStops]   = useState([]);
   const [editStops, setEditStops] = useState([]);
+
+  // ── Refs to StopPicker map instances so we can pan them directly ──────────
+  const createMapRef = useRef(null); // ref passed to StopPicker in Create Trip
+  const editMapRef   = useRef(null); // ref passed to StopPicker in Edit Trip
 
   // ── Review state ──────────────────────────────────────────────────────────
   const [pendingDrivers, setPendingDrivers] = useState([]);
@@ -278,8 +282,8 @@ export default function AdminDash() {
           <div style={card}>
             <p style={sectSt}>New trip</p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>setForm({...form,from_loc:c?c.name:''})} />
-              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>setForm({...form,to_loc:c?c.name:''})} />
+              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat && createMapRef.current) createMapRef.current.panTo(c); }} />
+              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat && createMapRef.current) createMapRef.current.panTo(c); }} />
               <Inp label="📅 Date"             type="date"   value={form.date}         onChange={f('date')} />
               <Inp label="🕐 Pickup time"      type="time"   value={form.pickup_time}  onChange={f('pickup_time')} />
               <Inp label="🕐 Est. drop-off"    type="time"   value={form.dropoff_time} onChange={f('dropoff_time')} />
@@ -292,7 +296,7 @@ export default function AdminDash() {
             </Sel>
             <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
             <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to add pickup 🟢 and drop-off 🔵 points.</p>
-            <StopPicker stops={stops} onChange={setStops} height={340} />
+            <StopPicker ref={createMapRef} stops={stops} onChange={setStops} height={340} />
             <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
           </div>
         )}
@@ -334,8 +338,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>setEditTrip({...editTrip,from_loc:c?c.name:''})} />
-                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>setEditTrip({...editTrip,to_loc:c?c.name:''})} />
+                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat && editMapRef.current) editMapRef.current.panTo(c); }} />
+                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat && editMapRef.current) editMapRef.current.panTo(c); }} />
                 <Inp label="Date"          type="date"   value={editTrip.date?.slice(0,10)}  onChange={e=>setEditTrip({...editTrip,date:e.target.value})} />
                 <Inp label="Pickup time"   type="time"   value={editTrip.pickup_time}        onChange={e=>setEditTrip({...editTrip,pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time"   value={editTrip.dropoff_time||''}   onChange={e=>setEditTrip({...editTrip,dropoff_time:e.target.value})} />
@@ -345,7 +349,7 @@ export default function AdminDash() {
                 {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
               </Sel>
               <p style={{ ...sectSt, marginTop:16 }}>🗺️ Edit stops</p>
-              <StopPicker stops={editStops} onChange={setEditStops} height={300} />
+              <StopPicker ref={editMapRef} stops={editStops} onChange={setEditStops} height={300} />
               <button onClick={handleSaveEdit} style={btnPrimary}>Save changes</button>
             </div>
           </div>

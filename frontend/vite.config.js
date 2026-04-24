@@ -6,6 +6,14 @@ export default defineConfig({
   build: {
     outDir: '../backend/public',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Fixed filenames — no hash — so index.html never gets out of sync
+        entryFileNames: 'assets/app.js',
+        chunkFileNames:  'assets/app-[name].js',
+        assetFileNames:  'assets/app[extname]',
+      },
+    },
   },
   server: {
     port: 5173,
