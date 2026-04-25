@@ -1273,9 +1273,19 @@ export default function PassengerDash(){
               {selPickup&&<DetailRow label="Pickup point" val={selPickup.label||(parseFloat(selPickup.lat).toFixed(4)+', '+parseFloat(selPickup.lng).toFixed(4))} accent="#fbbf24"/>}
               <DetailRow label="Pickup time" val={selTrip.pickup_time} accent="#fbbf24"/>
               <DetailRow label="Price/seat" val={selTrip.price+' EGP'} accent="#fbbf24"/>
-              <DetailRow label="Driver" val={selTrip.driver_name}/>
-              <DetailRow label="Car" val={selTrip.driver_car}/>
-              <DetailRow label="Plate" val={selTrip.driver_plate}/>
+              {selTrip.assigned_company_name ? (
+                <>
+                  <DetailRow label="Company" val={selTrip.assigned_company_name} accent="#f5c842"/>
+                  <DetailRow label="Driver" val={selTrip.daily_driver_name || '—'}/>
+                  <DetailRow label="Vehicle" val={selTrip.daily_car_plate ? `${selTrip.daily_car_plate}${selTrip.daily_car_model ? ` · ${selTrip.daily_car_model}` : ''}` : '—'}/>
+                </>
+              ) : (
+                <>
+                  <DetailRow label="Driver" val={selTrip.driver_name}/>
+                  <DetailRow label="Car" val={selTrip.driver_car}/>
+                  <DetailRow label="Plate" val={selTrip.driver_plate}/>
+                </>
+              )}
               <div style={{display:'flex',justifyContent:'space-between',padding:'12px 0'}}><span style={{color:'#555',fontSize:13}}>Rating</span><span style={{color:'#fbbf24'}}>★ {parseFloat(selTrip.avg_rating).toFixed(1)}</span></div>
             </div>
             <div style={{...card,marginBottom:20}}>
@@ -1423,9 +1433,19 @@ export default function PassengerDash(){
               {st==='picked'&&(<div style={{padding:'14px 16px',background:'rgba(74,222,128,0.08)',border:'1px solid #4ade8033',borderRadius:12,marginBottom:16,display:'flex',alignItems:'center',gap:12}}><span style={{fontSize:24}}>✅</span><div style={{fontSize:13,fontWeight:700,color:'#4ade80'}}>You've been picked up!</div></div>)}
               <TripMap tripId={b.trip_id} stops={b.stops||[]} pickupLat={b.pickup_lat||(b.stops||[]).find(s=>s.type==='pickup')?.lat} pickupLng={b.pickup_lng||(b.stops||[]).find(s=>s.type==='pickup')?.lng} dropoffLat={b.dropoff_lat||(b.stops||[]).find(s=>s.type==='dropoff')?.lat} dropoffLng={b.dropoff_lng||(b.stops||[]).find(s=>s.type==='dropoff')?.lng} passengerLat={userLocation?.lat} passengerLng={userLocation?.lng} driverName={b.driver_name} checkinStatus={st} height={300}/>
               <div style={{...card,marginBottom:16}}>
-                <DetailRow label="Driver" val={b.driver_name}/>
-                <DetailRow label="Plate" val={b.driver_plate}/>
-                <DetailRow label="Car" val={b.driver_car}/>
+                {b.assigned_company_name ? (
+                  <>
+                    <DetailRow label="Company" val={b.assigned_company_name} accent="#f5c842"/>
+                    <DetailRow label="Driver" val={b.daily_driver_name || '—'}/>
+                    <DetailRow label="Vehicle" val={b.daily_car_plate ? `${b.daily_car_plate}${b.daily_car_model ? ` · ${b.daily_car_model}` : ''}` : '—'}/>
+                  </>
+                ) : (
+                  <>
+                    <DetailRow label="Driver" val={b.driver_name}/>
+                    <DetailRow label="Plate" val={b.driver_plate}/>
+                    <DetailRow label="Car" val={b.driver_car}/>
+                  </>
+                )}
                 <DetailRow label="Seats" val={b.seats}/>
                 <DetailRow label="Pickup time" val={b.pickup_time} accent="#fbbf24"/>
                 <div style={{display:'flex',justifyContent:'space-between',padding:'12px 0'}}><span style={{color:'#555',fontSize:13}}>Total</span><span style={{color:'#fbbf24',fontWeight:700,fontSize:16}}>{b.seats*(b.pool_price||b.price)} EGP</span></div>

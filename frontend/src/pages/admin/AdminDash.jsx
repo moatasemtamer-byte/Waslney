@@ -802,6 +802,15 @@ function AdminTendersTab({ token, onAward, notify }) {
     finally { setClosing(null); }
   }
 
+  async function handleReTender(tenderId) {
+    try {
+      await tenderApi.reTender(tenderId, {}, token);
+      notify('Re-Tender opened! ⚡', 'The trip is now open for new bids.');
+      load();
+      if (onAward) onAward();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
   const live    = tenders.filter(t => t.status === 'open');
   const awarded = tenders.filter(t => t.status === 'awarded');
 
@@ -848,7 +857,7 @@ function AdminTendersTab({ token, onAward, notify }) {
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             {awarded.map(t => (
-              <AwardedAdminCard key={t.id} tender={t} font={font} fmtEGP={fmtEGP} fmtDate={fmtDate} fmtTime={fmtTime} />
+              <AwardedAdminCard key={t.id} tender={t} font={font} fmtEGP={fmtEGP} fmtDate={fmtDate} fmtTime={fmtTime} onReTender={handleReTender} />
             ))}
           </div>
         </>
@@ -969,17 +978,39 @@ function TenderAdminCard({ tender, expanded, onToggle, onClose, closing, font, f
   );
 }
 
-function AwardedAdminCard({ tender, font, fmtEGP, fmtDate, fmtTime }) {
+function AwardedAdminCard({ tender, font, fmtEGP, fmtDate, fmtTime, onReTender }) {
   const bids = tender.bids || [];
-  const [showBids, setShowBids] = React.useState(false);
+  const [showBids,    setShowBids]    = React.useState(false);
+  const [reTendering, setReTendering] = React.useState(false);
+
+  const today     = new Date().toISOString().slice(0, 10);
+  const weekEnd   = tender.week_end   || null;
+  const weekStart = tender.week_start || null;
+  const weekOver  = weekEnd && weekEnd < today;
+  const weekActive = weekStart && weekEnd && weekStart <= today && weekEnd >= today;
+
+  async function doReTender() {
+    setReTendering(true);
+    try { await onReTender(tender.id); }
+    finally { setReTendering(false); }
+  }
 
   return (
-    <div style={{ background:C.bg2, border:'1px solid rgba(245,200,66,.22)', borderRadius:12, overflow:'hidden' }}>
+    <div style={{ background:C.bg2, border:`1px solid ${weekOver ? 'rgba(52,211,153,.28)' : 'rgba(245,200,66,.22)'}`, borderRadius:12, overflow:'hidden' }}>
       <div style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', gap:14 }}>
         <div style={{ flex:1 }}>
-          <div style={{ fontFamily:font, fontSize:10, color:'#f5c842', letterSpacing:'.08em', marginBottom:3 }}>TENDER #{tender.id} · AWARDED</div>
+          <div style={{ fontFamily:font, fontSize:10, color:'#f5c842', letterSpacing:'.08em', marginBottom:3 }}>
+            TENDER #{tender.id} · AWARDED
+            {weekActive && <span style={{ marginLeft:8, color:'#34d399' }}>● WEEK ACTIVE</span>}
+            {weekOver   && <span style={{ marginLeft:8, color:'#34d399' }}>✓ WEEK ENDED</span>}
+          </div>
           <div style={{ fontSize:14, fontWeight:700 }}>{tender.from_loc} → {tender.to_loc}</div>
           <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>{fmtDate(tender.date)} · {fmtTime(tender.pickup_time)}</div>
+          {weekStart && weekEnd && (
+            <div style={{ fontSize:11, color:C.text3, fontFamily:font, marginTop:4 }}>
+              📅 Assignment week: {weekStart} → {weekEnd}
+            </div>
+          )}
         </div>
         <div style={{ textAlign:'right' }}>
           <div style={{ fontFamily:font, fontSize:17, fontWeight:700, color:'#f5c842' }}>{fmtEGP(tender.awarded_amount)}</div>
@@ -1003,6 +1034,24 @@ function AwardedAdminCard({ tender, font, fmtEGP, fmtDate, fmtTime }) {
           </div>
         </div>
       </div>
+
+      {/* Re-tender button — only shows after week ends */}
+      {weekOver && (
+        <div style={{ margin:'0 18px 14px', background:'rgba(52,211,153,.07)', border:'1px solid rgba(52,211,153,.28)', borderRadius:10, padding:'12px 14px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div>
+            <div style={{ fontSize:12, fontWeight:700, color:'#34d399' }}>📅 Week assignment has ended</div>
+            <div style={{ fontSize:11, color:C.text3, marginTop:3 }}>You can now offer this trip for a new round of bidding.</div>
+          </div>
+          <button onClick={doReTender} disabled={reTendering} style={{
+            background: reTendering ? C.bg3 : 'rgba(52,211,153,.15)', color:'#34d399',
+            border:'1px solid rgba(52,211,153,.4)', borderRadius:8,
+            padding:'9px 16px', cursor:'pointer', fontFamily:font, fontSize:12, fontWeight:700,
+            whiteSpace:'nowrap', flexShrink:0,
+          }}>
+            {reTendering ? 'Opening…' : '⚡ Re-Tender'}
+          </button>
+        </div>
+      )}
 
       {/* Show all bids toggle */}
       {bids.length > 0 && (

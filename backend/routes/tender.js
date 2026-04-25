@@ -259,16 +259,43 @@ router.post('/tenders/:id/close', requireAuth, requireRole('admin'), async (req,
     if (!bids.length) return res.status(400).json({ error: 'No bids placed' });
 
     const winner = bids[0];
+
+    // Calculate the 7-day assignment window starting today
+    const weekStart = new Date();
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const fmt = d => d.toISOString().slice(0, 10);
+
     await db.query(
       "UPDATE tenders SET status='awarded', winner_company_id=?, awarded_amount=?, awarded_at=NOW() WHERE id=?",
       [winner.company_id, winner.amount, req.params.id]
     );
     await db.query("UPDATE trips SET status='awarded' WHERE id=?", [tenders[0].trip_id]);
 
-    const io = getIo();
-    if (io) io.emit(`tender:${req.params.id}:awarded`, { company_id: winner.company_id, company_name: winner.company_name, amount: winner.amount });
+    // Create the weekly assignment record
+    const [waResult] = await db.query(
+      'INSERT INTO trip_week_assignments (tender_id, trip_id, company_id, week_start, week_end) VALUES (?,?,?,?,?)',
+      [req.params.id, tenders[0].trip_id, winner.company_id, fmt(weekStart), fmt(weekEnd)]
+    );
+    const weekAssignmentId = waResult.insertId;
 
-    res.json({ winner_company_id: winner.company_id, winner_company_name: winner.company_name, awarded_amount: winner.amount });
+    // Link it back onto the tender for convenience
+    try {
+      await db.query('UPDATE tenders SET week_assignment_id=? WHERE id=?', [weekAssignmentId, req.params.id]);
+    } catch(_) {}
+
+    const io = getIo();
+    if (io) io.emit(`tender:${req.params.id}:awarded`, {
+      company_id: winner.company_id, company_name: winner.company_name,
+      amount: winner.amount, week_start: fmt(weekStart), week_end: fmt(weekEnd)
+    });
+
+    res.json({
+      winner_company_id: winner.company_id, winner_company_name: winner.company_name,
+      awarded_amount: winner.amount,
+      week_assignment: { id: weekAssignmentId, week_start: fmt(weekStart), week_end: fmt(weekEnd) }
+    });
   } catch(e) { console.error(e); res.status(500).json({ error:'Server error' }); }
 });
 
@@ -278,10 +305,12 @@ router.get('/admin/live-bids', requireAuth, requireRole('admin'), async (req, re
     const [tenders] = await db.query(`
       SELECT tn.*,
              t.from_loc, t.to_loc, t.date, t.pickup_time, t.total_seats,
-             wc.company_name AS winner_company_name, wc.phone AS winner_phone, wc.fleet_number AS winner_fleet
+             wc.company_name AS winner_company_name, wc.phone AS winner_phone, wc.fleet_number AS winner_fleet,
+             wa.week_start, wa.week_end
       FROM tenders tn
       LEFT JOIN trips t ON t.id = tn.trip_id
       LEFT JOIN companies wc ON wc.id = tn.winner_company_id
+      LEFT JOIN trip_week_assignments wa ON wa.tender_id = tn.id
       ORDER BY tn.ends_at DESC
     `);
 
@@ -307,52 +336,192 @@ router.get('/admin/live-bids', requireAuth, requireRole('admin'), async (req, re
 // ASSIGN DRIVER & CAR (winner company)
 // ──────────────────────────────────────────────────────────
 
-// GET /api/tender/won — tenders won by this company
+// GET /api/tender/won — tenders won by this company (with week assignment info)
 router.get('/won', companyAuth, async (req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
   const [rows] = await db.query(`
-    SELECT tn.*, t.from_loc, t.to_loc, t.date, t.pickup_time, t.total_seats,
+    SELECT tn.*,
+           t.from_loc, t.to_loc, t.date, t.pickup_time, t.total_seats,
            tn.awarded_amount,
-           cd.name AS assigned_driver_name, cc.plate AS assigned_car_plate
+           wa.id AS week_assignment_id,
+           wa.week_start, wa.week_end,
+           CASE WHEN wa.week_end >= ? AND wa.week_start <= ? THEN 1 ELSE 0 END AS week_active,
+           cd.name  AS assigned_driver_name,
+           cc.plate AS assigned_car_plate
     FROM tenders tn
-    LEFT JOIN trips t ON t.id=tn.trip_id
-    LEFT JOIN company_drivers cd ON cd.id=tn.assigned_driver_id
-    LEFT JOIN company_cars    cc ON cc.id=tn.assigned_car_id
+    LEFT JOIN trips t              ON t.id  = tn.trip_id
+    LEFT JOIN trip_week_assignments wa ON wa.tender_id = tn.id
+    LEFT JOIN company_drivers cd   ON cd.id = tn.assigned_driver_id
+    LEFT JOIN company_cars    cc   ON cc.id = tn.assigned_car_id
     WHERE tn.winner_company_id=? AND tn.status='awarded'
-    ORDER BY tn.awarded_at DESC
-  `, [req.company.id]);
+    ORDER BY wa.week_start DESC, tn.awarded_at DESC
+  `, [today, today, req.company.id]);
   res.json(rows);
 });
 
-// POST /api/tender/tenders/:id/assign — winner assigns driver + car
-router.post('/tenders/:id/assign', companyAuth, async (req, res) => {
-  const { driver_id, car_id } = req.body;
-  if (!driver_id || !car_id) return res.status(400).json({ error: 'driver_id and car_id required' });
+// GET /api/tender/won/:weekAssignmentId/daily — get all daily assignments for a week
+router.get('/won/:weekAssignmentId/daily', companyAuth, async (req, res) => {
   try {
-    const [tenders] = await db.query(
-      "SELECT * FROM tenders WHERE id=? AND winner_company_id=? AND status='awarded'",
-      [req.params.id, req.company.id]
+    // Verify this week assignment belongs to this company
+    const [wa] = await db.query(
+      'SELECT * FROM trip_week_assignments WHERE id=? AND company_id=?',
+      [req.params.weekAssignmentId, req.company.id]
     );
-    if (!tenders.length) return res.status(403).json({ error: 'Not your won tender' });
+    if (!wa.length) return res.status(403).json({ error: 'Not your assignment' });
+
+    const [rows] = await db.query(`
+      SELECT da.*, cd.name AS driver_name, cd.phone AS driver_phone,
+             cc.plate AS car_plate, cc.model AS car_model
+      FROM trip_daily_assignments da
+      LEFT JOIN company_drivers cd ON cd.id = da.driver_id
+      LEFT JOIN company_cars    cc ON cc.id = da.car_id
+      WHERE da.week_assignment_id=?
+      ORDER BY da.assignment_date ASC
+    `, [req.params.weekAssignmentId]);
+    res.json({ week: wa[0], daily: rows });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST /api/tender/won/:weekAssignmentId/daily — set or update driver/car for a specific date
+router.post('/won/:weekAssignmentId/daily', companyAuth, async (req, res) => {
+  const { driver_id, car_id, assignment_date } = req.body;
+  if (!driver_id || !car_id || !assignment_date)
+    return res.status(400).json({ error: 'driver_id, car_id, and assignment_date required' });
+
+  try {
+    // Verify this week assignment belongs to this company
+    const [wa] = await db.query(
+      'SELECT * FROM trip_week_assignments WHERE id=? AND company_id=?',
+      [req.params.weekAssignmentId, req.company.id]
+    );
+    if (!wa.length) return res.status(403).json({ error: 'Not your assignment' });
+
+    // Check the date is within the week window
+    const d = new Date(assignment_date);
+    const wStart = new Date(wa[0].week_start);
+    const wEnd   = new Date(wa[0].week_end);
+    wEnd.setHours(23, 59, 59);
+    if (d < wStart || d > wEnd)
+      return res.status(400).json({ error: `Date must be within ${wa[0].week_start} – ${wa[0].week_end}` });
 
     // Verify driver/car belong to company
-    const [drivers] = await db.query('SELECT id FROM company_drivers WHERE id=? AND company_id=?', [driver_id, req.company.id]);
-    const [cars]    = await db.query('SELECT id,plate FROM company_cars WHERE id=? AND company_id=?', [car_id, req.company.id]);
+    const [drivers] = await db.query('SELECT id,name FROM company_drivers WHERE id=? AND company_id=?', [driver_id, req.company.id]);
+    const [cars]    = await db.query('SELECT id,plate,model FROM company_cars WHERE id=? AND company_id=?', [car_id, req.company.id]);
     if (!drivers.length || !cars.length) return res.status(403).json({ error: 'Driver or car not in your fleet' });
 
-    await db.query(
-      'UPDATE tenders SET assigned_driver_id=?, assigned_car_id=? WHERE id=?',
-      [driver_id, car_id, req.params.id]
-    );
-    await db.query(
-      "UPDATE trips SET status='assigned', driver_car=? WHERE id=?",
-      [cars[0].plate, tenders[0].trip_id]
-    );
+    // Upsert daily assignment
+    await db.query(`
+      INSERT INTO trip_daily_assignments (week_assignment_id, trip_id, company_id, assignment_date, driver_id, car_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE driver_id=VALUES(driver_id), car_id=VALUES(car_id), updated_at=NOW()
+    `, [req.params.weekAssignmentId, wa[0].trip_id, req.company.id, assignment_date, driver_id, car_id]);
+
+    // Also update the tenders table with today's assignment if it's for today
+    const today = new Date().toISOString().slice(0, 10);
+    if (assignment_date === today) {
+      await db.query(
+        'UPDATE tenders SET assigned_driver_id=?, assigned_car_id=? WHERE id=?',
+        [driver_id, car_id, wa[0].tender_id]
+      );
+      await db.query(
+        "UPDATE trips SET status='assigned', driver_car=? WHERE id=?",
+        [cars[0].plate, wa[0].trip_id]
+      );
+    }
 
     const io = getIo();
-    if (io) io.emit('tender:assigned', { tender_id: req.params.id, trip_id: tenders[0].trip_id });
+    if (io) io.emit('tender:daily_assigned', {
+      trip_id: wa[0].trip_id,
+      assignment_date,
+      driver_name: drivers[0].name,
+      car_plate: cars[0].plate
+    });
 
-    res.json({ ok: true });
-  } catch(e) { console.error(e); res.status(500).json({ error:'Server error' }); }
+    res.json({
+      ok: true,
+      driver_name: drivers[0].name,
+      car_plate: cars[0].plate,
+      car_model: cars[0].model
+    });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST /api/tender/tenders/:id/re-tender — admin re-opens a trip for bidding after week ends
+router.post('/tenders/:id/re-tender', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const [tenders] = await db.query('SELECT * FROM tenders WHERE id=?', [req.params.id]);
+    if (!tenders.length) return res.status(404).json({ error: 'Not found' });
+
+    // Check the week has ended
+    const [wa] = await db.query('SELECT * FROM trip_week_assignments WHERE tender_id=?', [req.params.id]);
+    if (wa.length) {
+      const weekEnd = new Date(wa[0].week_end);
+      weekEnd.setHours(23, 59, 59);
+      if (new Date() <= weekEnd) {
+        return res.status(400).json({
+          error: `Week assignment is still active until ${wa[0].week_end}. Cannot re-tender yet.`
+        });
+      }
+    }
+
+    const { duration_minutes = 60, description } = req.body;
+    const ends_at = new Date(Date.now() + duration_minutes * 60 * 1000);
+
+    // Create a new tender for the same trip
+    const [r] = await db.query(
+      'INSERT INTO tenders (trip_id, ends_at, status, description) VALUES (?,?,?,?)',
+      [tenders[0].trip_id, ends_at, 'open', description || null]
+    );
+    await db.query("UPDATE trips SET status='tendered' WHERE id=?", [tenders[0].trip_id]);
+    const [newTender] = await db.query('SELECT * FROM tenders WHERE id=?', [r.insertId]);
+
+    const io = getIo();
+    if (io) io.emit('tender:new', newTender[0]);
+
+    res.status(201).json(newTender[0]);
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// GET /api/tender/trip/:tripId/current-assignment — used by passenger/trip view to show company+driver+car
+router.get('/trip/:tripId/current-assignment', async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    // Find an active week assignment for this trip
+    const [wa] = await db.query(`
+      SELECT wa.*, c.company_name, c.phone AS company_phone, c.fleet_number
+      FROM trip_week_assignments wa
+      JOIN companies c ON c.id = wa.company_id
+      WHERE wa.trip_id=? AND wa.week_start <= ? AND wa.week_end >= ?
+      ORDER BY wa.created_at DESC LIMIT 1
+    `, [req.params.tripId, today, today]);
+
+    if (!wa.length) return res.json({ assigned: false });
+
+    // Find today's specific driver/car assignment
+    const [daily] = await db.query(`
+      SELECT da.*, cd.name AS driver_name, cd.phone AS driver_phone,
+             cc.plate AS car_plate, cc.model AS car_model
+      FROM trip_daily_assignments da
+      LEFT JOIN company_drivers cd ON cd.id = da.driver_id
+      LEFT JOIN company_cars    cc ON cc.id = da.car_id
+      WHERE da.week_assignment_id=? AND da.assignment_date=?
+    `, [wa[0].id, today]);
+
+    res.json({
+      assigned: true,
+      company_name: wa[0].company_name,
+      company_phone: wa[0].company_phone,
+      fleet_number: wa[0].fleet_number,
+      week_start: wa[0].week_start,
+      week_end: wa[0].week_end,
+      today_driver: daily.length ? {
+        name: daily[0].driver_name,
+        phone: daily[0].driver_phone,
+        car_plate: daily[0].car_plate,
+        car_model: daily[0].car_model,
+      } : null,
+    });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 module.exports = router;

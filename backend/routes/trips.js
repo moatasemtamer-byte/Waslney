@@ -10,6 +10,7 @@ function getIo() {
 // GET /api/trips
 router.get('/', requireAuth, async (req, res) => {
   try {
+    const today = new Date().toISOString().slice(0, 10);
     const [trips] = await db.query(`
       SELECT t.*,
              u.name  AS driver_name,
@@ -17,14 +18,30 @@ router.get('/', requireAuth, async (req, res) => {
              u.plate AS driver_plate,
              COALESCE(AVG(r.stars),0) AS avg_rating,
              COUNT(DISTINCT r.id) AS rating_count,
-             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status='confirmed') AS booked_seats
+             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status='confirmed') AS booked_seats,
+             wa.id   AS week_assignment_id,
+             wa.week_start, wa.week_end,
+             wc.company_name AS assigned_company_name,
+             wc.phone        AS assigned_company_phone,
+             da.driver_id    AS daily_driver_id,
+             cd.name         AS daily_driver_name,
+             da.car_id       AS daily_car_id,
+             cc.plate        AS daily_car_plate,
+             cc.model        AS daily_car_model
       FROM trips t
-      LEFT JOIN users   u ON u.id = t.driver_id
-      LEFT JOIN ratings r ON r.driver_id = t.driver_id
-      WHERE t.status IN ('upcoming','active')
+      LEFT JOIN users   u  ON u.id = t.driver_id
+      LEFT JOIN ratings r  ON r.driver_id = t.driver_id
+      LEFT JOIN trip_week_assignments wa
+             ON wa.trip_id = t.id AND wa.week_start <= ? AND wa.week_end >= ?
+      LEFT JOIN companies wc ON wc.id = wa.company_id
+      LEFT JOIN trip_daily_assignments da
+             ON da.week_assignment_id = wa.id AND da.assignment_date = ?
+      LEFT JOIN company_drivers cd ON cd.id = da.driver_id
+      LEFT JOIN company_cars    cc ON cc.id = da.car_id
+      WHERE t.status IN ('upcoming','active','tendered','awarded','assigned')
       GROUP BY t.id
       ORDER BY t.date ASC, t.pickup_time ASC
-    `);
+    `, [today, today, today]);
     // Attach stops to each trip
     for (const trip of trips) {
       const [stops] = await db.query(
@@ -64,14 +81,31 @@ router.get('/driver', requireAuth, requireRole('driver'), async (req, res) => {
 // GET /api/trips/:id
 router.get('/:id', requireAuth, async (req, res) => {
   try {
+    const today = new Date().toISOString().slice(0, 10);
     const [trips] = await db.query(`
       SELECT t.*, u.name AS driver_name, u.car AS driver_car, u.plate AS driver_plate,
-             COALESCE(AVG(r.stars),0) AS avg_rating
+             COALESCE(AVG(r.stars),0) AS avg_rating,
+             wa.id   AS week_assignment_id,
+             wa.week_start, wa.week_end,
+             wc.company_name AS assigned_company_name,
+             wc.phone        AS assigned_company_phone,
+             da.driver_id    AS daily_driver_id,
+             cd.name         AS daily_driver_name,
+             da.car_id       AS daily_car_id,
+             cc.plate        AS daily_car_plate,
+             cc.model        AS daily_car_model
       FROM trips t
       LEFT JOIN users u ON u.id=t.driver_id
       LEFT JOIN ratings r ON r.driver_id=t.driver_id
+      LEFT JOIN trip_week_assignments wa
+             ON wa.trip_id = t.id AND wa.week_start <= ? AND wa.week_end >= ?
+      LEFT JOIN companies wc ON wc.id = wa.company_id
+      LEFT JOIN trip_daily_assignments da
+             ON da.week_assignment_id = wa.id AND da.assignment_date = ?
+      LEFT JOIN company_drivers cd ON cd.id = da.driver_id
+      LEFT JOIN company_cars    cc ON cc.id = da.car_id
       WHERE t.id=? GROUP BY t.id
-    `, [req.params.id]);
+    `, [today, today, today, req.params.id]);
     if (!trips.length) return res.status(404).json({ error: 'Trip not found' });
 
     const [bookings] = await db.query(`

@@ -40,8 +40,18 @@ export const placeBid = (tenderId, amount, token) =>
   request('POST', `/tenders/${tenderId}/bid`, { amount }, token);
 
 // ── Won tenders / assign ──────────────────────────────────
-export const getWonTenders = (token)                        => request('GET',  '/won', null, token);
-export const assignDriverCar = (tenderId, body, token)      => request('POST', `/tenders/${tenderId}/assign`, body, token);
+export const getWonTenders       = (token)                        => request('GET',  '/won', null, token);
+export const assignDriverCar     = (tenderId, body, token)        => request('POST', `/tenders/${tenderId}/assign`, body, token);
+
+// ── Weekly daily assignments ──────────────────────────────
+export const getDailyAssignments = (weekAssignmentId, token)      => request('GET',  `/won/${weekAssignmentId}/daily`, null, token);
+export const setDailyAssignment  = (weekAssignmentId, body, token)=> request('POST', `/won/${weekAssignmentId}/daily`, body, token);
+
+// ── Re-tender after week ends ─────────────────────────────
+export const reTender = (tenderId, body, tok) => request('POST', `/tenders/${tenderId}/re-tender`, body, tok);
+
+// ── Current assignment for a trip (public-ish, used by passengers) ────────
+export const getTripAssignment = (tripId) => request('GET', `/trip/${tripId}/current-assignment`);
 
 // ── Admin live bids ───────────────────────────────────────
 export const getAdminLiveBids = (token) => request('GET', '/admin/live-bids', null, token);

@@ -138,6 +138,52 @@ module.exports = async function runMigrations() {
       await db.query(`ALTER TABLE trips MODIFY COLUMN status ENUM('upcoming','active','completed','cancelled','tendered','awarded','assigned') DEFAULT 'upcoming'`);
     } catch(_) {}
 
+    // 9. Weekly trip assignments — links a tender win to a 7-day assignment window
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS trip_week_assignments (
+        id                 INT AUTO_INCREMENT PRIMARY KEY,
+        tender_id          INT NOT NULL,
+        trip_id            INT NOT NULL,
+        company_id         INT NOT NULL,
+        week_start         DATE NOT NULL,
+        week_end           DATE NOT NULL,
+        created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (tender_id)  REFERENCES tenders(id)  ON DELETE CASCADE,
+        FOREIGN KEY (trip_id)    REFERENCES trips(id)    ON DELETE CASCADE,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 10. Daily driver/car overrides — company can swap driver/car each day within the week
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS trip_daily_assignments (
+        id                 INT AUTO_INCREMENT PRIMARY KEY,
+        week_assignment_id INT NOT NULL,
+        trip_id            INT NOT NULL,
+        company_id         INT NOT NULL,
+        assignment_date    DATE NOT NULL,
+        driver_id          INT,
+        car_id             INT,
+        updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_trip_date (trip_id, assignment_date),
+        FOREIGN KEY (week_assignment_id) REFERENCES trip_week_assignments(id) ON DELETE CASCADE,
+        FOREIGN KEY (driver_id) REFERENCES company_drivers(id) ON DELETE SET NULL,
+        FOREIGN KEY (car_id)    REFERENCES company_cars(id)    ON DELETE SET NULL
+      )
+    `);
+
+    // Add week_assignment_id to tenders if missing
+    try {
+      const [cols] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tenders' AND COLUMN_NAME = 'week_assignment_id'`
+      );
+      if (!cols[0].cnt) {
+        await db.query(`ALTER TABLE tenders ADD COLUMN week_assignment_id INT DEFAULT NULL`);
+        console.log('✅  Added week_assignment_id to tenders');
+      }
+    } catch(e) { console.warn('⚠️  Could not add week_assignment_id:', e.message); }
+
     // Add phone column to companies if missing — compatible with older MySQL
     try {
       // Check if column already exists first

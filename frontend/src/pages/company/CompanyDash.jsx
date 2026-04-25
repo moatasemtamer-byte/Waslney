@@ -656,99 +656,247 @@ function FleetTab({ token }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// WON TAB — Won tenders + assign driver/car
+// WON TAB — Won tenders + weekly assignment + daily driver/car swap
 // ────────────────────────────────────────────────────────────────────────────
 function WonTab({ token, company }) {
-  const [won,     setWon]     = useState([]);
-  const [drivers, setDrivers] = useState([]);
-  const [cars,    setCars]    = useState([]);
-  const [assigning, setAssigning] = useState(null); // tender id being assigned
-  const [aForm,   setAForm]   = useState({ driver_id:'', car_id:'' });
-  const [aErr,    setAErr]    = useState('');
-  const [aBusy,   setABusy]   = useState(false);
+  const [won,       setWon]       = useState([]);
+  const [drivers,   setDrivers]   = useState([]);
+  const [cars,      setCars]      = useState([]);
+  const [expanded,  setExpanded]  = useState(null); // week_assignment_id currently open
+  const [dailyData, setDailyData] = useState({});    // { [weekAssignmentId]: { week, daily: [] } }
+  const [dayForms,  setDayForms]  = useState({});    // { [weekAssignmentId+date]: { driver_id, car_id } }
+  const [saving,    setSaving]    = useState({});    // { [weekAssignmentId+date]: bool }
+  const [saveMsg,   setSaveMsg]   = useState({});    // { [weekAssignmentId+date]: string }
+  const [loading,   setLoading]   = useState(true);
 
   useEffect(() => {
-    api.getWonTenders(token).then(setWon).catch(() => {});
-    api.getCompanyDrivers(token).then(setDrivers).catch(() => {});
-    api.getCompanyCars(token).then(setCars).catch(() => {});
+    Promise.all([
+      api.getWonTenders(token).then(setWon),
+      api.getCompanyDrivers(token).then(setDrivers),
+      api.getCompanyCars(token).then(setCars),
+    ]).finally(() => setLoading(false));
   }, [token]);
 
-  async function assign(tenderId) {
-    if (!aForm.driver_id || !aForm.car_id) { setAErr('Select both driver and vehicle'); return; }
-    setABusy(true); setAErr('');
-    try {
-      await api.assignDriverCar(tenderId, aForm, token);
-      setWon(prev => prev.map(t => t.id === tenderId ? {
-        ...t,
-        assigned_driver_name: drivers.find(d => d.id == aForm.driver_id)?.name,
-        assigned_car_plate:   cars.find(c => c.id == aForm.car_id)?.plate,
-      } : t));
-      setAssigning(null);
-      setAForm({ driver_id:'', car_id:'' });
-    } catch(e) { setAErr(e.message); } finally { setABusy(false); }
+  async function expandWeek(waId) {
+    if (expanded === waId) { setExpanded(null); return; }
+    setExpanded(waId);
+    if (!dailyData[waId]) {
+      try {
+        const data = await api.getDailyAssignments(waId, token);
+        setDailyData(prev => ({ ...prev, [waId]: data }));
+      } catch(e) { console.error(e); }
+    }
   }
+
+  async function saveDay(waId, date, wa) {
+    const key = `${waId}_${date}`;
+    const form = dayForms[key] || {};
+    if (!form.driver_id || !form.car_id) {
+      setSaveMsg(prev => ({ ...prev, [key]: '⚠ Select both driver and vehicle' }));
+      return;
+    }
+    setSaving(prev => ({ ...prev, [key]: true }));
+    setSaveMsg(prev => ({ ...prev, [key]: '' }));
+    try {
+      const res = await api.setDailyAssignment(waId, { driver_id: form.driver_id, car_id: form.car_id, assignment_date: date }, token);
+      // Update local dailyData
+      setDailyData(prev => {
+        const existing = prev[waId] || { week: wa, daily: [] };
+        const filtered = existing.daily.filter(d => d.assignment_date !== date);
+        return {
+          ...prev,
+          [waId]: {
+            ...existing,
+            daily: [...filtered, {
+              assignment_date: date,
+              driver_name: res.driver_name,
+              car_plate: res.car_plate,
+              car_model: res.car_model,
+            }].sort((a,b) => a.assignment_date < b.assignment_date ? -1 : 1)
+          }
+        };
+      });
+      setSaveMsg(prev => ({ ...prev, [key]: `✓ ${res.driver_name} / ${res.car_plate} saved` }));
+      setTimeout(() => setSaveMsg(prev => ({ ...prev, [key]: '' })), 3000);
+    } catch(e) {
+      setSaveMsg(prev => ({ ...prev, [key]: `⚠ ${e.message}` }));
+    } finally {
+      setSaving(prev => ({ ...prev, [key]: false }));
+    }
+  }
+
+  // Build an array of 7 dates for a week assignment
+  function weekDates(wa) {
+    const dates = [];
+    const d = new Date(wa.week_start);
+    for (let i = 0; i < 7; i++) {
+      dates.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+    return dates;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (loading) return <LoadingState label="Loading won tenders…" />;
 
   return (
     <div>
       <SectionHeader icon="🏆" label="Won Tenders" count={won.length} />
       {won.length === 0 && <EmptyState icon="🏁" label="No won tenders yet" sub="Win a bid to see your assigned trips here." />}
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-        {won.map(t => (
-          <div key={t.id} style={{ background:C.bg2, border:`1px solid ${t.assigned_driver_name ? C.greenBorder : C.goldBorder}`, borderRadius:14, overflow:'hidden' }}>
-            <div style={{ padding:'16px 20px', display:'flex', alignItems:'center', gap:16 }}>
-              <div style={{ flex:1 }}>
-                <div style={{ fontFamily:font, fontSize:10, color:C.gold, letterSpacing:'.08em', marginBottom:4 }}>TENDER #{t.id} · WON</div>
-                <div style={{ fontSize:15, fontWeight:700 }}>{t.from_loc} → {t.to_loc}</div>
-                <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>{fmtDate(t.date)} · {fmtTime(t.pickup_time)} · {t.total_seats} seats</div>
-              </div>
-              <div style={{ textAlign:'right' }}>
-                <div style={{ fontFamily:font, fontSize:18, fontWeight:700, color:C.gold }}>{fmtEGP(t.awarded_amount)}</div>
-                <div style={{ fontSize:10, color:C.text3, fontFamily:font }}>winning bid</div>
-              </div>
-            </div>
+        {won.map(t => {
+          const waId = t.week_assignment_id;
+          const isActive = t.week_active === 1 || t.week_active === true;
+          const weekOver = t.week_end && t.week_end < today;
+          const data = dailyData[waId];
 
-            {/* Assignment status */}
-            {t.assigned_driver_name ? (
-              <div style={{ borderTop:`1px solid ${C.border}`, background:C.greenDim, padding:'10px 20px', display:'flex', gap:24 }}>
-                <span style={{ fontSize:12, color:C.green }}>✓ Driver: <strong>{t.assigned_driver_name}</strong></span>
-                <span style={{ fontSize:12, color:C.green }}>✓ Vehicle: <strong style={{fontFamily:font}}>{t.assigned_car_plate}</strong></span>
-              </div>
-            ) : assigning === t.id ? (
-              <div style={{ borderTop:`1px solid ${C.border}`, padding:'14px 20px', background:C.bg3 }}>
-                <div style={{ fontFamily:font, fontSize:10, color:C.text3, letterSpacing:'.1em', marginBottom:10 }}>ASSIGN DRIVER & VEHICLE</div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-                  <select value={aForm.driver_id} onChange={e => setAForm({...aForm,driver_id:e.target.value})} style={selectStyle}>
-                    <option value="">Select driver…</option>
-                    {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                  <select value={aForm.car_id} onChange={e => setAForm({...aForm,car_id:e.target.value})} style={selectStyle}>
-                    <option value="">Select vehicle…</option>
-                    {cars.map(c => <option key={c.id} value={c.id}>{c.plate} {c.model ? `· ${c.model}` : ''}</option>)}
-                  </select>
+          return (
+            <div key={t.id} style={{
+              background: C.bg2,
+              border: `1px solid ${isActive ? C.goldBorder : weekOver ? C.border : C.greenBorder}`,
+              borderRadius: 14, overflow: 'hidden',
+            }}>
+              {/* Header row */}
+              <div style={{ padding:'16px 20px', display:'flex', alignItems:'center', gap:16 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:font, fontSize:10, color:C.gold, letterSpacing:'.08em', marginBottom:4 }}>
+                    TENDER #{t.id} · WON
+                    {isActive && <span style={{ marginLeft:8, color:C.green }}>● WEEK ACTIVE</span>}
+                    {weekOver && <span style={{ marginLeft:8, color:C.text3 }}>✓ WEEK ENDED</span>}
+                  </div>
+                  <div style={{ fontSize:15, fontWeight:700 }}>{t.from_loc} → {t.to_loc}</div>
+                  <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>{fmtDate(t.date)} · {fmtTime(t.pickup_time)} · {t.total_seats} seats</div>
+                  {waId && (
+                    <div style={{ fontSize:11, color:C.text3, fontFamily:font, marginTop:4 }}>
+                      Week: {t.week_start} → {t.week_end}
+                    </div>
+                  )}
                 </div>
-                {aErr && <div style={{ fontSize:11, color:C.red, marginBottom:8 }}>⚠ {aErr}</div>}
-                <div style={{ display:'flex', gap:8 }}>
-                  <button onClick={() => assign(t.id)} disabled={aBusy} style={{ ...addBtnStyle, flex:1 }}>
-                    {aBusy ? 'Saving…' : '✓ Confirm Assignment'}
-                  </button>
-                  <button onClick={() => { setAssigning(null); setAErr(''); }} style={{ background:'transparent', color:C.text2, border:`1px solid ${C.border}`, borderRadius:8, padding:'8px 14px', cursor:'pointer', fontFamily:font, fontSize:12 }}>
-                    Cancel
-                  </button>
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ fontFamily:font, fontSize:18, fontWeight:700, color:C.gold }}>{fmtEGP(t.awarded_amount)}</div>
+                  <div style={{ fontSize:10, color:C.text3, fontFamily:font }}>winning bid</div>
                 </div>
               </div>
-            ) : (
-              <div style={{ borderTop:`1px solid ${C.border}`, padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <span style={{ fontSize:12, color:C.red }}>⚠ Driver & vehicle not assigned yet</span>
-                <button onClick={() => { setAssigning(t.id); setAForm({ driver_id:'', car_id:'' }); setAErr(''); }} style={{
-                  background:C.goldDim, color:C.gold, border:`1px solid ${C.goldBorder}`,
-                  borderRadius:8, padding:'8px 16px', cursor:'pointer', fontFamily:font, fontSize:12, fontWeight:600,
-                }}>
-                  Assign Now →
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+
+              {/* Expand: daily schedule */}
+              {waId && isActive && (
+                <>
+                  <div style={{ borderTop:`1px solid ${C.border}`, padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <span style={{ fontSize:12, color:C.text2 }}>
+                      {isActive ? '📅 Manage daily driver & vehicle assignments' : 'View weekly schedule'}
+                    </span>
+                    <button onClick={() => expandWeek(waId)} style={{
+                      background: C.goldDim, color: C.gold, border:`1px solid ${C.goldBorder}`,
+                      borderRadius:8, padding:'7px 16px', cursor:'pointer', fontFamily:font, fontSize:12, fontWeight:600,
+                    }}>
+                      {expanded === waId ? '▲ Collapse' : '▼ Expand Week'}
+                    </button>
+                  </div>
+
+                  {expanded === waId && (
+                    <div style={{ borderTop:`1px solid ${C.border}`, padding:'20px', background:C.bg3 }}>
+                      <div style={{ fontFamily:font, fontSize:10, color:C.text3, letterSpacing:'.1em', marginBottom:16 }}>
+                        DAILY DRIVER & VEHICLE SCHEDULE — {t.week_start} TO {t.week_end}
+                      </div>
+
+                      {!data ? (
+                        <div style={{ textAlign:'center', color:C.text3, fontFamily:font, fontSize:12 }}>Loading…</div>
+                      ) : (
+                        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                          {weekDates({ week_start: t.week_start, week_end: t.week_end }).map(date => {
+                            const key = `${waId}_${date}`;
+                            const existingDay = data.daily.find(d => d.assignment_date && d.assignment_date.slice(0,10) === date);
+                            const form = dayForms[key] || { driver_id: existingDay?.driver_id || '', car_id: existingDay?.car_id || '' };
+                            const isToday = date === today;
+                            const isPast  = date < today;
+                            const isFuture = date > today;
+
+                            return (
+                              <div key={date} style={{
+                                background: isToday ? C.goldDim : C.bg4,
+                                border:`1px solid ${isToday ? C.goldBorder : C.border}`,
+                                borderRadius:10, padding:'12px 14px',
+                              }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom: existingDay ? 8 : 0 }}>
+                                  <div style={{ minWidth:90, fontFamily:font, fontSize:11, fontWeight:700,
+                                    color: isToday ? C.gold : isPast ? C.text3 : C.text }}>
+                                    {isToday ? '▶ TODAY' : new Date(date+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'})}
+                                  </div>
+                                  {existingDay?.driver_name ? (
+                                    <div style={{ flex:1, fontSize:12 }}>
+                                      <span style={{ color:C.green }}>✓</span>
+                                      {' '}<strong>{existingDay.driver_name}</strong>
+                                      {' · '}
+                                      <span style={{ fontFamily:font }}>{existingDay.car_plate}</span>
+                                      {existingDay.car_model ? ` (${existingDay.car_model})` : ''}
+                                    </div>
+                                  ) : (
+                                    <div style={{ flex:1, fontSize:12, color: isToday ? C.red : C.text3 }}>
+                                      {isToday ? '⚠ Not assigned yet' : isFuture ? '— Not set yet' : '— Unassigned'}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Assignment form — only for today and future */}
+                                {!isPast && (
+                                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, marginTop:8, alignItems:'center' }}>
+                                    <select
+                                      value={form.driver_id}
+                                      onChange={e => setDayForms(prev => ({ ...prev, [key]: { ...(prev[key]||{}), driver_id: e.target.value }}))}
+                                      style={selectStyle}
+                                    >
+                                      <option value="">Select driver…</option>
+                                      {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                    </select>
+                                    <select
+                                      value={form.car_id}
+                                      onChange={e => setDayForms(prev => ({ ...prev, [key]: { ...(prev[key]||{}), car_id: e.target.value }}))}
+                                      style={selectStyle}
+                                    >
+                                      <option value="">Select vehicle…</option>
+                                      {cars.map(c => <option key={c.id} value={c.id}>{c.plate}{c.model ? ` · ${c.model}` : ''}</option>)}
+                                    </select>
+                                    <button
+                                      onClick={() => saveDay(waId, date, { week_start: t.week_start, week_end: t.week_end })}
+                                      disabled={saving[key]}
+                                      style={{
+                                        background: saving[key] ? C.bg3 : C.goldDim,
+                                        color: C.gold, border:`1px solid ${C.goldBorder}`,
+                                        borderRadius:8, padding:'8px 14px', cursor:'pointer',
+                                        fontFamily:font, fontSize:11, fontWeight:700, whiteSpace:'nowrap',
+                                      }}
+                                    >
+                                      {saving[key] ? 'Saving…' : existingDay?.driver_name ? '↻ Update' : '✓ Set'}
+                                    </button>
+                                  </div>
+                                )}
+                                {saveMsg[key] && (
+                                  <div style={{ fontSize:11, marginTop:6, color: saveMsg[key].startsWith('✓') ? C.green : C.red }}>
+                                    {saveMsg[key]}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Week ended notice */}
+              {weekOver && (
+                <div style={{ borderTop:`1px solid ${C.border}`, padding:'10px 20px', background:C.bg3 }}>
+                  <span style={{ fontSize:12, color:C.text3, fontFamily:font }}>
+                    ✓ Week ended {t.week_end}. Admin may re-open this trip for bidding.
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
