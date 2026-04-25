@@ -1,10 +1,11 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { getMe } from './api.js';
 import { connectSocket } from './socket.js';
-import Landing    from './pages/Landing.jsx';
+import Landing      from './pages/Landing.jsx';
 import PassengerDash from './pages/passenger/PassengerDash.jsx';
 import DriverDash    from './pages/driver/DriverDash.jsx';
 import AdminDash     from './pages/admin/AdminDash.jsx';
+import CompanyDash   from './pages/company/CompanyDash.jsx';
 import Toast         from './components/Toast.jsx';
 
 export const AuthContext = createContext(null);
@@ -14,6 +15,10 @@ export default function App() {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast,   setToast]   = useState(null);
+  // Company portal is a separate auth flow — tracked in sessionStorage
+  const [isCompanyPortal, setIsCompanyPortal] = useState(
+    () => sessionStorage.getItem('waslney_portal') === 'company'
+  );
 
   const notify = useCallback((title, body, type = 'default') => {
     setToast({ title, body, type });
@@ -26,7 +31,6 @@ export default function App() {
     if (!token) { setLoading(false); return; }
     getMe()
       .then(data => {
-        // getMe returns { user: {...} } — unwrap it
         const u = data.user || data;
         setUser(u);
         connectSocket(u.id, u.role);
@@ -46,6 +50,16 @@ export default function App() {
     setUser(null);
   };
 
+  function enterCompanyPortal() {
+    sessionStorage.setItem('waslney_portal', 'company');
+    setIsCompanyPortal(true);
+  }
+
+  function exitCompanyPortal() {
+    sessionStorage.removeItem('waslney_portal');
+    setIsCompanyPortal(false);
+  }
+
   if (loading) return (
     <div style={{ minHeight:'100vh', background:'#000', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:16 }}>
       <div style={{ fontSize:36 }}>🚐</div>
@@ -55,10 +69,22 @@ export default function App() {
     </div>
   );
 
+  // Company portal — separate auth flow, uses its own company_token
+  if (isCompanyPortal && !user) {
+    return (
+      <AuthContext.Provider value={{ user, login, logout, notify }}>
+        <div style={{ minHeight:'100vh', background:'#000', color:'#fff', fontFamily:"'Sora',sans-serif" }}>
+          <CompanyDash onExitPortal={exitCompanyPortal} />
+          <Toast msg={toast} />
+        </div>
+      </AuthContext.Provider>
+    );
+  }
+
   return (
     <AuthContext.Provider value={{ user, login, logout, notify }}>
       <div style={{ minHeight:'100vh', background:'#000', color:'#fff', fontFamily:"'Sora',sans-serif" }}>
-        {!user                       && <Landing />}
+        {!user                       && <Landing onEnterCompanyPortal={enterCompanyPortal} />}
         {user?.role === 'passenger'  && <PassengerDash />}
         {user?.role === 'driver'     && <DriverDash />}
         {user?.role === 'admin'      && <AdminDash />}

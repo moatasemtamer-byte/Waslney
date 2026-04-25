@@ -95,8 +95,8 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // POST /api/trips — admin creates trip with stops
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
-  const { from_loc, to_loc, pickup_time, dropoff_time, date, price, total_seats, driver_id, stops } = req.body;
-  if (!from_loc||!to_loc||!pickup_time||!date||!price||!driver_id)
+  const { from_loc, to_loc, pickup_time, dropoff_time, date, price, total_seats, driver_id, stops, offer_tender } = req.body;
+  if (!from_loc||!to_loc||!pickup_time||!date||!price||(!driver_id && !offer_tender))
     return res.status(400).json({ error: 'Missing required fields' });
   try {
     // Get coords from first pickup and last dropoff stop if provided
@@ -125,8 +125,10 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
       }
     }
 
-    await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
-      [driver_id, `New trip assigned: ${from_loc} → ${to_loc} on ${date}`]);
+    if (driver_id) {
+      await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
+        [driver_id, `New trip assigned: ${from_loc} → ${to_loc} on ${date}`]);
+    }
 
     const [trip] = await db.query('SELECT * FROM trips WHERE id=?', [tripId]);
     const [savedStops] = await db.query('SELECT * FROM trip_stops WHERE trip_id=? ORDER BY stop_order', [tripId]);

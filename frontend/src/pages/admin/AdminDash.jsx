@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { PlaceSearch as AreaSearch } from '../../components/LeafletSearch.jsx';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
+import * as tenderApi from '../../api_tender.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
 import socket_module, { connectSocket } from '../../socket.js';
@@ -68,6 +69,67 @@ function DocThumb({ label, url, onView }) {
   );
 }
 
+// ── TenderModal — offer an existing trip for tender bidding ───────────────────
+function TenderModal({ trip, onClose, onSuccess }) {
+  const [deadlineDate, setDeadlineDate] = useState('');
+  const [deadlineTime, setDeadlineTime] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function handleSubmit() {
+    if (!deadlineDate || !deadlineTime) { setErr('Please set both a date and time for the tender deadline.'); return; }
+    const deadlineMs = new Date(`${deadlineDate}T${deadlineTime}`).getTime();
+    if (deadlineMs <= Date.now()) { setErr('Deadline must be in the future.'); return; }
+    const durationMinutes = Math.max(1, Math.round((deadlineMs - Date.now()) / 60000));
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('shuttle_token');
+      await tenderApi.createTender({
+        trip_id: trip.id,
+        duration_minutes: durationMinutes,
+        description: `${trip.from_loc} → ${trip.to_loc} on ${trip.date?.slice(0,10)}`
+      }, token);
+      onSuccess();
+    } catch(e) { setErr(e.message || 'Failed to create tender'); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+         onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:'#0c0c12', border:'1px solid #1a2a40', borderRadius:16, padding:28, width:'100%', maxWidth:420, fontFamily:"'Sora',sans-serif" }}>
+        <div style={{ fontSize:18, fontWeight:700, color:'#e8e8f0', marginBottom:6 }}>🏢 Offer Trip for Tender</div>
+        <div style={{ fontSize:12, color:'#8888aa', marginBottom:20 }}>
+          Trip #{trip.id}: {trip.from_loc} → {trip.to_loc} · {trip.date?.slice(0,10)}
+        </div>
+        <div style={{ fontSize:12, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Bidding Deadline Date</div>
+        <input
+          type="date"
+          value={deadlineDate}
+          onChange={e => { setDeadlineDate(e.target.value); setErr(''); }}
+          style={{ width:'100%', background:'#050508', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:14, marginBottom:12, boxSizing:'border-box' }}
+        />
+        <div style={{ fontSize:12, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Bidding Deadline Time</div>
+        <input
+          type="time"
+          value={deadlineTime}
+          onChange={e => { setDeadlineTime(e.target.value); setErr(''); }}
+          style={{ width:'100%', background:'#050508', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:14, marginBottom:16, boxSizing:'border-box' }}
+        />
+        {err && <div style={{ fontSize:12, color:'#f87171', marginBottom:12 }}>{err}</div>}
+        <div style={{ display:'flex', gap:10 }}>
+          <button onClick={onClose} style={{ flex:1, background:'transparent', border:'1px solid #2a2a40', borderRadius:10, padding:'12px', color:'#8888aa', fontSize:13, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={loading} style={{ flex:2, background:'#4b7ab5', border:'none', borderRadius:10, padding:'12px', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", opacity: loading ? 0.7 : 1 }}>
+            {loading ? 'Opening…' : '🏢 Open for Bidding'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDash() {
   const { user, logout, notify } = useAuth();
   const [tab, setTab] = useState(() => sessionStorage.getItem('adm_tab') || 'overview');
@@ -99,8 +161,12 @@ export default function AdminDash() {
   // ── Lightbox ──────────────────────────────────────────────────────────────
   const [lightbox, setLightbox] = useState(null); // { src, label }
 
+  // ── Tender target (offer existing trip for tender) ────────────────────────
+  const [tenderTarget, setTenderTarget] = useState(null);
+
   const [form, setForm] = useState({
-    from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:''
+    from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'',
+    offer_tender: false, tender_deadline_date: '', tender_deadline_time: ''
   });
   const f = k => e => setForm({ ...form, [k]: e.target.value });
 
@@ -173,17 +239,32 @@ export default function AdminDash() {
   }
 
   async function handleCreate() {
-    const { from_loc, to_loc, pickup_time, date, price, driver_id } = form;
-    if (!from_loc||!to_loc||!pickup_time||!date||!price||!driver_id) {
-      notify('Incomplete', 'Fill in all required fields.', 'error'); return;
+    const { from_loc, to_loc, pickup_time, date, price, driver_id, offer_tender, tender_deadline_date, tender_deadline_time } = form;
+    // If offering as tender, driver is not required
+    if (!from_loc||!to_loc||!pickup_time||!date||!price||(!offer_tender && !driver_id)) {
+      notify('Incomplete', offer_tender ? 'Fill in all required fields (no driver needed for tender).' : 'Fill in all required fields.', 'error'); return;
     }
     if (stops.length < 2) {
       notify('Add stops', 'Add at least 1 pickup and 1 drop-off on the map.', 'error'); return;
     }
+    if (offer_tender && (!tender_deadline_date || !tender_deadline_time)) {
+      notify('Tender deadline required', 'Set a date and time for the tender deadline.', 'error'); return;
+    }
     try {
-      await api.createTrip({ ...form, price: parseFloat(form.price), total_seats: parseInt(form.total_seats)||16, stops });
-      notify('Trip created!', `${from_loc} → ${to_loc} on ${date}`);
-      setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'' });
+      const tripData = { ...form, price: parseFloat(form.price), total_seats: parseInt(form.total_seats)||16, stops };
+      if (offer_tender) tripData.driver_id = null; // no driver for tender trips
+      const newTrip = await api.createTrip(tripData);
+      if (offer_tender && newTrip && newTrip.id) {
+        const deadlineMs = new Date(`${tender_deadline_date}T${tender_deadline_time}`).getTime();
+        const durationMinutes = Math.max(1, Math.round((deadlineMs - Date.now()) / 60000));
+        // Use the admin token from localStorage
+        const token = localStorage.getItem('shuttle_token');
+        await tenderApi.createTender({ trip_id: newTrip.id, duration_minutes: durationMinutes, description: `${from_loc} → ${to_loc} on ${date}` }, token);
+        notify('Trip + Tender created!', `Bidding closes ${tender_deadline_date} at ${tender_deadline_time}`);
+      } else {
+        notify('Trip created!', `${from_loc} → ${to_loc} on ${date}`);
+      }
+      setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'', offer_tender:false, tender_deadline_date:'', tender_deadline_time:'' });
       setStops([]);
       loadAll(); goTab('trips');
     } catch(e) { notify('Error', e.message, 'error'); }
@@ -230,6 +311,15 @@ export default function AdminDash() {
 
       {/* Lightbox */}
       {lightbox && <Lightbox src={lightbox.src} label={lightbox.label} onClose={() => setLightbox(null)} />}
+
+      {/* Tender deadline modal */}
+      {tenderTarget && (
+        <TenderModal
+          trip={tenderTarget}
+          onClose={() => setTenderTarget(null)}
+          onSuccess={() => { setTenderTarget(null); loadAll(); notify('Tender opened!', `Companies can now bid on trip #${tenderTarget.id}`); }}
+        />
+      )}
 
       <Topbar role="admin" name={user?.name || 'Admin'} onLogout={logout} />
       <div style={{ maxWidth:960, margin:'0 auto', padding:'28px 20px' }}>
@@ -290,14 +380,59 @@ export default function AdminDash() {
               <Inp label="💰 Price/seat (EGP)" type="number" value={form.price}        onChange={f('price')}       placeholder="45" />
               <Inp label="💺 Total seats"      type="number" value={form.total_seats}  onChange={f('total_seats')} />
             </div>
-            <Sel label="🚐 Assign driver" value={form.driver_id} onChange={f('driver_id')}>
-              <option value="">Select active driver…</option>
-              {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
-            </Sel>
+            {!form.offer_tender && (
+              <Sel label="🚐 Assign driver" value={form.driver_id} onChange={f('driver_id')}>
+                <option value="">Select active driver…</option>
+                {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
+              </Sel>
+            )}
+            {/* ── Tender toggle ── */}
+            <div style={{ marginTop:16, background:C.bg3||'#13131c', border:`1px solid ${form.offer_tender?'#4b7ab5':'#1e1e2e'}`, borderRadius:12, padding:'14px 16px' }}>
+              <label style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={form.offer_tender}
+                  onChange={e => setForm(p => ({ ...p, offer_tender: e.target.checked, driver_id: e.target.checked ? '' : p.driver_id }))}
+                  style={{ width:18, height:18, accentColor:'#4b7ab5', cursor:'pointer' }}
+                />
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color: form.offer_tender ? '#4b7ab5' : C.text||'#e8e8f0' }}>
+                    🏢 Offer for company tender (bidding)
+                  </div>
+                  <div style={{ fontSize:11, color:C.text2||'#8888aa', marginTop:2 }}>
+                    Companies will bid for this trip — no driver needed now
+                  </div>
+                </div>
+              </label>
+              {form.offer_tender && (
+                <div style={{ marginTop:14, display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                  <div>
+                    <div style={{ fontSize:11, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Deadline Date</div>
+                    <input
+                      type="date"
+                      value={form.tender_deadline_date}
+                      onChange={e => setForm(p => ({ ...p, tender_deadline_date: e.target.value }))}
+                      style={{ width:'100%', background:'#0c0c12', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:13 }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Deadline Time</div>
+                    <input
+                      type="time"
+                      value={form.tender_deadline_time}
+                      onChange={e => setForm(p => ({ ...p, tender_deadline_time: e.target.value }))}
+                      style={{ width:'100%', background:'#0c0c12', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:13 }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
             <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
             <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to add pickup 🟢 and drop-off 🔵 points.</p>
             <StopPicker ref={createMapRef} stops={stops} onChange={setStops} height={340} />
-            <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
+            <button onClick={handleCreate} style={btnPrimary}>
+              {form.offer_tender ? '🏢 Create trip & open for bidding' : 'Create trip'}
+            </button>
           </div>
         )}
 
@@ -320,8 +455,15 @@ export default function AdminDash() {
                   </div>
                   <CapBarLabeled booked={t.booked_seats||0} total={t.total_seats} />
                   {t.status !== 'cancelled' && t.status !== 'completed' && (
-                    <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                    <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
                       <button onClick={() => { setEditTrip({...t}); setEditStops(t.stops||[]); }} style={btnSm}>Edit</button>
+                      {t.status === 'upcoming' && (
+                        <button
+                          onClick={() => setTenderTarget(t)}
+                          style={{ ...btnSm, color:'#4b7ab5', borderColor:'#1a2a40' }}>
+                          🏢 Offer Tender
+                        </button>
+                      )}
                       <button onClick={() => handleCancel(t.id)} style={btnDanger}>Cancel trip</button>
                     </div>
                   )}

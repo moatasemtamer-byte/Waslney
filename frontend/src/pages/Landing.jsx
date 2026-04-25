@@ -93,7 +93,7 @@ function Page({ onBack, children, scroll }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-export default function Landing() {
+export default function Landing({ onEnterCompanyPortal }) {
   const { login: doLogin, notify } = useAuth();
 
   // mode: home | signup | docs | otp | login | driver-status
@@ -279,6 +279,11 @@ export default function Landing() {
             onClick={() => { setRole('admin'); reset(); setMode('signup'); }}
             style={{ background:'transparent', color:'#333', border:'1px solid #1a1a1a', borderRadius:12, padding:'11px 18px', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif", display:'flex', alignItems:'center', gap:8, justifyContent:'center' }}>
             ⚙️ Admin portal
+          </button>
+          <button
+            onClick={onEnterCompanyPortal}
+            style={{ background:'transparent', color:'#4b7ab5', border:'1px solid #1a2a40', borderRadius:12, padding:'11px 18px', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif", display:'flex', alignItems:'center', gap:8, justifyContent:'center' }}>
+            🏢 Company / Tender portal
           </button>
         </div>
         <p style={{ marginTop:28, fontSize:12, color:'#444' }}>
