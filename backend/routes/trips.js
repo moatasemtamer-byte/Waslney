@@ -278,6 +278,18 @@ router.post('/:id/complete', requireAuth, requireRole('driver'), async (req, res
   }
 });
 
+// DELETE /api/trips/delete-all — hard delete ALL trips from DB
+router.delete('/delete-all', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    await db.query('DELETE FROM trip_stops');
+    await db.query('DELETE FROM bookings');
+    await db.query('DELETE FROM trips');
+    res.json({ message: 'All trips permanently deleted' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // DELETE /api/trips/:id/permanent — hard delete from DB
 router.delete('/:id/permanent', requireAuth, requireRole('admin'), async (req, res) => {
   try {
