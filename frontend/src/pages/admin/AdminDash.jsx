@@ -350,7 +350,8 @@ export default function AdminDash() {
           { id:'drivers',        label:'Drivers' },
           { id:'passengers',     label:'Passengers' },
           { id:'review',         label:`📋 Review${pendingDrivers.length > 0 ? ` (${pendingDrivers.length})` : ''}` },
-          { id:'create-account', label:'👤 New Account' },
+          { id:'create-account',   label:'👤 New Account' },
+          { id:'manage-bookings',  label:'📅 Manage Bookings' },
         ]} active={tab} onSet={goTab} />
 
         {/* ── OVERVIEW ── */}
@@ -799,6 +800,10 @@ export default function AdminDash() {
           <CreateAccountTab token={localStorage.getItem('shuttle_token')} notify={notify} />
         )}
 
+        {tab === 'manage-bookings' && (
+          <ManageBookingsTab token={localStorage.getItem('shuttle_token')} notify={notify} trips={trips} />
+        )}
+
       </div>
     </div>
   );
@@ -1230,6 +1235,359 @@ function AwardedAdminCard({ tender, font, fmtEGP, fmtDate, fmtTime, onReTender }
               ))}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MANAGE BOOKINGS TAB — daily booking rounds, surge pricing, per-trip schedule
+// ──────────────────────────────────────────────────────────────────────────────
+function ManageBookingsTab({ token, notify, trips }) {
+  const API = '/api';
+  const hdr = { 'Content-Type':'application/json', Authorization:`Bearer ${token}` };
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const FULL_DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+  const [settings, setSettings] = useState(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [localSettings, setLocalSettings] = useState({ booking_round_start_day: 5, surge_percent: 10, surge_after_friday: true });
+
+  const [selectedTripId, setSelectedTripId] = useState('');
+  const [schedule, setSchedule] = useState(null);
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+
+  const [selectedDate, setSelectedDate] = useState('');
+  const [dayBookings, setDayBookings] = useState([]);
+  const [loadingDay, setLoadingDay] = useState(false);
+
+  const [view, setView] = useState('schedule'); // 'schedule' | 'daily' | 'settings'
+
+  useEffect(() => { loadSettings(); }, []);
+
+  async function loadSettings() {
+    try {
+      const r = await fetch(`${API}/bookings/settings`, { headers: hdr });
+      const data = await r.json();
+      setSettings(data);
+      setLocalSettings({
+        booking_round_start_day: data.booking_round_start_day ?? 5,
+        surge_percent: data.surge_percent ?? 10,
+        surge_after_friday: !!data.surge_after_friday,
+      });
+    } catch(e) { notify('Error','Could not load settings','error'); }
+  }
+
+  async function saveSettings() {
+    setSavingSettings(true);
+    try {
+      const r = await fetch(`${API}/bookings/settings`, {
+        method: 'PUT', headers: hdr,
+        body: JSON.stringify(localSettings),
+      });
+      if (!r.ok) throw new Error('Failed');
+      notify('Saved','Booking settings updated ✓');
+      await loadSettings();
+    } catch(e) { notify('Error','Could not save settings','error'); }
+    finally { setSavingSettings(false); }
+  }
+
+  async function loadSchedule(tripId) {
+    if (!tripId) return;
+    setLoadingSchedule(true); setSchedule(null);
+    try {
+      const r = await fetch(`${API}/bookings/week-schedule?trip_id=${tripId}`, { headers: hdr });
+      const data = await r.json();
+      setSchedule(data);
+    } catch(e) { notify('Error','Could not load schedule','error'); }
+    finally { setLoadingSchedule(false); }
+  }
+
+  async function loadDayBookings(date) {
+    if (!date) return;
+    setLoadingDay(true); setDayBookings([]);
+    try {
+      const r = await fetch(`${API}/bookings/all-day-bookings?date=${date}`, { headers: hdr });
+      const data = await r.json();
+      setDayBookings(data);
+    } catch(e) { notify('Error','Could not load day bookings','error'); }
+    finally { setLoadingDay(false); }
+  }
+
+  const today = new Date();
+  const todayDay = today.getDay();
+  const isSurgeDay = localSettings.surge_after_friday &&
+    (todayDay === localSettings.booking_round_start_day || todayDay === (localSettings.booking_round_start_day + 1) % 7);
+
+  return (
+    <div style={{ fontFamily:"'Sora',sans-serif", maxWidth:900, margin:'0 auto', padding:'0 4px' }}>
+      {/* Header */}
+      <div style={{ marginBottom:20 }}>
+        <div style={{ fontSize:20, fontWeight:800, color:'#fff', marginBottom:4 }}>📅 Manage Bookings</div>
+        <div style={{ fontSize:12, color:'#666' }}>
+          Booking rounds reset weekly · Passengers book per day · No service Fridays
+        </div>
+      </div>
+
+      {/* Surge status banner */}
+      {isSurgeDay && (
+        <div style={{ background:'rgba(251,191,36,0.12)', border:'1px solid rgba(251,191,36,0.35)', borderRadius:12, padding:'12px 16px', marginBottom:16, display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:20 }}>⚡</span>
+          <div>
+            <div style={{ fontSize:13, fontWeight:700, color:'#fbbf24' }}>Surge Pricing Active Today</div>
+            <div style={{ fontSize:11, color:'#a07c1a' }}>Today is {FULL_DAY_NAMES[todayDay]} — new bookings are +{localSettings.surge_percent}% above base price</div>
+          </div>
+        </div>
+      )}
+
+      {/* Sub-tabs */}
+      <div style={{ display:'flex', gap:8, marginBottom:20 }}>
+        {[
+          { id:'schedule', label:'🗓 Route Schedule' },
+          { id:'daily',    label:'📋 Daily View' },
+          { id:'settings', label:'⚙️ Settings' },
+        ].map(t => (
+          <button key={t.id} onClick={() => setView(t.id)}
+            style={{ padding:'9px 16px', borderRadius:10, border:'none', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700,
+              background: view===t.id ? '#fbbf24' : '#1a1a1a',
+              color: view===t.id ? '#000' : '#888',
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ROUTE SCHEDULE VIEW ── */}
+      {view === 'schedule' && (
+        <div>
+          <div style={{ background:'#0d0d0d', border:'1px solid #1a1a1a', borderRadius:14, padding:'16px 18px', marginBottom:16 }}>
+            <div style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', marginBottom:8 }}>Select Route</div>
+            <select
+              value={selectedTripId}
+              onChange={e => { setSelectedTripId(e.target.value); loadSchedule(e.target.value); }}
+              style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:14, fontFamily:"'Sora',sans-serif", outline:'none' }}>
+              <option value="">— choose a route —</option>
+              {trips.map(t => (
+                <option key={t.id} value={t.id}>
+                  #{t.id} · {t.from_loc} → {t.to_loc} · {t.pickup_time}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {loadingSchedule && (
+            <div style={{ textAlign:'center', padding:32, color:'#555' }}>Loading schedule…</div>
+          )}
+
+          {schedule && (
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#fff', marginBottom:12 }}>
+                {schedule.trip.from_loc} → {schedule.trip.to_loc} · {schedule.trip.pickup_time}
+              </div>
+
+              {/* Day cards — like Google Maps transit bar */}
+              <div style={{ display:'flex', gap:8, overflowX:'auto', paddingBottom:8, marginBottom:20 }}>
+                {schedule.schedule.map(day => {
+                  const pct = Math.round((day.booked / day.total_seats) * 100);
+                  const full = day.available === 0;
+                  const almostFull = !full && day.available <= 3;
+                  const accentColor = full ? '#f87171' : almostFull ? '#fbbf24' : '#4ade80';
+                  return (
+                    <div key={day.date} style={{ minWidth:110, background:'#0d0d0d', border:`1.5px solid ${day.is_surge ? 'rgba(251,191,36,0.4)' : '#1a1a1a'}`, borderRadius:14, padding:'14px 12px', flexShrink:0, position:'relative', overflow:'hidden' }}>
+                      {day.is_surge && (
+                        <div style={{ position:'absolute', top:7, right:7, fontSize:10, background:'rgba(251,191,36,0.2)', color:'#fbbf24', borderRadius:6, padding:'2px 5px', fontWeight:700 }}>⚡SURGE</div>
+                      )}
+                      <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:2 }}>{day.day_name}</div>
+                      <div style={{ fontSize:10, color:'#555', marginBottom:10 }}>{day.date.slice(5)}</div>
+
+                      {/* Capacity bar */}
+                      <div style={{ height:4, background:'#1a1a1a', borderRadius:4, marginBottom:8, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${pct}%`, background:accentColor, borderRadius:4, transition:'width .3s' }} />
+                      </div>
+
+                      <div style={{ fontSize:11, color: accentColor, fontWeight:700, marginBottom:4 }}>
+                        {full ? '🚫 Full' : `${day.available} left`}
+                      </div>
+                      <div style={{ fontSize:10, color:'#555' }}>{day.booked}/{day.total_seats} booked</div>
+                      <div style={{ fontSize:12, fontWeight:700, color: day.is_surge ? '#fbbf24' : '#a0a0a0', marginTop:6 }}>
+                        {day.effective_price} EGP
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Booking list for each day */}
+              {schedule.schedule.map(day => (
+                <DayBookingsList key={day.date} day={day} tripId={selectedTripId} token={token} hdr={hdr} API={API} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── DAILY VIEW ── */}
+      {view === 'daily' && (
+        <div>
+          <div style={{ background:'#0d0d0d', border:'1px solid #1a1a1a', borderRadius:14, padding:'16px 18px', marginBottom:16 }}>
+            <div style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', marginBottom:8 }}>Select Date</div>
+            <input type="date" value={selectedDate}
+              onChange={e => { setSelectedDate(e.target.value); loadDayBookings(e.target.value); }}
+              style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:14, fontFamily:"'Sora',sans-serif", outline:'none', boxSizing:'border-box' }} />
+          </div>
+
+          {selectedDate && new Date(selectedDate).getDay() === 5 && (
+            <div style={{ background:'rgba(248,113,113,0.1)', border:'1px solid rgba(248,113,113,0.3)', borderRadius:12, padding:'12px 16px', color:'#f87171', fontSize:13 }}>
+              ⛔ Friday — No service
+            </div>
+          )}
+
+          {loadingDay && <div style={{ textAlign:'center', padding:32, color:'#555' }}>Loading…</div>}
+
+          {!loadingDay && dayBookings.length > 0 && (
+            <div>
+              <div style={{ fontSize:12, color:'#888', marginBottom:12 }}>{dayBookings.length} booking(s) on {selectedDate}</div>
+              {dayBookings.map(b => (
+                <div key={b.id} style={{ background:'#0d0d0d', border:'1px solid #1a1a1a', borderRadius:12, padding:'14px 16px', marginBottom:8 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{b.from_loc} → {b.to_loc}</div>
+                    <div style={{ fontSize:11, color:'#fbbf24', fontWeight:700 }}>{b.pickup_time}</div>
+                  </div>
+                  <div style={{ fontSize:12, color:'#888' }}>
+                    👤 {b.passenger_name} · {b.passenger_phone} · {b.seats} seat(s)
+                  </div>
+                  <div style={{ fontSize:12, color:'#555', marginTop:2 }}>
+                    🚌 Driver: {b.driver_name} · {b.effective_price || b.price} EGP
+                    {b.is_surge ? <span style={{ color:'#fbbf24', marginLeft:6 }}>⚡surge</span> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loadingDay && selectedDate && dayBookings.length === 0 && new Date(selectedDate).getDay() !== 5 && (
+            <div style={{ textAlign:'center', padding:32, color:'#555' }}>No bookings on this date</div>
+          )}
+        </div>
+      )}
+
+      {/* ── SETTINGS VIEW ── */}
+      {view === 'settings' && (
+        <div style={{ background:'#0d0d0d', border:'1px solid #1a1a1a', borderRadius:16, padding:'20px 22px' }}>
+          <div style={{ fontSize:15, fontWeight:800, color:'#fff', marginBottom:18 }}>⚙️ Booking Round Settings</div>
+
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', marginBottom:8 }}>
+              Booking Round Starts On
+            </div>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {DAY_NAMES.map((d, i) => (
+                <button key={i}
+                  onClick={() => setLocalSettings(s => ({ ...s, booking_round_start_day: i }))}
+                  style={{ padding:'9px 14px', borderRadius:10, border:'none', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700,
+                    background: localSettings.booking_round_start_day === i ? '#fbbf24' : '#1a1a1a',
+                    color: localSettings.booking_round_start_day === i ? '#000' : '#888',
+                  }}>
+                  {d}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize:11, color:'#555', marginTop:8 }}>
+              New booking round opens each {FULL_DAY_NAMES[localSettings.booking_round_start_day]} · Passengers can book Sat–Thu (no Fridays)
+            </div>
+          </div>
+
+          <div style={{ marginBottom:20 }}>
+            <div style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', marginBottom:8 }}>
+              Surge Pricing
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+              <div
+                onClick={() => setLocalSettings(s => ({ ...s, surge_after_friday: !s.surge_after_friday }))}
+                style={{ width:44, height:24, borderRadius:12, background: localSettings.surge_after_friday ? '#fbbf24' : '#333', position:'relative', cursor:'pointer', transition:'background .2s' }}>
+                <div style={{ position:'absolute', top:3, left: localSettings.surge_after_friday ? 23 : 3, width:18, height:18, borderRadius:'50%', background:'#fff', transition:'left .2s' }} />
+              </div>
+              <span style={{ fontSize:13, color: localSettings.surge_after_friday ? '#fff' : '#666' }}>
+                Apply surge pricing on booking round start day
+              </span>
+            </div>
+
+            {localSettings.surge_after_friday && (
+              <div>
+                <div style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', marginBottom:8 }}>
+                  Surge Percentage (%)
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <input type="range" min={0} max={50} step={5}
+                    value={localSettings.surge_percent}
+                    onChange={e => setLocalSettings(s => ({ ...s, surge_percent: parseInt(e.target.value) }))}
+                    style={{ flex:1, accentColor:'#fbbf24' }} />
+                  <div style={{ fontSize:20, fontWeight:800, color:'#fbbf24', minWidth:50 }}>+{localSettings.surge_percent}%</div>
+                </div>
+                <div style={{ fontSize:11, color:'#555', marginTop:6 }}>
+                  Bookings made on {FULL_DAY_NAMES[localSettings.booking_round_start_day]} or {FULL_DAY_NAMES[(localSettings.booking_round_start_day + 1) % 7]} will cost {localSettings.surge_percent}% more
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={saveSettings} disabled={savingSettings}
+            style={{ background:'#fbbf24', color:'#000', border:'none', borderRadius:12, padding:'13px 18px', fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700, cursor:'pointer', width:'100%', opacity: savingSettings ? 0.7 : 1 }}>
+            {savingSettings ? 'Saving…' : '💾 Save Settings'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Collapsible day bookings list inside route schedule
+function DayBookingsList({ day, tripId, token, hdr, API }) {
+  const [open, setOpen] = useState(false);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    if (bookings.length) { setOpen(!open); return; }
+    setLoading(true); setOpen(true);
+    try {
+      const r = await fetch(`${API}/bookings/trip/${tripId}?date=${day.date}`, { headers: hdr });
+      const data = await r.json();
+      setBookings(data);
+    } catch(_) {}
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div style={{ marginBottom:8, borderRadius:12, overflow:'hidden', border:'1px solid #1a1a1a' }}>
+      <div onClick={load} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', background:'#0d0d0d', cursor:'pointer' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{day.day_name} {day.date.slice(5)}</span>
+          <span style={{ fontSize:11, color: day.available===0?'#f87171': day.available<=3?'#fbbf24':'#4ade80', fontWeight:700 }}>
+            {day.available===0 ? 'Full' : `${day.available} seats left`}
+          </span>
+          {day.is_surge && <span style={{ fontSize:10, color:'#fbbf24' }}>⚡surge</span>}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:12, color:'#555' }}>{day.booked} booked</span>
+          <span style={{ fontSize:12, color:'#555' }}>{open ? '▲' : '▼'}</span>
+        </div>
+      </div>
+      {open && (
+        <div style={{ background:'#080808', padding:'12px 16px' }}>
+          {loading && <div style={{ color:'#555', fontSize:12 }}>Loading…</div>}
+          {!loading && bookings.length === 0 && <div style={{ color:'#555', fontSize:12 }}>No bookings yet</div>}
+          {bookings.map(b => (
+            <div key={b.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid #111' }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>{b.passenger_name}</div>
+                <div style={{ fontSize:11, color:'#555' }}>{b.passenger_phone} · {b.seats} seat(s)</div>
+              </div>
+              <div style={{ fontSize:12, color: b.is_surge ? '#fbbf24' : '#888', fontWeight:700 }}>
+                {b.effective_price || b.price} EGP {b.is_surge ? '⚡' : ''}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

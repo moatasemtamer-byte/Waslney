@@ -546,6 +546,8 @@ export default function PassengerDash(){
   const[selPickup,setSelPickup]=useState(null);
   const[selDropoff,setSelDropoff]=useState(null);
   const[selBooking,setSelBooking]=useState(null);
+  const[travelDate,setTravelDate]=useState(''); // selected travel date for booking
+  const[weekSchedule,setWeekSchedule]=useState(null); // schedule for selected trip
 
   // Search
   const[fromCoord,setFromCoord]=useState(null);
@@ -787,17 +789,32 @@ export default function PassengerDash(){
   }
 
   async function confirmBook(){
+    if(!travelDate){notify('Select a day','Please select which day you want to travel.','error');return;}
     setBooking(true);
     try{
-      await api.bookTrip({trip_id:selTrip.id,seats,pickup_note:fromCoord?.name||selPickup?.label||''});
-      setSelTrip(null);changeTab('activity');
-      notify('Booking confirmed!',`Pickup at ${selTrip.pickup_time}`);
+      await api.bookTrip({trip_id:selTrip.id,seats,pickup_note:fromCoord?.name||selPickup?.label||'',travel_date:travelDate});
+      setSelTrip(null);setTravelDate('');setWeekSchedule(null);changeTab('activity');
+      notify('Booking confirmed!',`${travelDate} · Pickup at ${selTrip.pickup_time}`);
     }catch(e){
       const msg=e.message||'';
-      if(msg==='already_reserved'||msg.toLowerCase().includes('already'))notify('Already reserved','You already have an active booking on this trip.','warning');
+      if(msg==='already_reserved'||msg.toLowerCase().includes('already'))notify('Already reserved','You have an active booking on this trip for this day.','warning');
       else if(msg.toLowerCase().includes('seats'))notify('No seats available',msg,'error');
       else notify('Error',msg,'error');
     }finally{setBooking(false);}
+  }
+
+  async function loadWeekSchedule(tripId){
+    try{
+      const token=localStorage.getItem('shuttle_token');
+      const r=await fetch(`/api/bookings/week-schedule?trip_id=${tripId}`,{headers:{Authorization:`Bearer ${token}`}});
+      const data=await r.json();
+      setWeekSchedule(data);
+      // Auto-select first available day
+      if(data.schedule){
+        const firstAvail=data.schedule.find(d=>d.available>0);
+        if(firstAvail&&!travelDate)setTravelDate(firstAvail.date);
+      }
+    }catch(e){console.error('schedule load',e);}
   }
 
   async function cancelBooking(id){try{await api.cancelBooking(id);notify('Cancelled','');loadBookings();}catch(e){notify('Error',e.message,'error');}}
@@ -1113,7 +1130,7 @@ export default function PassengerDash(){
                 {matchedTrips.map(t=>{
                   const avail=t.total_seats-t.booked_seats;
                   return(
-                    <div key={t.id} onClick={()=>{setSelTrip(t);setSelPickup(t.bestPickup||null);setSelDropoff(t.bestDropoff||null);setSeats(1);}}
+                    <div key={t.id} onClick={()=>{setSelTrip(t);setSelPickup(t.bestPickup||null);setSelDropoff(t.bestDropoff||null);setSeats(1);setTravelDate('');setWeekSchedule(null);loadWeekSchedule(t.id);}}
                       style={{background:'#111',borderRadius:16,padding:'20px',marginBottom:12,cursor:'pointer',border:'1px solid #1a1a1a',transition:'border-color .15s'}}
                       onMouseEnter={e=>e.currentTarget.style.borderColor='#fbbf2466'} onMouseLeave={e=>e.currentTarget.style.borderColor='#1a1a1a'}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
@@ -1258,9 +1275,54 @@ export default function PassengerDash(){
         {/* ── TRIP DETAIL ── */}
         {tab==='home'&&selTrip&&(
           <div style={{paddingTop:16}}>
-            <button onClick={()=>setSelTrip(null)} style={{background:'transparent',border:'none',color:'#fff',fontSize:24,cursor:'pointer',padding:'4px 0',marginBottom:16}}>←</button>
+            <button onClick={()=>{setSelTrip(null);setWeekSchedule(null);setTravelDate('');}} style={{background:'transparent',border:'none',color:'#fff',fontSize:24,cursor:'pointer',padding:'4px 0',marginBottom:16}}>←</button>
             <h2 style={{fontSize:20,fontWeight:700,color:'#fff',marginBottom:4}}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
-            <p style={{color:'#555',fontSize:13,marginBottom:20}}>{fmtDate(selTrip.date)} · {selTrip.pickup_time}</p>
+            <p style={{color:'#555',fontSize:13,marginBottom:16}}>{selTrip.pickup_time}</p>
+
+            {/* ── DAY SELECTOR BAR (like Google Maps transit) ── */}
+            <div style={{marginBottom:20}}>
+              <p style={{...sectSt,marginBottom:10}}>Select travel day</p>
+              {weekSchedule ? (
+                <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6}}>
+                  {weekSchedule.schedule.map(day=>{
+                    const isSel=travelDate===day.date;
+                    const full=day.available===0;
+                    return(
+                      <div key={day.date}
+                        onClick={()=>{if(!full)setTravelDate(day.date);}}
+                        style={{
+                          minWidth:72,flexShrink:0,borderRadius:14,padding:'10px 8px',textAlign:'center',cursor:full?'not-allowed':'pointer',
+                          border:`2px solid ${isSel?'#fbbf24':full?'#1a1a1a':'#2a2a2a'}`,
+                          background:isSel?'rgba(251,191,36,0.12)':full?'#0a0a0a':'#111',
+                          opacity:full?0.5:1,transition:'all .15s',
+                        }}>
+                        <div style={{fontSize:11,fontWeight:800,color:isSel?'#fbbf24':'#888',marginBottom:2}}>{day.day_name}</div>
+                        <div style={{fontSize:10,color:'#555',marginBottom:6}}>{day.date.slice(5)}</div>
+                        <div style={{height:3,borderRadius:3,background:full?'#333':day.available<=3?'rgba(251,191,36,0.6)':'rgba(74,222,128,0.6)',marginBottom:6}}/>
+                        <div style={{fontSize:10,color:full?'#f87171':day.available<=3?'#fbbf24':'#4ade80',fontWeight:700}}>
+                          {full?'Full':`${day.available}`}
+                        </div>
+                        {day.is_surge&&<div style={{fontSize:8,color:'#fbbf24',marginTop:2}}>⚡+{day.effective_price-weekSchedule.trip.price}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ):(
+                <div style={{color:'#555',fontSize:12,padding:'10px 0'}}>Loading availability…</div>
+              )}
+              {travelDate&&weekSchedule&&(()=>{const dayInfo=weekSchedule.schedule.find(d=>d.date===travelDate);return dayInfo?(
+                <div style={{marginTop:10,padding:'10px 14px',borderRadius:10,background:dayInfo.is_surge?'rgba(251,191,36,0.08)':'rgba(74,222,128,0.06)',border:`1px solid ${dayInfo.is_surge?'rgba(251,191,36,0.25)':'rgba(74,222,128,0.2)'}`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:700,color:'#fff'}}>{['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(travelDate).getDay()]} {travelDate}</div>
+                    <div style={{fontSize:11,color:'#888',marginTop:2}}>{dayInfo.available} seat(s) available</div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontSize:16,fontWeight:800,color:dayInfo.is_surge?'#fbbf24':'#fff'}}>{dayInfo.effective_price} EGP</div>
+                    {dayInfo.is_surge&&<div style={{fontSize:10,color:'#a07c1a'}}>⚡ surge pricing</div>}
+                  </div>
+                </div>
+              ):null;})()}
+            </div>
             <TripMap tripId={selTrip.id} pickupLat={selPickup?.lat} pickupLng={selPickup?.lng} dropoffLat={selDropoff?.lat} dropoffLng={selDropoff?.lng} stops={selTrip.stops||[]} passengerLat={userLocation?.lat} passengerLng={userLocation?.lng} driverName={selTrip.driver_name} height={260}/>
             {userLocation&&selPickup?.lat&&(<div style={{marginBottom:14}}><p style={{fontSize:12,color:'#555',marginBottom:6}}>📍 Your location → pickup point</p><ProximityMap passengerLat={userLocation.lat} passengerLng={userLocation.lng} pickupStop={selPickup} height={160}/></div>)}
             {(selTrip.stops||[]).filter(s=>s.type==='pickup').length>1&&(
@@ -1272,7 +1334,7 @@ export default function PassengerDash(){
             <div style={{...card,marginBottom:14}}>
               {selPickup&&<DetailRow label="Pickup point" val={selPickup.label||(parseFloat(selPickup.lat).toFixed(4)+', '+parseFloat(selPickup.lng).toFixed(4))} accent="#fbbf24"/>}
               <DetailRow label="Pickup time" val={selTrip.pickup_time} accent="#fbbf24"/>
-              <DetailRow label="Price/seat" val={selTrip.price+' EGP'} accent="#fbbf24"/>
+              <DetailRow label="Price/seat" val={(()=>{const d=weekSchedule?.schedule?.find(s=>s.date===travelDate);return d?`${d.effective_price} EGP${d.is_surge?` (⚡surge, base ${selTrip.price})`:''}`:`${selTrip.price} EGP`;})()}  accent="#fbbf24"/>
               {selTrip.assigned_company_name ? (
                 <>
                   <DetailRow label="Company" val={selTrip.assigned_company_name} accent="#f5c842"/>
@@ -1296,8 +1358,9 @@ export default function PassengerDash(){
                 <button onClick={()=>setSeats(s=>Math.min(selTrip.total_seats,s+1))} style={{width:44,height:44,borderRadius:22,border:'1px solid #333',background:'transparent',color:'#fff',fontSize:20,cursor:'pointer'}}>+</button>
               </div>
             </div>
-            <button onClick={confirmBook} disabled={booking} style={{...btnPrimary,opacity:(booking||selTrip.total_seats<=selTrip.booked_seats)?0.4:1}}>
-              {booking?'Booking…':`Confirm — ${seats*selTrip.price} EGP`}
+            {!travelDate&&<div style={{textAlign:'center',fontSize:12,color:'#f87171',marginBottom:12}}>⬆ Select a travel day above first</div>}
+            <button onClick={confirmBook} disabled={booking||!travelDate} style={{...btnPrimary,opacity:(booking||!travelDate)?0.4:1}}>
+              {booking?'Booking…':(()=>{const d=weekSchedule?.schedule?.find(s=>s.date===travelDate);const price=d?d.effective_price:selTrip.price;return travelDate?`Confirm ${travelDate} — ${seats*price} EGP`:'Select a day to book';})()}
             </button>
           </div>
         )}

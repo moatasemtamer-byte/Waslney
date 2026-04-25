@@ -197,6 +197,55 @@ module.exports = async function runMigrations() {
       }
     } catch(e) { console.warn('⚠️  Could not add phone column:', e.message); }
 
+    // ── Daily booking round: booking_settings table ─────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS booking_settings (
+        id                     INT PRIMARY KEY DEFAULT 1,
+        booking_round_start_day TINYINT NOT NULL DEFAULT 5 COMMENT '0=Sun … 6=Sat; default 5=Friday',
+        surge_percent          DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+        surge_after_friday     TINYINT(1) NOT NULL DEFAULT 1,
+        updated_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Add travel_date column to bookings (per-day booking)
+    try {
+      const [cols] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='bookings' AND COLUMN_NAME='travel_date'`
+      );
+      if (!cols[0].cnt) {
+        await db.query(`ALTER TABLE bookings ADD COLUMN travel_date DATE NULL`);
+        // Back-fill existing rows from their trip's date
+        await db.query(`UPDATE bookings b JOIN trips t ON t.id=b.trip_id SET b.travel_date=t.date WHERE b.travel_date IS NULL`);
+        console.log('✅  Added travel_date to bookings');
+      }
+    } catch(e) { console.warn('⚠️  travel_date:', e.message); }
+
+    // Add effective_price column (may include surge)
+    try {
+      const [cols] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='bookings' AND COLUMN_NAME='effective_price'`
+      );
+      if (!cols[0].cnt) {
+        await db.query(`ALTER TABLE bookings ADD COLUMN effective_price DECIMAL(10,2) NULL`);
+        console.log('✅  Added effective_price to bookings');
+      }
+    } catch(e) { console.warn('⚠️  effective_price:', e.message); }
+
+    // Add is_surge flag
+    try {
+      const [cols] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='bookings' AND COLUMN_NAME='is_surge'`
+      );
+      if (!cols[0].cnt) {
+        await db.query(`ALTER TABLE bookings ADD COLUMN is_surge TINYINT(1) NOT NULL DEFAULT 0`);
+        console.log('✅  Added is_surge to bookings');
+      }
+    } catch(e) { console.warn('⚠️  is_surge:', e.message); }
+
     console.log('✅  Migrations done');
   } catch (err) {
     console.error('⚠️  Migration warning:', err.message);
