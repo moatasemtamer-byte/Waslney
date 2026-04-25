@@ -342,8 +342,8 @@ export default function AdminDash() {
   }
 
   async function handleCreate() {
-    const { from_loc, to_loc, pickup_time, date, price, driver_id } = form;
-    if (!from_loc||!to_loc||!pickup_time||!date||!price||!driver_id) {
+    const { from_loc, to_loc, pickup_time, date, price } = form;
+    if (!from_loc||!to_loc||!pickup_time||!date||!price) {
       notify('Incomplete', 'Fill in all required fields.', 'error'); return;
     }
     if (stops.length < 2) {
@@ -377,6 +377,15 @@ export default function AdminDash() {
     try {
       await api.deleteTrip(id);
       notify('Trip cancelled', 'Passengers notified.');
+      loadAll();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
+  async function handleDeletePermanent(id) {
+    if (!window.confirm('Permanently delete this trip from the database? This cannot be undone.')) return;
+    try {
+      await api.deleteTripPermanent(id);
+      notify('Trip deleted', 'Trip permanently removed from database.');
       loadAll();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -460,7 +469,7 @@ export default function AdminDash() {
               <Inp label="💰 Price/seat (EGP)" type="number" value={form.price}        onChange={f('price')}       placeholder="45" />
               <Inp label="💺 Total seats"      type="number" value={form.total_seats}  onChange={f('total_seats')} />
             </div>
-            <Sel label="🚐 Assign driver" value={form.driver_id} onChange={f('driver_id')}>
+            <Sel label="🚐 Assign driver (optional)" value={form.driver_id} onChange={f('driver_id')}>
               <option value="">Select active driver…</option>
               {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
             </Sel>
@@ -490,7 +499,7 @@ export default function AdminDash() {
                 🏷 Create & offer for tender →
               </button>
             </div>
-            <button onClick={handleCreate} style={btnPrimary}>Create trip (assign driver now)</button>
+            <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
           </div>
         )}
 
@@ -530,6 +539,7 @@ export default function AdminDash() {
                         <span style={{ fontSize:11, color:'#34d399', background:'rgba(52,211,153,0.08)', border:'1px solid rgba(52,211,153,0.2)', borderRadius:6, padding:'4px 10px', display:'flex', alignItems:'center', gap:4 }}>🏆 Tender awarded</span>
                       )}
                       <button onClick={() => handleCancel(t.id)} style={btnDanger}>Cancel trip</button>
+                      <button onClick={() => handleDeletePermanent(t.id)} style={{ ...btnDanger, background:'rgba(239,68,68,0.18)', border:'1px solid rgba(239,68,68,0.4)' }}>🗑 Delete from DB</button>
                     </div>
                   )}
                 </div>

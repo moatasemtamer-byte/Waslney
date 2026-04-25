@@ -142,7 +142,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 // POST /api/trips — admin creates trip with stops
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   const { from_loc, to_loc, pickup_time, dropoff_time, date, price, total_seats, driver_id, stops, offer_tender } = req.body;
-  if (!from_loc||!to_loc||!pickup_time||!date||!price||(!driver_id && !offer_tender))
+  if (!from_loc||!to_loc||!pickup_time||!date||!price)
     return res.status(400).json({ error: 'Missing required fields' });
   try {
     // Get coords from first pickup and last dropoff stop if provided
@@ -273,6 +273,18 @@ router.post('/:id/complete', requireAuth, requireRole('driver'), async (req, res
       }
     } catch(pe) { console.error('Pool cleanup:', pe.message); }
     res.json({ message: 'Trip completed' });
+  } catch (err) {
+    console.error(err); res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /api/trips/:id/permanent — hard delete from DB
+router.delete('/:id/permanent', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    await db.query('DELETE FROM trip_stops WHERE trip_id=?', [req.params.id]);
+    await db.query('DELETE FROM bookings WHERE trip_id=?', [req.params.id]);
+    await db.query('DELETE FROM trips WHERE id=?', [req.params.id]);
+    res.json({ message: 'Trip permanently deleted' });
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });
   }
