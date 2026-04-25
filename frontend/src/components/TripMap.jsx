@@ -393,6 +393,9 @@ export const StopPicker = forwardRef(function StopPicker({ stops, onChange, heig
 
     // Draw saved point markers (red) if already loaded
     if (savedPoints.length > 0) drawSavedMarkers(map, savedPoints);
+
+    // Pan to pending center if set before map was ready
+    if (pendingCenter.current) {
       const pc = pendingCenter.current; pendingCenter.current = null;
       const lat = parseFloat(pc.lat), lng = parseFloat(pc.lng);
       if (!isNaN(lat) && !isNaN(lng)) map.setView([lat, lng], 15);
