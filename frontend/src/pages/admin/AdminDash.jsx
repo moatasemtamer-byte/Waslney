@@ -182,7 +182,7 @@ export default function AdminDash() {
     // Booking confirmed/cancelled (passenger books)
     socket_module.on('booking:updated', ({ tripId, bookedSeats }) => {
       if (bookedSeats !== undefined) {
-        setTrips(prev => prev.map(t => String(t.id) === String(tripId) ? { ...t, booked_seats: bookedSeats } : t));
+        setTrips(prev => prev.map(t => String(t.id) === String(tripId) ? { ...t, booked_seats: Number(bookedSeats) } : t));
       }
     });
     return () => {
@@ -301,8 +301,17 @@ export default function AdminDash() {
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
+  async function handleDeleteAllTrips() {
+    if (!window.confirm(`⚠️ DELETE ALL TRIPS?\n\nThis will permanently remove ALL ${trips.length} trip(s) and their bookings from the database. This cannot be undone.\n\nType OK to confirm.`)) return;
+    try {
+      await api.deleteAllTrips();
+      notify('All trips deleted', 'All trips have been permanently removed from the database.');
+      loadAll();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
   const activeCount  = trips.filter(t => t.status==='upcoming'||t.status==='active').length;
-  const totalBooked  = trips.reduce((s,t) => s+(t.booked_seats||0), 0);
+  const totalBooked  = trips.reduce((s,t) => s+(Number(t.booked_seats)||0), 0);
   const passengers   = users.filter(u => u.role==='passenger');
   const driverUsers  = drivers; // active only, for dropdowns
 
@@ -369,9 +378,9 @@ export default function AdminDash() {
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                   <Badge type={t.status==='completed'?'blue':t.status==='active'?'green':t.status==='cancelled'?'red':'amber'}>{t.status}</Badge>
                   <span style={{ fontWeight:400 }}>{t.from_loc} → {t.to_loc}</span>
-                  <span style={{ marginLeft:'auto', fontSize:12, color:C.text2 }}>{t.booked_seats||0}/{t.total_seats} seats</span>
+                  <span style={{ marginLeft:'auto', fontSize:12, color:C.text2 }}>{Number(t.booked_seats)||0}/{t.total_seats} seats</span>
                 </div>
-                <CapBar booked={t.booked_seats||0} total={t.total_seats} />
+                <CapBar booked={Number(t.booked_seats)||0} total={t.total_seats} />
               </div>
             ))}
           </div>
@@ -449,7 +458,17 @@ export default function AdminDash() {
         {/* ── TRIPS ── */}
         {tab === 'trips' && !editTrip && (
           <div>
-            <p style={sectSt}>{trips.length} trips total</p>
+            <div style={{ display:"flex", alignItems:"center", marginBottom:16 }}>
+              <p style={{ ...sectSt, marginBottom:0 }}>{trips.length} trips total</p>
+              {trips.length > 0 && (
+                <button
+                  onClick={handleDeleteAllTrips}
+                  style={{ ...btnDanger, marginLeft:"auto", fontSize:12, padding:"7px 14px", display:"flex", alignItems:"center", gap:6 }}
+                >
+                  🗑️ Delete All Trips
+                </button>
+              )}
+            </div>
             {loading && <Spinner />}
             {trips.map(t => {
               const driver = driverUsers.find(d => d.id === t.driver_id);
@@ -463,7 +482,7 @@ export default function AdminDash() {
                   <div style={{ fontSize:12, color:C.text2, marginBottom:6 }}>
                     Driver: {t.driver_name||driver?.name||'—'} · {t.driver_plate||driver?.plate||'—'} · {t.price} EGP/seat
                   </div>
-                  <CapBarLabeled booked={t.booked_seats||0} total={t.total_seats} />
+                  <CapBarLabeled booked={Number(t.booked_seats)||0} total={t.total_seats} />
                   {t.status !== 'cancelled' && t.status !== 'completed' && (
                     <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
                       <button onClick={() => { setEditTrip({...t}); setEditStops(t.stops||[]); }} style={btnSm}>Edit</button>

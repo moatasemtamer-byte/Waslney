@@ -41,6 +41,7 @@ export const createTrip      = (b)   => post('/trips', b);
 export const updateTrip      = (id,b)=> put(`/trips/${id}`, b);
 export const deleteTrip          = (id)  => del(`/trips/${id}`);
 export const deleteTripPermanent = (id)  => del(`/trips/${id}/permanent`);
+export const deleteAllTrips      = ()    => del("/trips/delete-all");
 export const startTrip       = (id)  => post(`/trips/${id}/start`);
 export const completeTrip    = (id)  => post(`/trips/${id}/complete`);
 
