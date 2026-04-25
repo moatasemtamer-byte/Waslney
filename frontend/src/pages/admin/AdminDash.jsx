@@ -343,13 +343,14 @@ export default function AdminDash() {
       <div style={{ maxWidth:960, margin:'0 auto', padding:'28px 20px' }}>
 
         <Tabs tabs={[
-          { id:'overview',   label:'Overview' },
-          { id:'create',     label:'+ Trip' },
-          { id:'trips',      label:'Trips' },
-          { id:'tenders',    label:'🏢 Tenders' },
-          { id:'drivers',    label:'Drivers' },
-          { id:'passengers', label:'Passengers' },
-          { id:'review',     label:`📋 Review${pendingDrivers.length > 0 ? ` (${pendingDrivers.length})` : ''}` },
+          { id:'overview',       label:'Overview' },
+          { id:'create',         label:'+ Trip' },
+          { id:'trips',          label:'Trips' },
+          { id:'tenders',        label:'🏢 Tenders' },
+          { id:'drivers',        label:'Drivers' },
+          { id:'passengers',     label:'Passengers' },
+          { id:'review',         label:`📋 Review${pendingDrivers.length > 0 ? ` (${pendingDrivers.length})` : ''}` },
+          { id:'create-account', label:'👤 New Account' },
         ]} active={tab} onSet={goTab} />
 
         {/* ── OVERVIEW ── */}
@@ -793,7 +794,130 @@ export default function AdminDash() {
           </div>
         )}
 
+        {/* ── CREATE ACCOUNT TAB ── */}
+        {tab === 'create-account' && (
+          <CreateAccountTab token={localStorage.getItem('shuttle_token')} notify={notify} />
+        )}
+
       </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CREATE ACCOUNT TAB — admin creates any user type, no email verification
+// ──────────────────────────────────────────────────────────────────────────────
+function CreateAccountTab({ token, notify }) {
+  const ROLES = ['passenger', 'driver', 'company', 'admin'];
+  const empty = { name: '', phone: '', email: '', password: '', role: 'passenger', car: '', plate: '' };
+  const [form,    setForm]    = React.useState(empty);
+  const [loading, setLoading] = React.useState(false);
+  const [showPw,  setShowPw]  = React.useState(false);
+  const [created, setCreated] = React.useState(null);
+
+  const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  async function handleCreate() {
+    if (!form.name || !form.phone || !form.password || !form.role) {
+      notify('Missing fields', 'Name, phone, password and role are required.', 'error');
+      return;
+    }
+    if (form.role === 'driver' && (!form.car || !form.plate)) {
+      notify('Missing fields', 'Car model and plate are required for drivers.', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/admin-create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create account');
+      setCreated(data.user);
+      setForm(empty);
+      notify('Account created ✅', `${data.user.name} (${data.user.role}) is ready to log in.`);
+    } catch (e) {
+      notify('Error', e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const roleColor = { passenger: C.blue, driver: C.amber, company: C.purple, admin: C.red };
+  const roleEmoji = { passenger: '🎫', driver: '🚐', company: '🏢', admin: '⚙️' };
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <p style={sectSt}>Create a new account — no email verification required</p>
+
+      {/* Role selector */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: C.text3, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Account type</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {ROLES.map(r => (
+            <button key={r} onClick={() => setForm(p => ({ ...p, role: r }))}
+              style={{
+                flex: 1, padding: '10px 6px', borderRadius: 10,
+                border: `1.5px solid ${form.role === r ? (roleColor[r] || C.blue) : C.border}`,
+                background: form.role === r ? `${roleColor[r] || C.blue}18` : C.bg2,
+                color: form.role === r ? (roleColor[r] || C.blue) : C.text2,
+                fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Sora',sans-serif",
+                textTransform: 'capitalize', transition: 'all .15s',
+              }}>
+              <div style={{ fontSize: 18, marginBottom: 4 }}>{roleEmoji[r] || '👤'}</div>
+              {r}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Inp label="Full name"           value={form.name}     onChange={f('name')}  placeholder="Ahmed Hassan" />
+      <Inp label="Phone number"        value={form.phone}    onChange={f('phone')} placeholder="+20 100 000 0000" />
+      <Inp label="Email (optional)"    value={form.email}    onChange={f('email')} placeholder="user@example.com" type="email" />
+
+      {/* Password with show/hide */}
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ fontSize: 11, color: C.text3, letterSpacing: '.08em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Password</label>
+        <div style={{ position: 'relative' }}>
+          <input
+            style={{ width: '100%', background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 12, padding: '13px 48px 13px 16px', color: '#fff', fontFamily: "'Sora',sans-serif", fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+            value={form.password} onChange={f('password')} placeholder="Set a password" type={showPw ? 'text' : 'password'}
+          />
+          <button type="button" onClick={() => setShowPw(p => !p)}
+            style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.text3, fontSize: 18, padding: 0 }}>
+            {showPw ? '🙈' : '👁️'}
+          </button>
+        </div>
+      </div>
+
+      {/* Driver-only extra fields */}
+      {form.role === 'driver' && (
+        <div style={{ background: `${C.amber}0a`, border: `1px solid ${C.amberBorder}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: C.amber, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 12 }}>Driver details</div>
+          <Inp label="Car model"     value={form.car}   onChange={f('car')}   placeholder="Toyota Hiace 2022" />
+          <Inp label="License plate" value={form.plate} onChange={f('plate')} placeholder="أ ب ج 1234" />
+          <p style={{ fontSize: 11, color: C.text3, margin: '8px 0 0' }}>
+            📋 Admin-created driver accounts are activated immediately — no review required.
+          </p>
+        </div>
+      )}
+
+      <button onClick={handleCreate} disabled={loading}
+        style={{ ...btnPrimary, opacity: loading ? .6 : 1, marginTop: 4 }}>
+        {loading ? 'Creating…' : `Create ${form.role} account →`}
+      </button>
+
+      {/* Success confirmation card */}
+      {created && (
+        <div style={{ marginTop: 20, background: '#0d190d', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 12, padding: '14px 16px' }}>
+          <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>✅ Account created</div>
+          <div style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{created.name}</div>
+          <div style={{ fontSize: 12, color: C.text2, marginTop: 2 }}>{created.phone} · {created.role}</div>
+          <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>Status: {created.account_status}</div>
+        </div>
+      )}
     </div>
   );
 }

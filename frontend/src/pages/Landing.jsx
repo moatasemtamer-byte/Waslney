@@ -372,11 +372,6 @@ export default function Landing({ onEnterCompanyPortal }) {
             </div>
           </button>
           <button
-            onClick={() => { setRole('admin'); reset(); setMode('signup'); }}
-            style={{ background:'transparent', color:'#333', border:'1px solid #1a1a1a', borderRadius:12, padding:'11px 18px', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif", display:'flex', alignItems:'center', gap:8, justifyContent:'center' }}>
-            ⚙️ Admin portal
-          </button>
-          <button
             onClick={onEnterCompanyPortal}
             style={{ background:'transparent', color:'#4b7ab5', border:'1px solid #1a2a40', borderRadius:12, padding:'11px 18px', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif", display:'flex', alignItems:'center', gap:8, justifyContent:'center' }}>
             🏢 Company / Tender portal

@@ -225,4 +225,68 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// ── POST /api/auth/admin-create-user ─────────────────────────────────────────
+// Admin-only endpoint: creates any user type with no email verification
+router.post('/admin-create-user', requireAuth, async (req, res) => {
+  // Only admins may call this
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const {
+    name, phone, email, password, role,
+    car, plate,
+    profile_photo,
+    car_license_photo,
+    driver_license_photo,
+    criminal_record_photo,
+  } = req.body;
+
+  if (!name || !phone || !password || !role) {
+    return res.status(400).json({ error: 'Missing required fields (name, phone, password, role)' });
+  }
+
+  if (role === 'driver') {
+    if (!car || !plate) return res.status(400).json({ error: 'Car model and plate required for drivers' });
+  }
+
+  // Check phone not already taken
+  const [[existing]] = await db.query('SELECT id FROM users WHERE phone = ?', [phone]);
+  if (existing) return res.status(400).json({ error: 'Phone already registered' });
+
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    // Admin-created accounts are active immediately (even drivers)
+    const account_status = 'active';
+
+    const [result] = await db.query(
+      `INSERT INTO users (name, phone, email, password, role, car, plate, profile_photo, account_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, phone, email || null, hash, role, car || null, plate || null, profile_photo || null, account_status]
+    );
+    const userId = result.insertId;
+
+    // Save driver documents if provided
+    if (role === 'driver' && (car_license_photo || driver_license_photo || criminal_record_photo)) {
+      await db.query(
+        `INSERT INTO driver_documents
+           (user_id, car_license_photo, driver_license_photo, criminal_record_photo)
+         VALUES (?, ?, ?, ?)`,
+        [userId, car_license_photo || null, driver_license_photo || null, criminal_record_photo || null]
+      );
+    }
+
+    const [[user]] = await db.query(
+      `SELECT id, name, phone, email, role, car, plate, account_status, created_at
+       FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    res.json({ ok: true, user });
+  } catch (e) {
+    console.error('Admin create-user error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
