@@ -105,6 +105,11 @@ export default function Landing({ onEnterCompanyPortal }) {
   const [otp,          setOtp]          = useState(['','','','','','']);
   const [devOtp,       setDevOtp]       = useState('');
   const [loading,      setLoading]      = useState(false);
+  const [resendTimer,  setResendTimer]  = useState(0); // seconds left before resend allowed
+  const [resetStep,    setResetStep]    = useState('email'); // email | otp | newpass
+  const [resetEmail,   setResetEmail]   = useState('');
+  const [resetOtp,     setResetOtp]     = useState(['','','','','','']);
+  const [newPassword,  setNewPassword]  = useState('');
   const [driverStatus, setDriverStatus] = useState(null); // 'pending_review' | 'rejected'
   const [rejectDetail, setRejectDetail] = useState('');
 
@@ -131,13 +136,82 @@ export default function Landing({ onEnterCompanyPortal }) {
     await sendOTPStep();
   }
 
+  function startResendTimer() {
+    setResendTimer(30);
+    const iv = setInterval(() => {
+      setResendTimer(t => { if (t <= 1) { clearInterval(iv); return 0; } return t - 1; });
+    }, 1000);
+  }
+
   async function sendOTPStep() {
     setLoading(true);
     try {
       const res = await sendOTP(form.email);
       // email OTP - no dev code
       setMode('otp');
+      startResendTimer();
       notify('Code sent', 'Check your email for the 6-digit code.', 'info');
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setLoading(false); }
+  }
+
+  async function handleResend() {
+    setLoading(true);
+    try {
+      await sendOTP(form.email);
+      setOtp(['','','','','','']);
+      startResendTimer();
+      notify('Code resent', 'A new code was sent to your email.', 'info');
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setLoading(false); }
+  }
+
+  // ── Forgot password flow ──────────────────────────────────────────────────
+  async function handleForgotSendOTP() {
+    if (!resetEmail) { notify('Required', 'Enter your email address.', 'error'); return; }
+    setLoading(true);
+    try {
+      await sendOTP(resetEmail);
+      setResetStep('otp');
+      startResendTimer();
+      notify('Code sent', 'Check your email for the 6-digit code.', 'info');
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setLoading(false); }
+  }
+
+  async function handleForgotVerifyOTP() {
+    const code = resetOtp.join('');
+    if (code.length < 6) { notify('Incomplete', 'Enter all 6 digits.', 'error'); return; }
+    setLoading(true);
+    try {
+      // verify OTP exists by calling reset endpoint
+      const res = await fetch('/api/auth/verify-reset-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail, otp: code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Invalid code');
+      setResetStep('newpass');
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setLoading(false); }
+  }
+
+  async function handleForgotSetPassword() {
+    if (!newPassword || newPassword.length < 6) { notify('Too short', 'Password must be at least 6 characters.', 'error'); return; }
+    setLoading(true);
+    try {
+      const code = resetOtp.join('');
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail, otp: code, password: newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      notify('Password updated!', 'You can now sign in.', 'info');
+      setMode('login');
+      setResetStep('email'); setResetEmail(''); setResetOtp(['','','','','','']); setNewPassword('');
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setLoading(false); }
   }
@@ -399,6 +473,14 @@ export default function Landing({ onEnterCompanyPortal }) {
           style={{ ...btnPrimary, opacity: loading ? .6:1 }}>
           {loading ? 'Verifying…' : 'Verify & continue →'}
         </button>
+        <div style={{ marginTop:20 }}>
+          {resendTimer > 0
+            ? <p style={{ color:'#555', fontSize:13 }}>Resend code in {resendTimer}s</p>
+            : <button onClick={handleResend} disabled={loading} style={{ background:'none', border:'none', color:'#fbbf24', fontSize:13, cursor:'pointer', fontWeight:600 }}>
+                Resend code
+              </button>
+          }
+        </div>
       </div>
     </Page>
   );
@@ -406,6 +488,74 @@ export default function Landing({ onEnterCompanyPortal }) {
   // ══════════════════════════════════════════════════════════════════════════
   // LOGIN
   // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  // FORGOT PASSWORD — step: email
+  // ══════════════════════════════════════════════════════════════════════════
+  if (mode === 'forgot' && resetStep === 'email') return (
+    <Page onBack={() => setMode('login')}>
+      <div style={{ textAlign:'center', marginBottom:32 }}>
+        <div style={{ fontSize:48, marginBottom:12 }}>🔑</div>
+        <h2 style={{ fontSize:24, fontWeight:800, color:'#fff', marginBottom:8 }}>Reset password</h2>
+        <p style={{ color:'#666', fontSize:14 }}>Enter your email and we'll send a reset code</p>
+      </div>
+      <Inp label="Email address" value={resetEmail} onChange={e => setResetEmail(e.target.value)} placeholder="you@example.com" type="email" />
+      <button onClick={handleForgotSendOTP} disabled={loading}
+        style={{ ...btnPrimary, opacity: loading ? .6:1, marginTop:8 }}>
+        {loading ? 'Sending…' : 'Send reset code →'}
+      </button>
+    </Page>
+  );
+
+  // FORGOT PASSWORD — step: otp
+  if (mode === 'forgot' && resetStep === 'otp') return (
+    <Page onBack={() => setResetStep('email')}>
+      <div style={{ textAlign:'center' }}>
+        <div style={{ fontSize:52, marginBottom:16 }}>✉️</div>
+        <h2 style={{ fontSize:24, fontWeight:800, color:'#fff', marginBottom:8 }}>Enter reset code</h2>
+        <p style={{ color:'#666', fontSize:14, marginBottom:28 }}>Code sent to {resetEmail}</p>
+        <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:32 }}>
+          {resetOtp.map((v,i) => (
+            <input key={i} id={`r${i}`} maxLength={1} value={v}
+              onChange={e => {
+                const n=[...resetOtp]; n[i]=e.target.value; setResetOtp(n);
+                if (e.target.value && i<5) document.getElementById(`r${i+1}`)?.focus();
+              }}
+              style={{ width:48, height:58, background:'#1a1a1a', border:'1px solid #333', borderRadius:12, textAlign:'center', fontSize:24, fontFamily:'monospace', color:'#fff', outline:'none' }} />
+          ))}
+        </div>
+        <button onClick={handleForgotVerifyOTP} disabled={loading}
+          style={{ ...btnPrimary, opacity: loading ? .6:1 }}>
+          {loading ? 'Verifying…' : 'Verify code →'}
+        </button>
+        <div style={{ marginTop:20 }}>
+          {resendTimer > 0
+            ? <p style={{ color:'#555', fontSize:13 }}>Resend code in {resendTimer}s</p>
+            : <button onClick={async () => { setLoading(true); try { await sendOTP(resetEmail); setResetOtp(['','','','','','']); startResendTimer(); notify('Code resent','Check your email.','info'); } catch(e){notify('Error',e.message,'error');} finally{setLoading(false);} }} disabled={loading}
+                style={{ background:'none', border:'none', color:'#fbbf24', fontSize:13, cursor:'pointer', fontWeight:600 }}>
+                Resend code
+              </button>
+          }
+        </div>
+      </div>
+    </Page>
+  );
+
+  // FORGOT PASSWORD — step: new password
+  if (mode === 'forgot' && resetStep === 'newpass') return (
+    <Page onBack={() => setResetStep('otp')}>
+      <div style={{ textAlign:'center', marginBottom:32 }}>
+        <div style={{ fontSize:48, marginBottom:12 }}>🔒</div>
+        <h2 style={{ fontSize:24, fontWeight:800, color:'#fff', marginBottom:8 }}>Set new password</h2>
+        <p style={{ color:'#666', fontSize:14 }}>Choose a strong password for your account</p>
+      </div>
+      <Inp label="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 6 characters" type="password" />
+      <button onClick={handleForgotSetPassword} disabled={loading}
+        style={{ ...btnPrimary, opacity: loading ? .6:1, marginTop:8 }}>
+        {loading ? 'Saving…' : 'Save new password →'}
+      </button>
+    </Page>
+  );
+
   if (mode === 'login') return (
     <Page onBack={() => setMode('home')}>
       <div style={{ marginBottom:32, textAlign:'center' }}>
@@ -419,6 +569,12 @@ export default function Landing({ onEnterCompanyPortal }) {
         style={{ ...btnPrimary, opacity: loading ? .6:1, marginTop:8 }}>
         {loading ? 'Signing in…' : 'Sign in →'}
       </button>
+      <p style={{ textAlign:'right', marginTop:10 }}>
+        <span onClick={() => { setResetStep('email'); setResetEmail(''); setMode('forgot'); }}
+          style={{ color:'#fbbf24', fontSize:13, cursor:'pointer', fontWeight:600 }}>
+          Forgot password?
+        </span>
+      </p>
       <div style={{ marginTop:24, padding:'16px', background:'#0d0d0d', borderRadius:12, border:'1px solid #1a1a1a' }}>
         <p style={{ fontSize:11, color:'#444', marginBottom:10, textAlign:'center', textTransform:'uppercase', letterSpacing:'.08em' }}>Demo accounts (password: password)</p>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>

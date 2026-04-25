@@ -185,4 +185,44 @@ router.get('/me', requireAuth, async (req, res) => {
   }
 });
 
+
+// ── POST /api/auth/verify-reset-otp ──────────────────────────────────────────
+router.post('/verify-reset-otp', async (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required' });
+
+  const stored = otpStore.get(email);
+  if (!stored || stored.code !== String(otp) || Date.now() > stored.expires) {
+    return res.status(400).json({ error: 'Invalid or expired code' });
+  }
+  // Don't delete — keep it for the reset-password step
+  res.json({ ok: true });
+});
+
+// ── POST /api/auth/reset-password ─────────────────────────────────────────────
+router.post('/reset-password', async (req, res) => {
+  const { email, otp, password } = req.body;
+  if (!email || !otp || !password) return res.status(400).json({ error: 'Missing fields' });
+
+  // Verify OTP one final time
+  const stored = otpStore.get(email);
+  if (!stored || stored.code !== String(otp) || Date.now() > stored.expires) {
+    return res.status(400).json({ error: 'Invalid or expired code' });
+  }
+  otpStore.delete(email);
+
+  // Check user exists
+  const [[user]] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+  if (!user) return res.status(404).json({ error: 'No account found with this email' });
+
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    await db.query('UPDATE users SET password = ? WHERE email = ?', [hash, email]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Reset password error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
