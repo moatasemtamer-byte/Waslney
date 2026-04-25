@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PlaceSearch as AreaSearch } from '../../components/LeafletSearch.jsx';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
@@ -28,73 +28,6 @@ function Lightbox({ src, label, onClose }) {
         onClick={e => e.stopPropagation()}>
         ↗ Open in new tab
       </a>
-
-      {/* ── TENDER MODAL ── */}
-      {tenderModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-          onClick={e => { if(e.target===e.currentTarget) setTenderModal(null); }}>
-          <div style={{ background:'#0d0d0d', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:28, width:'100%', maxWidth:480, boxShadow:'0 24px 80px rgba(0,0,0,0.9)' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-              <span style={{ fontSize:28 }}>🏷</span>
-              <div>
-                <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>Offer for Tender</div>
-                <div style={{ fontSize:12, color:'#666', marginTop:2 }}>Bus companies will bid — lowest price wins</div>
-              </div>
-              <button onClick={() => setTenderModal(null)} style={{ marginLeft:'auto', background:'transparent', border:'none', color:'#555', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
-            </div>
-
-            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.15)', borderRadius:10, padding:'10px 14px', margin:'14px 0', fontSize:13, color:'#fbbf24', fontWeight:600 }}>
-              📍 {tenderModal.fromLoc} → {tenderModal.toLoc}
-            </div>
-
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
-              <div>
-                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Date *</label>
-                <input type="date" value={tenderForm.ends_date} min={new Date().toISOString().slice(0,10)}
-                  onChange={e => setTenderForm({...tenderForm, ends_date:e.target.value})}
-                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Time *</label>
-                <input type="time" value={tenderForm.ends_time}
-                  onChange={e => setTenderForm({...tenderForm, ends_time:e.target.value})}
-                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom:14 }}>
-              <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Notes for companies (optional)</label>
-              <input value={tenderForm.description}
-                onChange={e => setTenderForm({...tenderForm, description:e.target.value})}
-                placeholder="e.g. A/C required, min 20 seats…"
-                style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-              />
-            </div>
-
-            {tenderErr && (
-              <div style={{ fontSize:12, color:'#f87171', background:'rgba(248,113,113,0.08)', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
-                ⚠ {tenderErr}
-              </div>
-            )}
-
-            <div style={{ display:'flex', gap:10 }}>
-              <button onClick={launchTender} disabled={tenderBusy} style={{
-                flex:1, background: tenderBusy?'#1a1a1a':'#fbbf24', color: tenderBusy?'#555':'#000',
-                border:'none', borderRadius:12, padding:'14px', cursor: tenderBusy?'default':'pointer',
-                fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700,
-              }}>
-                {tenderBusy ? 'Launching…' : '⚡ Launch Tender'}
-              </button>
-              <button onClick={() => setTenderModal(null)} style={{ background:'transparent', color:'#555', border:'1px solid #222', borderRadius:12, padding:'14px 18px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13 }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }
@@ -132,73 +65,67 @@ function DocThumb({ label, url, onView }) {
           <a href={url} target="_blank" rel="noreferrer" style={{ color:C.yellow||'#fbbf24' }}>↗ Open document</a>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* ── TENDER MODAL ── */}
-      {tenderModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-          onClick={e => { if(e.target===e.currentTarget) setTenderModal(null); }}>
-          <div style={{ background:'#0d0d0d', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:28, width:'100%', maxWidth:480, boxShadow:'0 24px 80px rgba(0,0,0,0.9)' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-              <span style={{ fontSize:28 }}>🏷</span>
-              <div>
-                <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>Offer for Tender</div>
-                <div style={{ fontSize:12, color:'#666', marginTop:2 }}>Bus companies will bid — lowest price wins</div>
-              </div>
-              <button onClick={() => setTenderModal(null)} style={{ marginLeft:'auto', background:'transparent', border:'none', color:'#555', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
-            </div>
+// ── TenderModal — offer an existing trip for tender bidding ───────────────────
+function TenderModal({ trip, onClose, onSuccess }) {
+  const [deadlineDate, setDeadlineDate] = useState('');
+  const [deadlineTime, setDeadlineTime] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
 
-            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.15)', borderRadius:10, padding:'10px 14px', margin:'14px 0', fontSize:13, color:'#fbbf24', fontWeight:600 }}>
-              📍 {tenderModal.fromLoc} → {tenderModal.toLoc}
-            </div>
+  async function handleSubmit() {
+    if (!deadlineDate || !deadlineTime) { setErr('Please set both a date and time for the tender deadline.'); return; }
+    const deadlineMs = new Date(`${deadlineDate}T${deadlineTime}`).getTime();
+    if (deadlineMs <= Date.now()) { setErr('Deadline must be in the future.'); return; }
+    const durationMinutes = Math.max(1, Math.round((deadlineMs - Date.now()) / 60000));
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('shuttle_token');
+      await tenderApi.createTender({
+        trip_id: trip.id,
+        duration_minutes: durationMinutes,
+        description: `${trip.from_loc} → ${trip.to_loc} on ${trip.date?.slice(0,10)}`
+      }, token);
+      onSuccess();
+    } catch(e) { setErr(e.message || 'Failed to create tender'); }
+    finally { setLoading(false); }
+  }
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
-              <div>
-                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Date *</label>
-                <input type="date" value={tenderForm.ends_date} min={new Date().toISOString().slice(0,10)}
-                  onChange={e => setTenderForm({...tenderForm, ends_date:e.target.value})}
-                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Time *</label>
-                <input type="time" value={tenderForm.ends_time}
-                  onChange={e => setTenderForm({...tenderForm, ends_time:e.target.value})}
-                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom:14 }}>
-              <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Notes for companies (optional)</label>
-              <input value={tenderForm.description}
-                onChange={e => setTenderForm({...tenderForm, description:e.target.value})}
-                placeholder="e.g. A/C required, min 20 seats…"
-                style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-              />
-            </div>
-
-            {tenderErr && (
-              <div style={{ fontSize:12, color:'#f87171', background:'rgba(248,113,113,0.08)', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
-                ⚠ {tenderErr}
-              </div>
-            )}
-
-            <div style={{ display:'flex', gap:10 }}>
-              <button onClick={launchTender} disabled={tenderBusy} style={{
-                flex:1, background: tenderBusy?'#1a1a1a':'#fbbf24', color: tenderBusy?'#555':'#000',
-                border:'none', borderRadius:12, padding:'14px', cursor: tenderBusy?'default':'pointer',
-                fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700,
-              }}>
-                {tenderBusy ? 'Launching…' : '⚡ Launch Tender'}
-              </button>
-              <button onClick={() => setTenderModal(null)} style={{ background:'transparent', color:'#555', border:'1px solid #222', borderRadius:12, padding:'14px 18px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13 }}>
-                Cancel
-              </button>
-            </div>
-          </div>
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+         onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background:'#0c0c12', border:'1px solid #1a2a40', borderRadius:16, padding:28, width:'100%', maxWidth:420, fontFamily:"'Sora',sans-serif" }}>
+        <div style={{ fontSize:18, fontWeight:700, color:'#e8e8f0', marginBottom:6 }}>🏢 Offer Trip for Tender</div>
+        <div style={{ fontSize:12, color:'#8888aa', marginBottom:20 }}>
+          Trip #{trip.id}: {trip.from_loc} → {trip.to_loc} · {trip.date?.slice(0,10)}
         </div>
-      )}
-
+        <div style={{ fontSize:12, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Bidding Deadline Date</div>
+        <input
+          type="date"
+          value={deadlineDate}
+          onChange={e => { setDeadlineDate(e.target.value); setErr(''); }}
+          style={{ width:'100%', background:'#050508', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:14, marginBottom:12, boxSizing:'border-box' }}
+        />
+        <div style={{ fontSize:12, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Bidding Deadline Time</div>
+        <input
+          type="time"
+          value={deadlineTime}
+          onChange={e => { setDeadlineTime(e.target.value); setErr(''); }}
+          style={{ width:'100%', background:'#050508', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:14, marginBottom:16, boxSizing:'border-box' }}
+        />
+        {err && <div style={{ fontSize:12, color:'#f87171', marginBottom:12 }}>{err}</div>}
+        <div style={{ display:'flex', gap:10 }}>
+          <button onClick={onClose} style={{ flex:1, background:'transparent', border:'1px solid #2a2a40', borderRadius:10, padding:'12px', color:'#8888aa', fontSize:13, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={loading} style={{ flex:2, background:'#4b7ab5', border:'none', borderRadius:10, padding:'12px', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:"'Sora',sans-serif", opacity: loading ? 0.7 : 1 }}>
+            {loading ? 'Opening…' : '🏢 Open for Bidding'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -217,11 +144,9 @@ export default function AdminDash() {
   const [stops,    setStops]   = useState([]);
   const [editStops, setEditStops] = useState([]);
 
-  // ── Tender state ──────────────────────────────────────────────────────────
-  const [tenderModal, setTenderModal] = useState(null); // { tripId, fromLoc, toLoc } or null
-  const [tenderForm, setTenderForm]   = useState({ ends_date:'', ends_time:'', description:'' });
-  const [tenderBusy, setTenderBusy]   = useState(false);
-  const [tenderErr,  setTenderErr]    = useState('');
+  // ── Refs to StopPicker map instances so we can pan them directly ──────────
+  const createMapRef = useRef(null); // ref passed to StopPicker in Create Trip
+  const editMapRef   = useRef(null); // ref passed to StopPicker in Edit Trip
 
   // ── Review state ──────────────────────────────────────────────────────────
   const [pendingDrivers, setPendingDrivers] = useState([]);
@@ -236,14 +161,14 @@ export default function AdminDash() {
   // ── Lightbox ──────────────────────────────────────────────────────────────
   const [lightbox, setLightbox] = useState(null); // { src, label }
 
+  // ── Tender target (offer existing trip for tender) ────────────────────────
+  const [tenderTarget, setTenderTarget] = useState(null);
+
   const [form, setForm] = useState({
-    from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:''
+    from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'',
+    offer_tender: false, tender_deadline_date: '', tender_deadline_time: ''
   });
   const f = k => e => setForm({ ...form, [k]: e.target.value });
-
-  // ── Track last searched location to pan the StopPicker map ───────────────
-  const [mapCenter, setMapCenter] = useState(null);     // { lat, lng, name } for create form
-  const [editMapCenter, setEditMapCenter] = useState(null); // { lat, lng, name } for edit form
 
   useEffect(() => {
     loadAll();
@@ -257,7 +182,7 @@ export default function AdminDash() {
     // Booking confirmed/cancelled (passenger books)
     socket_module.on('booking:updated', ({ tripId, bookedSeats }) => {
       if (bookedSeats !== undefined) {
-        setTrips(prev => prev.map(t => String(t.id) === String(tripId) ? { ...t, booked_seats: bookedSeats } : t));
+        setTrips(prev => prev.map(t => String(t.id) === String(tripId) ? { ...t, booked_seats: Number(bookedSeats) } : t));
       }
     });
     return () => {
@@ -313,48 +238,34 @@ export default function AdminDash() {
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
-  function openTenderModal(tripId, fromLoc, toLoc) {
-    // Pre-fill deadline to 24h from now
-    const d = new Date(Date.now() + 24*3600*1000);
-    const dateStr = d.toISOString().slice(0,10);
-    const timeStr = d.toTimeString().slice(0,5);
-    setTenderForm({ ends_date: dateStr, ends_time: timeStr, description:'' });
-    setTenderErr('');
-    setTenderModal({ tripId, fromLoc, toLoc });
-  }
-
-  async function launchTender() {
-    if (!tenderForm.ends_date || !tenderForm.ends_time) { setTenderErr('Set deadline date and time'); return; }
-    const endsAt  = new Date(`${tenderForm.ends_date}T${tenderForm.ends_time}`);
-    const minutes = Math.round((endsAt - Date.now()) / 60000);
-    if (minutes < 5) { setTenderErr('Deadline must be at least 5 minutes from now'); return; }
-    setTenderBusy(true); setTenderErr('');
-    try {
-      await tenderApi.createTender(
-        { trip_id: tenderModal.tripId, duration_minutes: minutes, description: tenderForm.description },
-        api.getToken ? api.getToken() : localStorage.getItem('token')
-      );
-      notify('Tender launched! 🏷', `${tenderModal.fromLoc} → ${tenderModal.toLoc} is now open for bids.`);
-      setTenderModal(null);
-      loadAll();
-    } catch(e) { setTenderErr(e.message); }
-    finally { setTenderBusy(false); }
-  }
-
   async function handleCreate() {
-    const { from_loc, to_loc, pickup_time, date, price } = form;
+    const { from_loc, to_loc, pickup_time, date, price, driver_id, offer_tender, tender_deadline_date, tender_deadline_time } = form;
+    // If offering as tender, driver is not required
     if (!from_loc||!to_loc||!pickup_time||!date||!price) {
       notify('Incomplete', 'Fill in all required fields.', 'error'); return;
     }
     if (stops.length < 2) {
       notify('Add stops', 'Add at least 1 pickup and 1 drop-off on the map.', 'error'); return;
     }
+    if (offer_tender && (!tender_deadline_date || !tender_deadline_time)) {
+      notify('Tender deadline required', 'Set a date and time for the tender deadline.', 'error'); return;
+    }
     try {
-      await api.createTrip({ ...form, price: parseFloat(form.price), total_seats: parseInt(form.total_seats)||16, stops });
-      notify('Trip created!', `${from_loc} → ${to_loc} on ${date}`);
-      setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'' });
+      const tripData = { ...form, price: parseFloat(form.price), total_seats: parseInt(form.total_seats)||16, stops };
+      if (offer_tender) tripData.driver_id = null; // no driver for tender trips
+      const newTrip = await api.createTrip(tripData);
+      if (offer_tender && newTrip && newTrip.id) {
+        const deadlineMs = new Date(`${tender_deadline_date}T${tender_deadline_time}`).getTime();
+        const durationMinutes = Math.max(1, Math.round((deadlineMs - Date.now()) / 60000));
+        // Use the admin token from localStorage
+        const token = localStorage.getItem('shuttle_token');
+        await tenderApi.createTender({ trip_id: newTrip.id, duration_minutes: durationMinutes, description: `${from_loc} → ${to_loc} on ${date}` }, token);
+        notify('Trip + Tender created!', `Bidding closes ${tender_deadline_date} at ${tender_deadline_time}`);
+      } else {
+        notify('Trip created!', `${from_loc} → ${to_loc} on ${date}`);
+      }
+      setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'', offer_tender:false, tender_deadline_date:'', tender_deadline_time:'' });
       setStops([]);
-      setMapCenter(null);
       loadAll(); goTab('trips');
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -368,7 +279,7 @@ export default function AdminDash() {
         driver_id: editTrip.driver_id, stops: editStops,
       });
       notify('Trip updated', 'Changes saved.');
-      setEditTrip(null); setEditStops([]); setEditMapCenter(null);
+      setEditTrip(null); setEditStops([]);
       loadAll();
     } catch(e) { notify('Error', e.message, 'error'); }
   }
@@ -390,8 +301,17 @@ export default function AdminDash() {
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
+  async function handleDeleteAllTrips() {
+    if (!window.confirm(`⚠️ DELETE ALL TRIPS?\n\nThis will permanently remove ALL ${trips.length} trip(s) and their bookings from the database. This cannot be undone.\n\nType OK to confirm.`)) return;
+    try {
+      await api.deleteAllTrips();
+      notify('All trips deleted', 'All trips have been permanently removed from the database.');
+      loadAll();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
   const activeCount  = trips.filter(t => t.status==='upcoming'||t.status==='active').length;
-  const totalBooked  = trips.reduce((s,t) => s+(t.booked_seats||0), 0);
+  const totalBooked  = trips.reduce((s,t) => s+(Number(t.booked_seats)||0), 0);
   const passengers   = users.filter(u => u.role==='passenger');
   const driverUsers  = drivers; // active only, for dropdowns
 
@@ -410,6 +330,15 @@ export default function AdminDash() {
       {/* Lightbox */}
       {lightbox && <Lightbox src={lightbox.src} label={lightbox.label} onClose={() => setLightbox(null)} />}
 
+      {/* Tender deadline modal */}
+      {tenderTarget && (
+        <TenderModal
+          trip={tenderTarget}
+          onClose={() => setTenderTarget(null)}
+          onSuccess={() => { setTenderTarget(null); loadAll(); notify('Tender opened!', `Companies can now bid on trip #${tenderTarget.id}`); }}
+        />
+      )}
+
       <Topbar role="admin" name={user?.name || 'Admin'} onLogout={logout} />
       <div style={{ maxWidth:960, margin:'0 auto', padding:'28px 20px' }}>
 
@@ -417,6 +346,7 @@ export default function AdminDash() {
           { id:'overview',   label:'Overview' },
           { id:'create',     label:'+ Trip' },
           { id:'trips',      label:'Trips' },
+          { id:'tenders',    label:'🏢 Tenders' },
           { id:'drivers',    label:'Drivers' },
           { id:'passengers', label:'Passengers' },
           { id:'review',     label:`📋 Review${pendingDrivers.length > 0 ? ` (${pendingDrivers.length})` : ''}` },
@@ -448,9 +378,9 @@ export default function AdminDash() {
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                   <Badge type={t.status==='completed'?'blue':t.status==='active'?'green':t.status==='cancelled'?'red':'amber'}>{t.status}</Badge>
                   <span style={{ fontWeight:400 }}>{t.from_loc} → {t.to_loc}</span>
-                  <span style={{ marginLeft:'auto', fontSize:12, color:C.text2 }}>{t.booked_seats||0}/{t.total_seats} seats</span>
+                  <span style={{ marginLeft:'auto', fontSize:12, color:C.text2 }}>{Number(t.booked_seats)||0}/{t.total_seats} seats</span>
                 </div>
-                <CapBar booked={t.booked_seats||0} total={t.total_seats} />
+                <CapBar booked={Number(t.booked_seats)||0} total={t.total_seats} />
               </div>
             ))}
           </div>
@@ -461,52 +391,84 @@ export default function AdminDash() {
           <div style={card}>
             <p style={sectSt}>New trip</p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
-              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat && createMapRef.current) createMapRef.current.panTo(c); }} />
+              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat && createMapRef.current) createMapRef.current.panTo(c); }} />
               <Inp label="📅 Date"             type="date"   value={form.date}         onChange={f('date')} />
               <Inp label="🕐 Pickup time"      type="time"   value={form.pickup_time}  onChange={f('pickup_time')} />
               <Inp label="🕐 Est. drop-off"    type="time"   value={form.dropoff_time} onChange={f('dropoff_time')} />
               <Inp label="💰 Price/seat (EGP)" type="number" value={form.price}        onChange={f('price')}       placeholder="45" />
               <Inp label="💺 Total seats"      type="number" value={form.total_seats}  onChange={f('total_seats')} />
             </div>
-            <Sel label="🚐 Assign driver (optional)" value={form.driver_id} onChange={f('driver_id')}>
-              <option value="">Select active driver…</option>
-              {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
-            </Sel>
+            {!form.offer_tender && (
+              <Sel label="🚐 Assign driver (optional)" value={form.driver_id} onChange={f('driver_id')}>
+                <option value="">Select active driver…</option>
+                {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
+              </Sel>
+            )}
+            {/* ── Tender toggle ── */}
+            <div style={{ marginTop:16, background:C.bg3||'#13131c', border:`1px solid ${form.offer_tender?'#4b7ab5':'#1e1e2e'}`, borderRadius:12, padding:'14px 16px' }}>
+              <label style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={form.offer_tender}
+                  onChange={e => setForm(p => ({ ...p, offer_tender: e.target.checked, driver_id: e.target.checked ? '' : p.driver_id }))}
+                  style={{ width:18, height:18, accentColor:'#4b7ab5', cursor:'pointer' }}
+                />
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color: form.offer_tender ? '#4b7ab5' : C.text||'#e8e8f0' }}>
+                    🏢 Offer for company tender (bidding)
+                  </div>
+                  <div style={{ fontSize:11, color:C.text2||'#8888aa', marginTop:2 }}>
+                    Companies will bid for this trip — no driver needed now
+                  </div>
+                </div>
+              </label>
+              {form.offer_tender && (
+                <div style={{ marginTop:14, display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                  <div>
+                    <div style={{ fontSize:11, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Deadline Date</div>
+                    <input
+                      type="date"
+                      value={form.tender_deadline_date}
+                      onChange={e => setForm(p => ({ ...p, tender_deadline_date: e.target.value }))}
+                      style={{ width:'100%', background:'#0c0c12', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:13 }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:'#4b7ab5', fontWeight:700, marginBottom:6, textTransform:'uppercase', letterSpacing:'.06em' }}>Deadline Time</div>
+                    <input
+                      type="time"
+                      value={form.tender_deadline_time}
+                      onChange={e => setForm(p => ({ ...p, tender_deadline_time: e.target.value }))}
+                      style={{ width:'100%', background:'#0c0c12', border:'1px solid #2a2a40', borderRadius:8, padding:'10px 12px', color:'#e8e8f0', fontSize:13 }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
             <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
             <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to add pickup 🟢 and drop-off 🔵 points.</p>
-            <StopPicker stops={stops} onChange={setStops} height={340} centerOn={mapCenter} />
-            {/* ── Tender option inside Create ── */}
-            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:12, padding:'14px 16px', marginTop:8 }}>
-              <div style={{ fontSize:13, fontWeight:600, color:'#fbbf24', marginBottom:4 }}>🏷 Offer this trip for tender instead?</div>
-              <div style={{ fontSize:12, color:'#555', marginBottom:10 }}>Skip assigning a driver — publish the trip for bus companies to bid on.</div>
-              <button
-                onClick={async () => {
-                  const { from_loc, to_loc, date } = form;
-                  if (!from_loc||!to_loc||!date) { notify('Incomplete','Fill from, to, and date first.','error'); return; }
-                  if (stops.length < 2) { notify('Add stops','Add at least 1 pickup and 1 drop-off on the map.','error'); return; }
-                  // Create the trip first (without driver), then open tender modal
-                  try {
-                    const created = await api.createTrip({ ...form, price: parseFloat(form.price)||0, total_seats: parseInt(form.total_seats)||16, stops });
-                    setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'' });
-                    setStops([]); setMapCenter(null);
-                    loadAll();
-                    openTenderModal(created.id || created.trip_id, from_loc, to_loc);
-                  } catch(e) { notify('Error', e.message, 'error'); }
-                }}
-                style={{ background:'rgba(251,191,36,0.12)', color:'#fbbf24', border:'1px solid rgba(251,191,36,0.3)', borderRadius:8, padding:'9px 20px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:600 }}
-              >
-                🏷 Create & offer for tender →
-              </button>
-            </div>
-            <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
+            <StopPicker ref={createMapRef} stops={stops} onChange={setStops} height={340} />
+            <button onClick={handleCreate} style={btnPrimary}>
+              {form.offer_tender ? '🏢 Create trip & open for bidding' : 'Create trip'}
+            </button>
           </div>
         )}
 
         {/* ── TRIPS ── */}
         {tab === 'trips' && !editTrip && (
           <div>
-            <p style={sectSt}>{trips.length} trips total</p>
+            <div style={{ display:"flex", alignItems:"center", marginBottom:16 }}>
+              <p style={{ ...sectSt, marginBottom:0 }}>{trips.length} trips total</p>
+              {trips.length > 0 && (
+                <button
+                  onClick={handleDeleteAllTrips}
+                  style={{ ...btnDanger, marginLeft:"auto", fontSize:12, padding:"7px 14px", display:"flex", alignItems:"center", gap:6 }}
+                >
+                  🗑️ Delete All Trips
+                </button>
+              )}
+            </div>
             {loading && <Spinner />}
             {trips.map(t => {
               const driver = driverUsers.find(d => d.id === t.driver_id);
@@ -520,28 +482,23 @@ export default function AdminDash() {
                   <div style={{ fontSize:12, color:C.text2, marginBottom:6 }}>
                     Driver: {t.driver_name||driver?.name||'—'} · {t.driver_plate||driver?.plate||'—'} · {t.price} EGP/seat
                   </div>
-                  <CapBarLabeled booked={t.booked_seats||0} total={t.total_seats} />
+                  <CapBarLabeled booked={Number(t.booked_seats)||0} total={t.total_seats} />
                   {t.status !== 'cancelled' && t.status !== 'completed' && (
                     <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
                       <button onClick={() => { setEditTrip({...t}); setEditStops(t.stops||[]); }} style={btnSm}>Edit</button>
-                      {!['tendered','awarded','assigned'].includes(t.status) && (
+                      {t.status === 'upcoming' && (
                         <button
-                          onClick={() => openTenderModal(t.id, t.from_loc, t.to_loc)}
-                          style={{ background:'rgba(251,191,36,0.1)', color:'#fbbf24', border:'1px solid rgba(251,191,36,0.28)', borderRadius:8, padding:'7px 14px', fontFamily:"'Sora',sans-serif", fontSize:12, cursor:'pointer', fontWeight:600 }}
-                        >
-                          🏷 Offer for tender
+                          onClick={() => setTenderTarget(t)}
+                          style={{ ...btnSm, color:'#4b7ab5', borderColor:'#1a2a40' }}>
+                          🏢 Offer Tender
                         </button>
                       )}
-                      {['tendered'].includes(t.status) && (
-                        <span style={{ fontSize:11, color:'#fbbf24', background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:6, padding:'4px 10px', display:'flex', alignItems:'center', gap:4 }}>⚡ Bidding open</span>
-                      )}
-                      {['awarded','assigned'].includes(t.status) && (
-                        <span style={{ fontSize:11, color:'#34d399', background:'rgba(52,211,153,0.08)', border:'1px solid rgba(52,211,153,0.2)', borderRadius:6, padding:'4px 10px', display:'flex', alignItems:'center', gap:4 }}>🏆 Tender awarded</span>
-                      )}
                       <button onClick={() => handleCancel(t.id)} style={btnDanger}>Cancel trip</button>
-                      <button onClick={() => handleDeletePermanent(t.id)} style={{ ...btnDanger, background:'rgba(239,68,68,0.18)', border:'1px solid rgba(239,68,68,0.4)' }}>🗑 Delete from DB</button>
                     </div>
                   )}
+                  <div style={{ display:'flex', gap:8, marginTop:8 }}>
+                    <button onClick={() => handleDeletePermanent(t.id)} style={{ ...btnDanger, background:'rgba(239,68,68,0.18)', border:'1px solid rgba(239,68,68,0.4)' }}>🗑 Delete from DB</button>
+                  </div>
                 </div>
               );
             })}
@@ -551,12 +508,12 @@ export default function AdminDash() {
         {/* ── EDIT TRIP ── */}
         {tab === 'trips' && editTrip && (
           <div>
-            <button onClick={() => { setEditTrip(null); setEditStops([]); setEditMapCenter(null); }} style={{ ...btnSm, marginBottom:20 }}>← Cancel</button>
+            <button onClick={() => { setEditTrip(null); setEditStops([]); }} style={{ ...btnSm, marginBottom:20 }}>← Cancel</button>
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
-                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat && editMapRef.current) editMapRef.current.panTo(c); }} />
+                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat && editMapRef.current) editMapRef.current.panTo(c); }} />
                 <Inp label="Date"          type="date"   value={editTrip.date?.slice(0,10)}  onChange={e=>setEditTrip({...editTrip,date:e.target.value})} />
                 <Inp label="Pickup time"   type="time"   value={editTrip.pickup_time}        onChange={e=>setEditTrip({...editTrip,pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time"   value={editTrip.dropoff_time||''}   onChange={e=>setEditTrip({...editTrip,dropoff_time:e.target.value})} />
@@ -566,7 +523,7 @@ export default function AdminDash() {
                 {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
               </Sel>
               <p style={{ ...sectSt, marginTop:16 }}>🗺️ Edit stops</p>
-              <StopPicker stops={editStops} onChange={setEditStops} height={300} centerOn={editMapCenter} />
+              <StopPicker ref={editMapRef} stops={editStops} onChange={setEditStops} height={300} />
               <button onClick={handleSaveEdit} style={btnPrimary}>Save changes</button>
             </div>
           </div>
@@ -720,6 +677,9 @@ export default function AdminDash() {
           </div>
         )}
 
+        {/* ── ADMIN TENDERS TAB ── */}
+        {tab === 'tenders' && <AdminTendersTab token={localStorage.getItem('shuttle_token')} onAward={loadAll} notify={notify} />}
+
         {/* ── PASSENGERS ── */}
         {tab === 'passengers' && (
           <div>
@@ -834,73 +794,320 @@ export default function AdminDash() {
         )}
 
       </div>
+    </div>
+  );
+}
 
-      {/* ── TENDER MODAL ── */}
-      {tenderModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
-          onClick={e => { if(e.target===e.currentTarget) setTenderModal(null); }}>
-          <div style={{ background:'#0d0d0d', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:28, width:'100%', maxWidth:480, boxShadow:'0 24px 80px rgba(0,0,0,0.9)' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-              <span style={{ fontSize:28 }}>🏷</span>
-              <div>
-                <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>Offer for Tender</div>
-                <div style={{ fontSize:12, color:'#666', marginTop:2 }}>Bus companies will bid — lowest price wins</div>
-              </div>
-              <button onClick={() => setTenderModal(null)} style={{ marginLeft:'auto', background:'transparent', border:'none', color:'#555', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
-            </div>
+// ──────────────────────────────────────────────────────────────────────────────
+// ADMIN TENDERS TAB — live bids view with company names + contact info
+// ──────────────────────────────────────────────────────────────────────────────
+function AdminTendersTab({ token, onAward, notify }) {
+  const font = "'IBM Plex Mono','Fira Code',monospace";
+  const [tenders,  setTenders]  = React.useState([]);
+  const [loading,  setLoading]  = React.useState(true);
+  const [expanded, setExpanded] = React.useState(null);
+  const [closing,  setClosing]  = React.useState(null);
 
-            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.15)', borderRadius:10, padding:'10px 14px', margin:'14px 0', fontSize:13, color:'#fbbf24', fontWeight:600 }}>
-              📍 {tenderModal.fromLoc} → {tenderModal.toLoc}
-            </div>
+  const load = React.useCallback(async () => {
+    try {
+      const data = await tenderApi.getAdminLiveBids(token);
+      setTenders(Array.isArray(data) ? data : []);
+    } catch(e) { /* silently fail */ }
+    finally { setLoading(false); }
+  }, [token]);
 
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
-              <div>
-                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Date *</label>
-                <input type="date" value={tenderForm.ends_date} min={new Date().toISOString().slice(0,10)}
-                  onChange={e => setTenderForm({...tenderForm, ends_date:e.target.value})}
-                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Time *</label>
-                <input type="time" value={tenderForm.ends_time}
-                  onChange={e => setTenderForm({...tenderForm, ends_time:e.target.value})}
-                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-                />
-              </div>
-            </div>
+  React.useEffect(() => {
+    load();
+    const iv = setInterval(load, 15000);
+    return () => clearInterval(iv);
+  }, [load]);
 
-            <div style={{ marginBottom:14 }}>
-              <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Notes for companies (optional)</label>
-              <input value={tenderForm.description}
-                onChange={e => setTenderForm({...tenderForm, description:e.target.value})}
-                placeholder="e.g. A/C required, min 20 seats…"
-                style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
-              />
-            </div>
+  async function handleClose(tenderId) {
+    setClosing(tenderId);
+    try {
+      const res = await tenderApi.closeTender(tenderId, token);
+      notify('Tender awarded! 🏆', `${res.winner_company_name} won with ${Number(res.awarded_amount).toLocaleString('ar-EG')} EGP`);
+      load();
+      if (onAward) onAward();
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setClosing(null); }
+  }
 
-            {tenderErr && (
-              <div style={{ fontSize:12, color:'#f87171', background:'rgba(248,113,113,0.08)', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
-                ⚠ {tenderErr}
-              </div>
-            )}
+  async function handleReTender(tenderId) {
+    try {
+      await tenderApi.reTender(tenderId, {}, token);
+      notify('Re-Tender opened! ⚡', 'The trip is now open for new bids.');
+      load();
+      if (onAward) onAward();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
 
-            <div style={{ display:'flex', gap:10 }}>
-              <button onClick={launchTender} disabled={tenderBusy} style={{
-                flex:1, background: tenderBusy?'#1a1a1a':'#fbbf24', color: tenderBusy?'#555':'#000',
-                border:'none', borderRadius:12, padding:'14px', cursor: tenderBusy?'default':'pointer',
-                fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700,
-              }}>
-                {tenderBusy ? 'Launching…' : '⚡ Launch Tender'}
-              </button>
-              <button onClick={() => setTenderModal(null)} style={{ background:'transparent', color:'#555', border:'1px solid #222', borderRadius:12, padding:'14px 18px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13 }}>
-                Cancel
-              </button>
-            </div>
-          </div>
+  const live    = tenders.filter(t => t.status === 'open');
+  const awarded = tenders.filter(t => t.status === 'awarded');
+
+  function fmtEGP(n)  { return `${Number(n).toLocaleString('ar-EG')} EGP`; }
+  function fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—'; }
+  function fmtTime(t) { return t ? t.slice(0,5) : '—'; }
+
+  if (loading) return <div style={{ textAlign:'center', padding:60, color:C.text3 }}>Loading tenders…</div>;
+
+  return (
+    <div>
+      {/* Live section */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
+        <span style={{ width:9, height:9, borderRadius:'50%', background:C.green, display:'inline-block', animation:'pulse 1.5s infinite' }} />
+        <span style={{ fontWeight:700, fontSize:15 }}>Live Bids</span>
+        <span style={{ background:'rgba(52,211,153,.12)', color:C.green, border:'1px solid rgba(52,211,153,.28)', borderRadius:10, padding:'1px 9px', fontSize:11 }}>{live.length}</span>
+        <button onClick={load} style={{ marginLeft:'auto', background:'transparent', border:`1px solid ${C.border}`, borderRadius:7, padding:'5px 12px', color:C.text2, fontSize:11, cursor:'pointer', fontFamily:font }}>↻ Refresh</button>
+      </div>
+
+      {live.length === 0 && (
+        <div style={{ textAlign:'center', padding:'36px 20px', color:C.text3, background:C.bg2, borderRadius:12, marginBottom:24 }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>🏁</div>
+          No open tenders right now.
         </div>
       )}
 
+      <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:32 }}>
+        {live.map(t => (
+          <TenderAdminCard
+            key={t.id} tender={t} expanded={expanded === t.id}
+            onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
+            onClose={() => handleClose(t.id)} closing={closing === t.id}
+            font={font} fmtEGP={fmtEGP} fmtDate={fmtDate} fmtTime={fmtTime}
+          />
+        ))}
+      </div>
+
+      {awarded.length > 0 && (
+        <>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
+            <span style={{ fontSize:18 }}>🏆</span>
+            <span style={{ fontWeight:700, fontSize:15 }}>Awarded Tenders</span>
+            <span style={{ background:'rgba(245,200,66,.10)', color:'#f5c842', border:'1px solid rgba(245,200,66,.28)', borderRadius:10, padding:'1px 9px', fontSize:11 }}>{awarded.length}</span>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            {awarded.map(t => (
+              <AwardedAdminCard key={t.id} tender={t} font={font} fmtEGP={fmtEGP} fmtDate={fmtDate} fmtTime={fmtTime} onReTender={handleReTender} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TenderAdminCard({ tender, expanded, onToggle, onClose, closing, font, fmtEGP, fmtDate, fmtTime }) {
+  const bids = tender.bids || [];
+  const lowestBid = bids.length ? bids[0] : null;
+
+  function BidCountdown({ endsAt }) {
+    const [left, setLeft] = React.useState(Math.max(0, new Date(endsAt) - Date.now()));
+    React.useEffect(() => {
+      const iv = setInterval(() => setLeft(Math.max(0, new Date(endsAt) - Date.now())), 1000);
+      return () => clearInterval(iv);
+    }, [endsAt]);
+    const h = Math.floor(left/3600000);
+    const m = Math.floor((left%3600000)/60000);
+    const s = Math.floor((left%60000)/1000);
+    const urgent = left < 300000;
+    const over   = left === 0;
+    return (
+      <span style={{ fontFamily:font, fontSize:13, fontWeight:700, color: over?C.text3:urgent?C.red:C.green }}>
+        {over ? 'ENDED' : `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+      </span>
+    );
+  }
+
+  return (
+    <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+      <div style={{ padding:'14px 18px', display:'flex', alignItems:'center', gap:14, cursor:'pointer' }} onClick={onToggle}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:font, fontSize:10, color:C.green, letterSpacing:'.08em', marginBottom:3 }}>TENDER #{tender.id} · OPEN</div>
+          <div style={{ fontSize:14, fontWeight:700 }}>{tender.from_loc} → {tender.to_loc}</div>
+          <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>{fmtDate(tender.date)} · {fmtTime(tender.pickup_time)} · {tender.total_seats} seats</div>
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <BidCountdown endsAt={tender.ends_at} />
+          <div style={{ fontSize:10, color:C.text3, fontFamily:font, marginTop:2 }}>remaining</div>
+        </div>
+        <div style={{ textAlign:'center', background:'rgba(245,200,66,.08)', border:'1px solid rgba(245,200,66,.2)', borderRadius:8, padding:'6px 14px' }}>
+          <div style={{ fontSize:20, fontWeight:700, color:'#f5c842', fontFamily:font }}>{bids.length}</div>
+          <div style={{ fontSize:10, color:C.text3 }}>bids</div>
+        </div>
+        <div style={{ fontSize:14, color:C.text3 }}>{expanded ? '▲' : '▼'}</div>
+      </div>
+
+      {expanded && (
+        <div style={{ borderTop:`1px solid ${C.border}` }}>
+          {lowestBid && (
+            <div style={{ padding:'10px 18px', background:'rgba(245,200,66,.06)', borderBottom:`1px solid rgba(245,200,66,.15)`, display:'flex', alignItems:'center', gap:14 }}>
+              <span style={{ fontSize:16 }}>🏆</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>{lowestBid.company_name}</div>
+                <div style={{ fontSize:11, color:C.text2, marginTop:2, display:'flex', gap:14 }}>
+                  <span>📞 <strong>{lowestBid.phone || '—'}</strong></span>
+                  <span>🚌 {lowestBid.fleet_number || '—'}</span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontFamily:font, fontSize:17, fontWeight:700, color:'#f5c842' }}>{fmtEGP(lowestBid.amount)}</div>
+                <div style={{ fontSize:9, color:'#f5c842', fontFamily:font, textAlign:'right' }}>LOWEST BID</div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ padding:'0 18px 14px' }}>
+            <div style={{ fontFamily:font, fontSize:10, color:C.text3, letterSpacing:'.08em', padding:'12px 0 8px' }}>ALL BIDS — COMPANY DETAILS</div>
+            {bids.length === 0 && <div style={{ fontSize:12, color:C.text3, padding:'8px 0' }}>No bids placed yet.</div>}
+            {bids.map((bid, i) => (
+              <div key={bid.id} style={{
+                display:'flex', alignItems:'center', gap:12, padding:'10px 0',
+                borderBottom: i < bids.length-1 ? `1px solid ${C.border}` : 'none',
+              }}>
+                <div style={{
+                  width:26, height:26, borderRadius:'50%',
+                  background: i===0 ? '#f5c842' : C.bg3,
+                  color: i===0 ? '#000' : C.text2,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontFamily:font, fontSize:11, fontWeight:700, flexShrink:0,
+                }}>
+                  {i===0 ? '★' : i+1}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:600 }}>{bid.company_name}</div>
+                  <div style={{ fontSize:11, color:C.text2, marginTop:2, display:'flex', gap:16 }}>
+                    <span>📞 <strong style={{ color: bid.phone ? C.text : C.text3 }}>{bid.phone || 'No phone'}</strong></span>
+                    <span>🚌 {bid.fleet_number || '—'}</span>
+                  </div>
+                </div>
+                <div style={{ fontFamily:font, fontSize:15, fontWeight:700, color: i===0?'#f5c842':C.text }}>
+                  {fmtEGP(bid.amount)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding:'12px 18px', borderTop:`1px solid ${C.border}`, background:C.bg3, display:'flex', gap:10 }}>
+            <button
+              onClick={onClose} disabled={!!(closing || bids.length === 0)}
+              style={{
+                flex:1, background: bids.length && !closing ? '#f5c842' : C.bg4,
+                color: bids.length && !closing ? '#000' : C.text3,
+                border:'none', borderRadius:10, padding:'12px',
+                fontFamily:font, fontSize:12, fontWeight:700,
+                cursor: bids.length && !closing ? 'pointer':'not-allowed',
+                letterSpacing:'.05em', opacity: closing ? 0.7 : 1,
+              }}
+            >
+              {closing ? 'Awarding…' : bids.length === 0 ? 'No bids to award' : '🏆 Award to Lowest Bidder'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AwardedAdminCard({ tender, font, fmtEGP, fmtDate, fmtTime, onReTender }) {
+  const bids = tender.bids || [];
+  const [showBids,    setShowBids]    = React.useState(false);
+  const [reTendering, setReTendering] = React.useState(false);
+
+  const today     = new Date().toISOString().slice(0, 10);
+  const weekEnd   = tender.week_end   || null;
+  const weekStart = tender.week_start || null;
+  const weekOver  = weekEnd && weekEnd < today;
+  const weekActive = weekStart && weekEnd && weekStart <= today && weekEnd >= today;
+
+  async function doReTender() {
+    setReTendering(true);
+    try { await onReTender(tender.id); }
+    finally { setReTendering(false); }
+  }
+
+  return (
+    <div style={{ background:C.bg2, border:`1px solid ${weekOver ? 'rgba(52,211,153,.28)' : 'rgba(245,200,66,.22)'}`, borderRadius:12, overflow:'hidden' }}>
+      <div style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', gap:14 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:font, fontSize:10, color:'#f5c842', letterSpacing:'.08em', marginBottom:3 }}>
+            TENDER #{tender.id} · AWARDED
+            {weekActive && <span style={{ marginLeft:8, color:'#34d399' }}>● WEEK ACTIVE</span>}
+            {weekOver   && <span style={{ marginLeft:8, color:'#34d399' }}>✓ WEEK ENDED</span>}
+          </div>
+          <div style={{ fontSize:14, fontWeight:700 }}>{tender.from_loc} → {tender.to_loc}</div>
+          <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>{fmtDate(tender.date)} · {fmtTime(tender.pickup_time)}</div>
+          {weekStart && weekEnd && (
+            <div style={{ fontSize:11, color:C.text3, fontFamily:font, marginTop:4 }}>
+              📅 Assignment week: {weekStart} → {weekEnd}
+            </div>
+          )}
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <div style={{ fontFamily:font, fontSize:17, fontWeight:700, color:'#f5c842' }}>{fmtEGP(tender.awarded_amount)}</div>
+          <div style={{ fontSize:10, color:C.text3, fontFamily:font }}>awarded amount</div>
+        </div>
+      </div>
+
+      {/* Winner banner */}
+      <div style={{ margin:'0 18px 14px', background:'rgba(245,200,66,.07)', border:'1px solid rgba(245,200,66,.2)', borderRadius:10, padding:'12px 14px' }}>
+        <div style={{ fontSize:10, color:'#f5c842', fontFamily:font, letterSpacing:'.08em', marginBottom:6 }}>WINNER</div>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <span style={{ fontSize:22 }}>🏆</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:700 }}>{tender.winner_company_name || '—'}</div>
+            <div style={{ fontSize:12, marginTop:3, display:'flex', gap:14 }}>
+              <span style={{ color: tender.winner_phone ? C.green : C.text3 }}>
+                📞 {tender.winner_phone ? <strong>{tender.winner_phone}</strong> : <em>No phone on file</em>}
+              </span>
+              {tender.winner_fleet && <span style={{ color:C.text2 }}>🚌 {tender.winner_fleet}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Re-tender button — only shows after week ends */}
+      {weekOver && (
+        <div style={{ margin:'0 18px 14px', background:'rgba(52,211,153,.07)', border:'1px solid rgba(52,211,153,.28)', borderRadius:10, padding:'12px 14px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div>
+            <div style={{ fontSize:12, fontWeight:700, color:'#34d399' }}>📅 Week assignment has ended</div>
+            <div style={{ fontSize:11, color:C.text3, marginTop:3 }}>You can now offer this trip for a new round of bidding.</div>
+          </div>
+          <button onClick={doReTender} disabled={reTendering} style={{
+            background: reTendering ? C.bg3 : 'rgba(52,211,153,.15)', color:'#34d399',
+            border:'1px solid rgba(52,211,153,.4)', borderRadius:8,
+            padding:'9px 16px', cursor:'pointer', fontFamily:font, fontSize:12, fontWeight:700,
+            whiteSpace:'nowrap', flexShrink:0,
+          }}>
+            {reTendering ? 'Opening…' : '⚡ Re-Tender'}
+          </button>
+        </div>
+      )}
+
+      {/* Show all bids toggle */}
+      {bids.length > 0 && (
+        <div style={{ borderTop:`1px solid ${C.border}` }}>
+          <button onClick={() => setShowBids(s => !s)} style={{ width:'100%', background:'transparent', border:'none', padding:'10px 18px', color:C.text2, fontSize:12, cursor:'pointer', textAlign:'left', fontFamily:font }}>
+            {showBids ? '▲ Hide' : '▼ Show'} all {bids.length} bids
+          </button>
+          {showBids && (
+            <div style={{ padding:'0 18px 14px' }}>
+              {bids.map((bid, i) => (
+                <div key={bid.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'8px 0', borderBottom: i < bids.length-1 ? `1px solid ${C.border}` : 'none' }}>
+                  <div style={{ width:22, height:22, borderRadius:'50%', background: i===0?'#f5c842':C.bg3, color: i===0?'#000':C.text2, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:font, fontSize:10, fontWeight:700, flexShrink:0 }}>
+                    {i===0?'★':i+1}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:600 }}>{bid.company_name}</div>
+                    <div style={{ fontSize:11, color:C.text2 }}>📞 {bid.phone || '—'} · 🚌 {bid.fleet_number || '—'}</div>
+                  </div>
+                  <div style={{ fontFamily:font, fontSize:13, fontWeight:700, color: i===0?'#f5c842':C.text }}>{fmtEGP(bid.amount)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

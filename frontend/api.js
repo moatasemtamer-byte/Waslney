@@ -1,4 +1,4 @@
-const BASE = 'https://api.waslney.com/api';
+const BASE = '/api';
 
 function getToken() {
   return localStorage.getItem('shuttle_token');
@@ -39,8 +39,9 @@ export const getDriverTrips  = ()    => get('/trips/driver');
 export const getTrip         = (id)  => get(`/trips/${id}`);
 export const createTrip      = (b)   => post('/trips', b);
 export const updateTrip      = (id,b)=> put(`/trips/${id}`, b);
-export const deleteTrip      = (id)  => del(`/trips/${id}`);
-export const deleteTripPermanent = (id) => del(`/trips/${id}/permanent`);
+export const deleteTrip          = (id)  => del(`/trips/${id}`);
+export const deleteTripPermanent = (id)  => del(`/trips/${id}/permanent`);
+export const deleteAllTrips      = ()    => del("/trips/delete-all");
 export const startTrip       = (id)  => post(`/trips/${id}/start`);
 export const completeTrip    = (id)  => post(`/trips/${id}/complete`);
 
@@ -67,8 +68,12 @@ export const getTripLocation  = (id) => get(`/location/trip/${id}`);
 export const getAllLocations   = ()   => get('/location/all');
 
 // ── USERS (admin) ─────────────────────────────────────────
-export const getUsers         = ()   => get('/users');
-export const getDrivers       = ()   => get('/users/drivers');
+export const getUsers            = ()         => get('/users');
+export const getDrivers          = ()         => get('/users/drivers');
+export const getAllDrivers        = ()         => get('/users/drivers/all');
+export const getPendingDrivers   = ()         => get('/users/pending-review');
+export const approveDriver       = (id)       => post(`/users/${id}/approve`);
+export const rejectDriver        = (id, note) => post(`/users/${id}/reject`, { note });
 
 // ── POOL RIDES ────────────────────────────────────────────
 export const submitPoolRequest    = (b)       => post('/pool/requests', b);
@@ -77,13 +82,16 @@ export const getPoolInvitations   = ()        => get('/pool/invitations');
 export const acceptPoolInvitation = (id, body={}) => post(`/pool/invitations/${id}/accept`, body);
 export const declinePoolInvitation= (id, body={}) => post(`/pool/invitations/${id}/decline`, body);
 export const getPoolFarePreview   = (id)         => get(`/pool/invitations/${id}/fare-preview`);
-export const respondToPoolFare    = (tripId, accepted) => post(`/pool/fare-response/${tripId}`, { accepted });
 export const updatePoolStops      = (tid, s)  => put(`/pool/trips/${tid}/stops`, { stops: s });
 export const getPoolChat          = (tid)     => get(`/pool/chat/${tid}`);
 export const sendPoolMessage      = (tid, msg)=> post(`/pool/chat/${tid}`, { message: msg });
 export const getNearbyPoolGroups  = (q)       => get(`/pool/groups/nearby?${new URLSearchParams(q)}`);
-// ── SAVED POINTS (admin) ──────────────────────────────────
-export const getSavedPoints   = ()      => get('/saved-points');
-export const createSavedPoint = (b)     => post('/saved-points', b);
-export const updateSavedPoint = (id, b) => put(`/saved-points/${id}`, b);
-export const deleteSavedPoint = (id)    => del(`/saved-points/${id}`);
+
+export const respondToFare = (tripId, response) => post('/pool/fare-response', { tripId, response }); // response: 'accept'|'refuse'
+export const proposeFare   = (tripId, farePerPassenger) => post(`/pool/trips/${tripId}/propose-fare`, { fare_per_passenger: farePerPassenger });
+
+// ── SAVED POINTS ──────────────────────────────────────────
+export const getSavedPoints    = ()          => get('/saved-points');
+export const createSavedPoint  = (body)      => post('/saved-points', body);
+export const updateSavedPoint  = (id, body)  => put(`/saved-points/${id}`, body);
+export const deleteSavedPoint  = (id)        => del(`/saved-points/${id}`);
