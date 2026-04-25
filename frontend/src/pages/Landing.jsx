@@ -411,7 +411,17 @@ export default function Landing({ onEnterCompanyPortal }) {
       <Inp label="Full name"    value={form.name}     onChange={f('name')}     placeholder="Ahmed Hassan" />
       <Inp label="Phone number" value={form.phone}    onChange={f('phone')}    placeholder="+20 100 000 0000" />
       <Inp label="Email address" value={form.email}    onChange={f('email')}    placeholder="you@example.com" type="email" />
-      <InpPassword label="Password" value={form.password} onChange={f('password')} placeholder="Choose a password" />
+      <div style={{ marginBottom:14 }}>
+        <label style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:6 }}>Password</label>
+        <div style={{ position:'relative' }}>
+          <input style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:12, padding:'14px 48px 14px 16px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none', boxSizing:'border-box' }}
+            value={form.password} onChange={f('password')} placeholder="Choose a password" type={showPass ? 'text' : 'password'} />
+          <button type="button" onClick={() => setShowPass(p=>!p)}
+            style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#555', fontSize:18, padding:0 }}>
+            {showPass ? '🙈' : '👁️'}
+          </button>
+        </div>
+      </div>
       {role === 'driver' && <>
         <Inp label="Car model"     value={form.car}   onChange={f('car')}   placeholder="Toyota Hiace 2022" />
         <Inp label="License plate" value={form.plate} onChange={f('plate')} placeholder="أ ب ج 1234" />
@@ -483,9 +493,26 @@ export default function Landing({ onEnterCompanyPortal }) {
 
         <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:32 }}>
           {otp.map((v,i) => (
-            <OtpInput key={i} id={`o${i}`} value={v}
-              onChange={val => { const n=[...otp]; n[i]=val; setOtp(n); }}
-              onPaste={e => handleOtpPaste(e, setOtp)} />
+            <input key={i} id={`o${i}`} maxLength={1} value={v}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g,'');
+                const n=[...otp]; n[i]=val; setOtp(n);
+                if (val && i<5) document.getElementById(`o${i+1}`)?.focus();
+              }}
+              onKeyDown={e => {
+                if (e.key==='Backspace') { e.preventDefault();
+                  const n=[...otp];
+                  if (n[i]) { n[i]=''; setOtp(n); }
+                  else if (i>0) { n[i-1]=''; setOtp(n); document.getElementById(`o${i-1}`)?.focus(); }
+                }
+              }}
+              onPaste={e => {
+                e.preventDefault();
+                const text = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6);
+                const n=[...otp]; text.split('').forEach((ch,idx) => { if(idx<6) n[idx]=ch; }); setOtp(n);
+                document.getElementById(`o${Math.min(text.length,5)}`)?.focus();
+              }}
+              style={{ width:48, height:58, background:'#1a1a1a', border:'1px solid #333', borderRadius:12, textAlign:'center', fontSize:24, fontFamily:'monospace', color:'#fff', outline:'none' }} />
           ))}
         </div>
         <button onClick={handleVerify} disabled={loading}
@@ -534,9 +561,26 @@ export default function Landing({ onEnterCompanyPortal }) {
         <p style={{ color:'#666', fontSize:14, marginBottom:28 }}>Code sent to {resetEmail}</p>
         <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:32 }}>
           {resetOtp.map((v,i) => (
-            <OtpInput key={i} id={`r${i}`} value={v}
-              onChange={val => { const n=[...resetOtp]; n[i]=val; setResetOtp(n); }}
-              onPaste={handleResetOtpPaste} />
+            <input key={i} id={`r${i}`} maxLength={1} value={v}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g,'');
+                const n=[...resetOtp]; n[i]=val; setResetOtp(n);
+                if (val && i<5) document.getElementById(`r${i+1}`)?.focus();
+              }}
+              onKeyDown={e => {
+                if (e.key==='Backspace') { e.preventDefault();
+                  const n=[...resetOtp];
+                  if (n[i]) { n[i]=''; setResetOtp(n); }
+                  else if (i>0) { n[i-1]=''; setResetOtp(n); document.getElementById(`r${i-1}`)?.focus(); }
+                }
+              }}
+              onPaste={e => {
+                e.preventDefault();
+                const text = e.clipboardData.getData('text').replace(/\D/g,'').slice(0,6);
+                const n=[...resetOtp]; text.split('').forEach((ch,idx) => { if(idx<6) n[idx]=ch; }); setResetOtp(n);
+                document.getElementById(`r${Math.min(text.length,5)}`)?.focus();
+              }}
+              style={{ width:48, height:58, background:'#1a1a1a', border:'1px solid #333', borderRadius:12, textAlign:'center', fontSize:24, fontFamily:'monospace', color:'#fff', outline:'none' }} />
           ))}
         </div>
         <button onClick={handleForgotVerifyOTP} disabled={loading}
@@ -564,7 +608,17 @@ export default function Landing({ onEnterCompanyPortal }) {
         <h2 style={{ fontSize:24, fontWeight:800, color:'#fff', marginBottom:8 }}>Set new password</h2>
         <p style={{ color:'#666', fontSize:14 }}>Choose a strong password for your account</p>
       </div>
-      <InpPassword label="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 6 characters" />
+      <div style={{ marginBottom:14 }}>
+        <label style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:6 }}>New Password</label>
+        <div style={{ position:'relative' }}>
+          <input style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:12, padding:'14px 48px 14px 16px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none', boxSizing:'border-box' }}
+            value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 6 characters" type={showNewPass ? 'text' : 'password'} />
+          <button type="button" onClick={() => setShowNewPass(p=>!p)}
+            style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#555', fontSize:18, padding:0 }}>
+            {showNewPass ? '🙈' : '👁️'}
+          </button>
+        </div>
+      </div>
       <button onClick={handleForgotSetPassword} disabled={loading}
         style={{ ...btnPrimary, opacity: loading ? .6:1, marginTop:8 }}>
         {loading ? 'Saving…' : 'Save new password →'}
@@ -580,7 +634,17 @@ export default function Landing({ onEnterCompanyPortal }) {
         <p style={{ color:'#666', fontSize:14 }}>Sign in to your account</p>
       </div>
       <Inp label="Phone number" value={form.phone}    onChange={f('phone')}    placeholder="+20 100 111 2222" />
-      <InpPassword label="Password" value={form.password} onChange={f('password')} placeholder="Your password" />
+      <div style={{ marginBottom:14 }}>
+        <label style={{ fontSize:11, color:'#555', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:6 }}>Password</label>
+        <div style={{ position:'relative' }}>
+          <input style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:12, padding:'14px 48px 14px 16px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:14, outline:'none', boxSizing:'border-box' }}
+            value={form.password} onChange={f('password')} placeholder="Your password" type={showPass ? 'text' : 'password'} />
+          <button type="button" onClick={() => setShowPass(p=>!p)}
+            style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#555', fontSize:18, padding:0 }}>
+            {showPass ? '🙈' : '👁️'}
+          </button>
+        </div>
+      </div>
       <button onClick={handleLogin} disabled={loading}
         style={{ ...btnPrimary, opacity: loading ? .6:1, marginTop:8 }}>
         {loading ? 'Signing in…' : 'Sign in →'}
