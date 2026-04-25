@@ -110,6 +110,8 @@ export default function Landing({ onEnterCompanyPortal }) {
   const [resetEmail,   setResetEmail]   = useState('');
   const [resetOtp,     setResetOtp]     = useState(['','','','','','']);
   const [newPassword,  setNewPassword]  = useState('');
+  const [showPass,     setShowPass]     = useState(false);
+  const [showNewPass,  setShowNewPass]  = useState(false);
   const [driverStatus, setDriverStatus] = useState(null); // 'pending_review' | 'rejected'
   const [rejectDetail, setRejectDetail] = useState('');
 
@@ -214,6 +216,26 @@ export default function Landing({ onEnterCompanyPortal }) {
       setResetStep('email'); setResetEmail(''); setResetOtp(['','','','','','']); setNewPassword('');
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setLoading(false); }
+  }
+
+  function handleOtpPaste(e, setter) {
+    const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g,'').slice(0,6);
+    if (!text) return;
+    e.preventDefault();
+    const arr = text.split('').concat(['','','','','','']).slice(0,6);
+    setter(arr);
+    const last = Math.min(text.length, 5);
+    setTimeout(() => document.getElementById(`o${last}`)?.focus(), 0);
+  }
+
+  function handleResetOtpPaste(e) {
+    const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g,'').slice(0,6);
+    if (!text) return;
+    e.preventDefault();
+    const arr = text.split('').concat(['','','','','','']).slice(0,6);
+    setResetOtp(arr);
+    const last = Math.min(text.length, 5);
+    setTimeout(() => document.getElementById(`r${last}`)?.focus(), 0);
   }
 
   // ── OTP verify + register ─────────────────────────────────────────────────
@@ -389,7 +411,7 @@ export default function Landing({ onEnterCompanyPortal }) {
       <Inp label="Full name"    value={form.name}     onChange={f('name')}     placeholder="Ahmed Hassan" />
       <Inp label="Phone number" value={form.phone}    onChange={f('phone')}    placeholder="+20 100 000 0000" />
       <Inp label="Email address" value={form.email}    onChange={f('email')}    placeholder="you@example.com" type="email" />
-      <Inp label="Password"     value={form.password} onChange={f('password')} placeholder="Choose a password" type="password" />
+      <InpPassword label="Password" value={form.password} onChange={f('password')} placeholder="Choose a password" />
       {role === 'driver' && <>
         <Inp label="Car model"     value={form.car}   onChange={f('car')}   placeholder="Toyota Hiace 2022" />
         <Inp label="License plate" value={form.plate} onChange={f('plate')} placeholder="أ ب ج 1234" />
@@ -461,12 +483,9 @@ export default function Landing({ onEnterCompanyPortal }) {
 
         <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:32 }}>
           {otp.map((v,i) => (
-            <input key={i} id={`o${i}`} maxLength={1} value={v}
-              onChange={e => {
-                const n=[...otp]; n[i]=e.target.value; setOtp(n);
-                if (e.target.value && i<5) document.getElementById(`o${i+1}`)?.focus();
-              }}
-              style={{ width:48, height:58, background:'#1a1a1a', border:'1px solid #333', borderRadius:12, textAlign:'center', fontSize:24, fontFamily:'monospace', color:'#fff', outline:'none' }} />
+            <OtpInput key={i} id={`o${i}`} value={v}
+              onChange={val => { const n=[...otp]; n[i]=val; setOtp(n); }}
+              onPaste={e => handleOtpPaste(e, setOtp)} />
           ))}
         </div>
         <button onClick={handleVerify} disabled={loading}
@@ -515,12 +534,9 @@ export default function Landing({ onEnterCompanyPortal }) {
         <p style={{ color:'#666', fontSize:14, marginBottom:28 }}>Code sent to {resetEmail}</p>
         <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:32 }}>
           {resetOtp.map((v,i) => (
-            <input key={i} id={`r${i}`} maxLength={1} value={v}
-              onChange={e => {
-                const n=[...resetOtp]; n[i]=e.target.value; setResetOtp(n);
-                if (e.target.value && i<5) document.getElementById(`r${i+1}`)?.focus();
-              }}
-              style={{ width:48, height:58, background:'#1a1a1a', border:'1px solid #333', borderRadius:12, textAlign:'center', fontSize:24, fontFamily:'monospace', color:'#fff', outline:'none' }} />
+            <OtpInput key={i} id={`r${i}`} value={v}
+              onChange={val => { const n=[...resetOtp]; n[i]=val; setResetOtp(n); }}
+              onPaste={handleResetOtpPaste} />
           ))}
         </div>
         <button onClick={handleForgotVerifyOTP} disabled={loading}
@@ -548,7 +564,7 @@ export default function Landing({ onEnterCompanyPortal }) {
         <h2 style={{ fontSize:24, fontWeight:800, color:'#fff', marginBottom:8 }}>Set new password</h2>
         <p style={{ color:'#666', fontSize:14 }}>Choose a strong password for your account</p>
       </div>
-      <Inp label="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 6 characters" type="password" />
+      <InpPassword label="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 6 characters" />
       <button onClick={handleForgotSetPassword} disabled={loading}
         style={{ ...btnPrimary, opacity: loading ? .6:1, marginTop:8 }}>
         {loading ? 'Saving…' : 'Save new password →'}
@@ -564,7 +580,7 @@ export default function Landing({ onEnterCompanyPortal }) {
         <p style={{ color:'#666', fontSize:14 }}>Sign in to your account</p>
       </div>
       <Inp label="Phone number" value={form.phone}    onChange={f('phone')}    placeholder="+20 100 111 2222" />
-      <Inp label="Password"     value={form.password} onChange={f('password')} placeholder="Your password" type="password" />
+      <InpPassword label="Password" value={form.password} onChange={f('password')} placeholder="Your password" />
       <button onClick={handleLogin} disabled={loading}
         style={{ ...btnPrimary, opacity: loading ? .6:1, marginTop:8 }}>
         {loading ? 'Signing in…' : 'Sign in →'}
