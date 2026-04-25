@@ -5,6 +5,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../../api_tender.js';
 import socket from '../../socket.js';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 // ── Design tokens ─────────────────────────────────────────
 const C = {
@@ -125,7 +127,7 @@ export default function CompanyDash({ onExitPortal }) {
 // ────────────────────────────────────────────────────────────────────────────
 function AuthScreen({ onLogin }) {
   const [mode, setMode]   = useState('login'); // login | register
-  const [form, setForm]   = useState({ company_name: '', fleet_number: '', password: '' });
+  const [form, setForm]   = useState({ company_name: '', fleet_number: '', password: '', phone: '' });
   const [err,  setErr]    = useState('');
   const [busy, setBusy]   = useState(false);
 
@@ -180,7 +182,10 @@ function AuthScreen({ onLogin }) {
           <div style={{ padding:'28px 24px', display:'flex', flexDirection:'column', gap:14 }}>
             <FieldInput label="Company Name" value={form.company_name} onChange={v => setForm({...form, company_name:v})} placeholder="e.g. Cairo Express Co." />
             {mode === 'register' && (
-              <FieldInput label="Fleet / Bus Number" value={form.fleet_number} onChange={v => setForm({...form, fleet_number:v})} placeholder="e.g. BUS-2024-CAIRO" />
+              <>
+                <FieldInput label="Fleet / Bus Number" value={form.fleet_number} onChange={v => setForm({...form, fleet_number:v})} placeholder="e.g. BUS-2024-CAIRO" />
+                <FieldInput label="Contact Phone" value={form.phone} onChange={v => setForm({...form, phone:v})} placeholder="e.g. +20 100 000 0000" />
+              </>
             )}
             <FieldInput label="Password" type="password" value={form.password} onChange={v => setForm({...form, password:v})} placeholder="••••••••" onEnter={submit} />
 
@@ -332,6 +337,7 @@ function BiddingArena({ tender, token, company, onBack, onBidPlaced }) {
     });
     socket.on(`tender:${tender.id}:awarded`, (data) => {
       setDetail(prev => ({ ...prev, status: 'awarded', winner: data }));
+      // No navigation — company stays on the BiddingArena to see the result
     });
     return () => { socket.off(ev); socket.off(`tender:${tender.id}:awarded`); };
   }, [tender.id]);
@@ -378,7 +384,7 @@ function BiddingArena({ tender, token, company, onBack, onBidPlaced }) {
         {/* Left: bid form + stats */}
         <div>
           {detail.status === 'awarded' ? (
-            <AwardedBanner winner={detail.winner} />
+            <AwardedBanner winner={detail.winner} company={company} />
           ) : over ? (
             <div style={{ background:C.bg3, border:`1px solid ${C.border}`, borderRadius:10, padding:'20px', textAlign:'center' }}>
               <div style={{ fontSize:28, marginBottom:8 }}>🏁</div>
@@ -462,6 +468,17 @@ function BiddingArena({ tender, token, company, onBack, onBidPlaced }) {
           </div>
         </div>
       </div>
+
+      {/* Route Map + Stop Report (full width, below grid) */}
+      {(detail.stops && detail.stops.length > 0) && (
+        <div style={{ borderTop:`1px solid ${C.border}`, padding:'20px' }}>
+          <div style={{ fontFamily:font, fontSize:11, color:C.text2, marginBottom:14, letterSpacing:'.08em' }}>
+            🗺 ROUTE MAP · {detail.stops.length} stop{detail.stops.length!==1?'s':''}
+          </div>
+          <TenderRouteMap stops={detail.stops} fromLoc={detail.from_loc} toLoc={detail.to_loc} />
+          <StopReport stops={detail.stops} />
+        </div>
+      )}
     </div>
   );
 }
@@ -497,12 +514,33 @@ function BidRow({ bid, rank, total }) {
   );
 }
 
-function AwardedBanner({ winner }) {
+function AwardedBanner({ winner, company }) {
+  const didWin = winner && company && String(winner.company_id) === String(company.id);
   return (
-    <div style={{ background:C.goldDim, border:`1px solid ${C.goldBorder}`, borderRadius:12, padding:'20px', textAlign:'center' }}>
-      <div style={{ fontSize:36, marginBottom:8 }}>🏆</div>
-      <div style={{ fontFamily:font, fontSize:13, color:C.gold, fontWeight:700 }}>TENDER AWARDED</div>
-      {winner && <div style={{ fontSize:12, color:C.text2, marginTop:6 }}>Winning bid: {fmtEGP(winner.amount)}</div>}
+    <div style={{
+      background: didWin ? C.goldDim : C.bg3,
+      border: `1px solid ${didWin ? C.goldBorder : C.border}`,
+      borderRadius: 12, padding: '20px', textAlign: 'center',
+    }}>
+      <div style={{ fontSize: 36, marginBottom: 8 }}>{didWin ? '🏆' : '🏁'}</div>
+      <div style={{ fontFamily: font, fontSize: 13, color: didWin ? C.gold : C.text2, fontWeight: 700 }}>
+        {didWin ? 'YOU WON THIS TENDER!' : 'TENDER AWARDED'}
+      </div>
+      {winner && (
+        <div style={{ fontSize: 12, color: C.text2, marginTop: 6 }}>
+          Winning bid: {fmtEGP(winner.amount)}
+        </div>
+      )}
+      {didWin && (
+        <div style={{ marginTop: 12, fontSize: 12, color: C.green, background: C.greenDim, border: `1px solid ${C.greenBorder}`, borderRadius: 8, padding: '10px 14px' }}>
+          ✓ Go to the <strong>🏆 Won</strong> tab to assign a driver &amp; vehicle.
+        </div>
+      )}
+      {!didWin && winner && (
+        <div style={{ fontSize: 11, color: C.text3, marginTop: 6, fontFamily: font }}>
+          Another company won this bid.
+        </div>
+      )}
     </div>
   );
 }
@@ -731,8 +769,163 @@ function ProfileTab({ company }) {
         </div>
         <InfoRow label="Company ID" value={`#${company.id}`} />
         <InfoRow label="Fleet / Bus Number" value={company.fleet_number} />
+        {company.phone && <InfoRow label="Contact Phone" value={company.phone} />}
         <div style={{ marginTop:16, fontSize:12, color:C.text3, fontFamily:font, textAlign:'center' }}>
           Contact admin to update company details
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// TENDER ROUTE MAP — shows stops on a Leaflet map for the bidding company
+// ────────────────────────────────────────────────────────────────────────────
+function TenderRouteMap({ stops, fromLoc, toLoc }) {
+  const mapRef  = useRef(null);
+  const mapInst = useRef(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInst.current) return;
+    if (!stops || stops.length === 0) return;
+
+    // Filter valid stops
+    const valid = stops.filter(s => s.lat != null && s.lng != null);
+    if (valid.length === 0) return;
+
+    const center = [parseFloat(valid[0].lat), parseFloat(valid[0].lng)];
+    const map = L.map(mapRef.current, { center, zoom: 13, zoomControl: true });
+    mapInst.current = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map);
+
+    const coords = [];
+    valid.forEach((s, i) => {
+      const lat = parseFloat(s.lat);
+      const lng = parseFloat(s.lng);
+      coords.push([lat, lng]);
+
+      const isPickup  = s.type === 'pickup';
+      const isFirst   = i === 0;
+      const isLast    = i === valid.length - 1;
+      const color     = isPickup ? '#34d399' : '#818cf8';
+      const emoji     = isFirst ? '🟢' : isLast ? '🔴' : isPickup ? '🟢' : '🔵';
+
+      const icon = L.divIcon({
+        html: `<div style="width:20px;height:20px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 0 10px ${color}88;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000">${i+1}</div>`,
+        iconSize: [20, 20], iconAnchor: [10, 10], className: '',
+      });
+
+      const label = s.label || (isPickup ? 'Pickup' : 'Drop-off');
+      L.marker([lat, lng], { icon })
+        .addTo(map)
+        .bindPopup(`<b>${emoji} Stop ${i+1}: ${label}</b><br/><span style="font-size:11px;color:#666">${isPickup ? '🟢 Pickup point' : '🔵 Drop-off point'}</span>`);
+    });
+
+    // Draw route line
+    if (coords.length > 1) {
+      L.polyline(coords, { color: '#f5c842', weight: 3, opacity: 0.8, dashArray: '8,5' }).addTo(map);
+    }
+
+    // Fit map to all stops
+    if (coords.length > 1) {
+      map.fitBounds(L.latLngBounds(coords), { padding: [24, 24] });
+    }
+
+    return () => {
+      if (mapInst.current) { mapInst.current.remove(); mapInst.current = null; }
+    };
+  }, [stops]);
+
+  return (
+    <div
+      ref={mapRef}
+      style={{ width: '100%', height: 320, borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden', marginBottom: 14 }}
+    />
+  );
+}
+
+// ── Stop text report ──────────────────────────────────────
+function StopReport({ stops }) {
+  if (!stops || stops.length === 0) return null;
+  const pickups  = stops.filter(s => s.type === 'pickup');
+  const dropoffs = stops.filter(s => s.type === 'dropoff');
+
+  return (
+    <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' }}>
+      <div style={{ fontFamily: font, fontSize: 10, color: C.text3, letterSpacing: '.1em', marginBottom: 12 }}>STOP REPORT</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {/* Pickup column */}
+        <div>
+          <div style={{ fontFamily: font, fontSize: 10, color: C.green, letterSpacing: '.08em', marginBottom: 8 }}>
+            🟢 PICKUP POINTS ({pickups.length})
+          </div>
+          {pickups.map((s, i) => (
+            <div key={s.id || i} style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-start' }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: '50%', background: C.greenDim,
+                border: `1.5px solid ${C.greenBorder}`, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: font, fontSize: 9, fontWeight: 700, color: C.green,
+              }}>
+                {stops.indexOf(s) + 1}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                  {s.label || `Pickup ${i + 1}`}
+                </div>
+                <div style={{ fontSize: 10, color: C.text3, fontFamily: font, marginTop: 1 }}>
+                  {s.lat && s.lng ? `${parseFloat(s.lat).toFixed(5)}, ${parseFloat(s.lng).toFixed(5)}` : 'No coordinates'}
+                </div>
+              </div>
+            </div>
+          ))}
+          {pickups.length === 0 && <div style={{ fontSize: 11, color: C.text3, fontFamily: font }}>No pickup points</div>}
+        </div>
+        {/* Dropoff column */}
+        <div>
+          <div style={{ fontFamily: font, fontSize: 10, color: C.blue, letterSpacing: '.08em', marginBottom: 8 }}>
+            🔵 DROP-OFF POINTS ({dropoffs.length})
+          </div>
+          {dropoffs.map((s, i) => (
+            <div key={s.id || i} style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'flex-start' }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: '50%', background: C.blueDim,
+                border: `1.5px solid ${C.blueBorder}`, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: font, fontSize: 9, fontWeight: 700, color: C.blue,
+              }}>
+                {stops.indexOf(s) + 1}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                  {s.label || `Drop-off ${i + 1}`}
+                </div>
+                <div style={{ fontSize: 10, color: C.text3, fontFamily: font, marginTop: 1 }}>
+                  {s.lat && s.lng ? `${parseFloat(s.lat).toFixed(5)}, ${parseFloat(s.lng).toFixed(5)}` : 'No coordinates'}
+                </div>
+              </div>
+            </div>
+          ))}
+          {dropoffs.length === 0 && <div style={{ fontSize: 11, color: C.text3, fontFamily: font }}>No drop-off points</div>}
+        </div>
+      </div>
+      {/* Full ordered list */}
+      <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+        <div style={{ fontFamily: font, fontSize: 10, color: C.text3, letterSpacing: '.08em', marginBottom: 8 }}>FULL ROUTE ORDER</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {stops.map((s, i) => (
+            <div key={s.id || i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+              <span style={{ fontFamily: font, fontSize: 10, color: C.text3, minWidth: 20 }}>#{i+1}</span>
+              <span style={{ color: s.type === 'pickup' ? C.green : C.blue, fontSize: 11 }}>
+                {s.type === 'pickup' ? '🟢' : '🔵'} {s.type === 'pickup' ? 'Pickup' : 'Drop-off'}
+              </span>
+              <span style={{ color: C.text, flex: 1 }}>{s.label || '—'}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

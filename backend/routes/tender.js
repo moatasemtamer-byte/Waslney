@@ -26,7 +26,7 @@ function companyAuth(req, res, next) {
 
 // POST /api/tender/company/register
 router.post('/company/register', async (req, res) => {
-  const { company_name, fleet_number, password } = req.body;
+  const { company_name, fleet_number, password, phone } = req.body;
   if (!company_name || !fleet_number || !password)
     return res.status(400).json({ error: 'company_name, fleet_number, password required' });
   try {
@@ -34,11 +34,11 @@ router.post('/company/register', async (req, res) => {
     if (ex.length) return res.status(409).json({ error: 'Company name already exists' });
     const hash = await bcrypt.hash(password, 10);
     const [r] = await db.query(
-      'INSERT INTO companies (company_name, fleet_number, password_hash) VALUES (?,?,?)',
-      [company_name.trim(), fleet_number.trim(), hash]
+      'INSERT INTO companies (company_name, fleet_number, password_hash, phone) VALUES (?,?,?,?)',
+      [company_name.trim(), fleet_number.trim(), hash, phone || null]
     );
     const token = jwt.sign({ id: r.insertId, company_name, type: 'company' }, JWT_SECRET, { expiresIn: '30d' });
-    res.status(201).json({ token, company: { id: r.insertId, company_name, fleet_number } });
+    res.status(201).json({ token, company: { id: r.insertId, company_name, fleet_number, phone: phone || null } });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -51,13 +51,13 @@ router.post('/company/login', async (req, res) => {
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = jwt.sign({ id: rows[0].id, company_name: rows[0].company_name, type: 'company' }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, company: { id: rows[0].id, company_name: rows[0].company_name, fleet_number: rows[0].fleet_number } });
+    res.json({ token, company: { id: rows[0].id, company_name: rows[0].company_name, fleet_number: rows[0].fleet_number, phone: rows[0].phone } });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
 // GET /api/tender/company/me
 router.get('/company/me', companyAuth, async (req, res) => {
-  const [rows] = await db.query('SELECT id, company_name, fleet_number, created_at FROM companies WHERE id=?', [req.company.id]);
+  const [rows] = await db.query('SELECT id, company_name, fleet_number, phone, created_at FROM companies WHERE id=?', [req.company.id]);
   if (!rows.length) return res.status(404).json({ error: 'Not found' });
   res.json(rows[0]);
 });
@@ -153,7 +153,13 @@ router.get('/tenders/:id', async (req, res) => {
       ORDER BY b.amount ASC
     `, [req.params.id]);
 
-    res.json({ ...tenders[0], bids });
+    // Include trip stops so company can see the route map
+    const [stops] = await db.query(
+      'SELECT * FROM trip_stops WHERE trip_id=? ORDER BY stop_order ASC',
+      [tenders[0].trip_id]
+    );
+
+    res.json({ ...tenders[0], bids, stops });
   } catch(e) { console.error(e); res.status(500).json({ error:'Server error' }); }
 });
 
@@ -231,7 +237,7 @@ router.post('/tenders/:id/close', requireAuth, requireRole('admin'), async (req,
 
     // Find lowest bid
     const [bids] = await db.query(
-      'SELECT b.*, c.company_name FROM bids b JOIN companies c ON c.id=b.company_id WHERE b.tender_id=? ORDER BY b.amount ASC LIMIT 1',
+      'SELECT b.*, c.company_name, c.phone FROM bids b JOIN companies c ON c.id=b.company_id WHERE b.tender_id=? ORDER BY b.amount ASC LIMIT 1',
       [req.params.id]
     );
     if (!bids.length) return res.status(400).json({ error: 'No bids placed' });
@@ -247,6 +253,37 @@ router.post('/tenders/:id/close', requireAuth, requireRole('admin'), async (req,
     if (io) io.emit(`tender:${req.params.id}:awarded`, { company_id: winner.company_id, company_name: winner.company_name, amount: winner.amount });
 
     res.json({ winner_company_id: winner.company_id, winner_company_name: winner.company_name, awarded_amount: winner.amount });
+  } catch(e) { console.error(e); res.status(500).json({ error:'Server error' }); }
+});
+
+// GET /api/tender/admin/live-bids — admin sees all tenders with full bid details (company names + contact)
+router.get('/admin/live-bids', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const [tenders] = await db.query(`
+      SELECT tn.*,
+             t.from_loc, t.to_loc, t.date, t.pickup_time, t.total_seats,
+             wc.company_name AS winner_company_name, wc.phone AS winner_phone, wc.fleet_number AS winner_fleet
+      FROM tenders tn
+      LEFT JOIN trips t ON t.id = tn.trip_id
+      LEFT JOIN companies wc ON wc.id = tn.winner_company_id
+      ORDER BY tn.ends_at DESC
+    `);
+
+    // For each tender, get bids with company info (revealed to admin)
+    const result = await Promise.all(tenders.map(async (tn) => {
+      const [bids] = await db.query(`
+        SELECT b.id, b.amount, b.created_at,
+               c.company_name, c.phone, c.fleet_number,
+               ROW_NUMBER() OVER (ORDER BY b.amount ASC) AS rank_pos
+        FROM bids b
+        JOIN companies c ON c.id = b.company_id
+        WHERE b.tender_id = ?
+        ORDER BY b.amount ASC
+      `, [tn.id]);
+      return { ...tn, bids };
+    }));
+
+    res.json(result);
   } catch(e) { console.error(e); res.status(500).json({ error:'Server error' }); }
 });
 

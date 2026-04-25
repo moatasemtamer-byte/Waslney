@@ -42,3 +42,6 @@ export const placeBid = (tenderId, amount, token) =>
 // ── Won tenders / assign ──────────────────────────────────
 export const getWonTenders = (token)                        => request('GET',  '/won', null, token);
 export const assignDriverCar = (tenderId, body, token)      => request('POST', `/tenders/${tenderId}/assign`, body, token);
+
+// ── Admin live bids ───────────────────────────────────────
+export const getAdminLiveBids = (token) => request('GET', '/admin/live-bids', null, token);

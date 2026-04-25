@@ -138,6 +138,11 @@ module.exports = async function runMigrations() {
       await db.query(`ALTER TABLE trips MODIFY COLUMN status ENUM('upcoming','active','completed','cancelled','tendered','awarded','assigned') DEFAULT 'upcoming'`);
     } catch(_) {}
 
+    // Add phone column to companies if missing
+    try {
+      await db.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone VARCHAR(30) DEFAULT NULL`);
+    } catch(_) {}
+
     console.log('✅  Migrations done');
   } catch (err) {
     console.error('⚠️  Migration warning:', err.message);

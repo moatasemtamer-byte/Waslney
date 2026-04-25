@@ -328,6 +328,7 @@ export default function AdminDash() {
           { id:'overview',   label:'Overview' },
           { id:'create',     label:'+ Trip' },
           { id:'trips',      label:'Trips' },
+          { id:'tenders',    label:'🏢 Tenders' },
           { id:'drivers',    label:'Drivers' },
           { id:'passengers', label:'Passengers' },
           { id:'review',     label:`📋 Review${pendingDrivers.length > 0 ? ` (${pendingDrivers.length})` : ''}` },
@@ -645,6 +646,9 @@ export default function AdminDash() {
           </div>
         )}
 
+        {/* ── ADMIN TENDERS TAB ── */}
+        {tab === 'tenders' && <AdminTendersTab token={localStorage.getItem('shuttle_token')} onAward={loadAll} notify={notify} />}
+
         {/* ── PASSENGERS ── */}
         {tab === 'passengers' && (
           <div>
@@ -759,6 +763,271 @@ export default function AdminDash() {
         )}
 
       </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ADMIN TENDERS TAB — live bids view with company names + contact info
+// ──────────────────────────────────────────────────────────────────────────────
+function AdminTendersTab({ token, onAward, notify }) {
+  const font = "'IBM Plex Mono','Fira Code',monospace";
+  const [tenders,  setTenders]  = React.useState([]);
+  const [loading,  setLoading]  = React.useState(true);
+  const [expanded, setExpanded] = React.useState(null);
+  const [closing,  setClosing]  = React.useState(null);
+
+  const load = React.useCallback(async () => {
+    try {
+      const data = await tenderApi.getAdminLiveBids(token);
+      setTenders(Array.isArray(data) ? data : []);
+    } catch(e) { /* silently fail */ }
+    finally { setLoading(false); }
+  }, [token]);
+
+  React.useEffect(() => {
+    load();
+    const iv = setInterval(load, 15000);
+    return () => clearInterval(iv);
+  }, [load]);
+
+  async function handleClose(tenderId) {
+    setClosing(tenderId);
+    try {
+      const res = await tenderApi.closeTender(tenderId, token);
+      notify('Tender awarded! 🏆', `${res.winner_company_name} won with ${Number(res.awarded_amount).toLocaleString('ar-EG')} EGP`);
+      load();
+      if (onAward) onAward();
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setClosing(null); }
+  }
+
+  const live    = tenders.filter(t => t.status === 'open');
+  const awarded = tenders.filter(t => t.status === 'awarded');
+
+  function fmtEGP(n)  { return `${Number(n).toLocaleString('ar-EG')} EGP`; }
+  function fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—'; }
+  function fmtTime(t) { return t ? t.slice(0,5) : '—'; }
+
+  if (loading) return <div style={{ textAlign:'center', padding:60, color:C.text3 }}>Loading tenders…</div>;
+
+  return (
+    <div>
+      {/* Live section */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
+        <span style={{ width:9, height:9, borderRadius:'50%', background:C.green, display:'inline-block', animation:'pulse 1.5s infinite' }} />
+        <span style={{ fontWeight:700, fontSize:15 }}>Live Bids</span>
+        <span style={{ background:'rgba(52,211,153,.12)', color:C.green, border:'1px solid rgba(52,211,153,.28)', borderRadius:10, padding:'1px 9px', fontSize:11 }}>{live.length}</span>
+        <button onClick={load} style={{ marginLeft:'auto', background:'transparent', border:`1px solid ${C.border}`, borderRadius:7, padding:'5px 12px', color:C.text2, fontSize:11, cursor:'pointer', fontFamily:font }}>↻ Refresh</button>
+      </div>
+
+      {live.length === 0 && (
+        <div style={{ textAlign:'center', padding:'36px 20px', color:C.text3, background:C.bg2, borderRadius:12, marginBottom:24 }}>
+          <div style={{ fontSize:32, marginBottom:8 }}>🏁</div>
+          No open tenders right now.
+        </div>
+      )}
+
+      <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:32 }}>
+        {live.map(t => (
+          <TenderAdminCard
+            key={t.id} tender={t} expanded={expanded === t.id}
+            onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
+            onClose={() => handleClose(t.id)} closing={closing === t.id}
+            font={font} fmtEGP={fmtEGP} fmtDate={fmtDate} fmtTime={fmtTime}
+          />
+        ))}
+      </div>
+
+      {awarded.length > 0 && (
+        <>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
+            <span style={{ fontSize:18 }}>🏆</span>
+            <span style={{ fontWeight:700, fontSize:15 }}>Awarded Tenders</span>
+            <span style={{ background:'rgba(245,200,66,.10)', color:'#f5c842', border:'1px solid rgba(245,200,66,.28)', borderRadius:10, padding:'1px 9px', fontSize:11 }}>{awarded.length}</span>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            {awarded.map(t => (
+              <AwardedAdminCard key={t.id} tender={t} font={font} fmtEGP={fmtEGP} fmtDate={fmtDate} fmtTime={fmtTime} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TenderAdminCard({ tender, expanded, onToggle, onClose, closing, font, fmtEGP, fmtDate, fmtTime }) {
+  const bids = tender.bids || [];
+  const lowestBid = bids.length ? bids[0] : null;
+
+  function BidCountdown({ endsAt }) {
+    const [left, setLeft] = React.useState(Math.max(0, new Date(endsAt) - Date.now()));
+    React.useEffect(() => {
+      const iv = setInterval(() => setLeft(Math.max(0, new Date(endsAt) - Date.now())), 1000);
+      return () => clearInterval(iv);
+    }, [endsAt]);
+    const h = Math.floor(left/3600000);
+    const m = Math.floor((left%3600000)/60000);
+    const s = Math.floor((left%60000)/1000);
+    const urgent = left < 300000;
+    const over   = left === 0;
+    return (
+      <span style={{ fontFamily:font, fontSize:13, fontWeight:700, color: over?C.text3:urgent?C.red:C.green }}>
+        {over ? 'ENDED' : `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+      </span>
+    );
+  }
+
+  return (
+    <div style={{ background:C.bg2, border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+      <div style={{ padding:'14px 18px', display:'flex', alignItems:'center', gap:14, cursor:'pointer' }} onClick={onToggle}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:font, fontSize:10, color:C.green, letterSpacing:'.08em', marginBottom:3 }}>TENDER #{tender.id} · OPEN</div>
+          <div style={{ fontSize:14, fontWeight:700 }}>{tender.from_loc} → {tender.to_loc}</div>
+          <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>{fmtDate(tender.date)} · {fmtTime(tender.pickup_time)} · {tender.total_seats} seats</div>
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <BidCountdown endsAt={tender.ends_at} />
+          <div style={{ fontSize:10, color:C.text3, fontFamily:font, marginTop:2 }}>remaining</div>
+        </div>
+        <div style={{ textAlign:'center', background:'rgba(245,200,66,.08)', border:'1px solid rgba(245,200,66,.2)', borderRadius:8, padding:'6px 14px' }}>
+          <div style={{ fontSize:20, fontWeight:700, color:'#f5c842', fontFamily:font }}>{bids.length}</div>
+          <div style={{ fontSize:10, color:C.text3 }}>bids</div>
+        </div>
+        <div style={{ fontSize:14, color:C.text3 }}>{expanded ? '▲' : '▼'}</div>
+      </div>
+
+      {expanded && (
+        <div style={{ borderTop:`1px solid ${C.border}` }}>
+          {lowestBid && (
+            <div style={{ padding:'10px 18px', background:'rgba(245,200,66,.06)', borderBottom:`1px solid rgba(245,200,66,.15)`, display:'flex', alignItems:'center', gap:14 }}>
+              <span style={{ fontSize:16 }}>🏆</span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:700 }}>{lowestBid.company_name}</div>
+                <div style={{ fontSize:11, color:C.text2, marginTop:2, display:'flex', gap:14 }}>
+                  <span>📞 <strong>{lowestBid.phone || '—'}</strong></span>
+                  <span>🚌 {lowestBid.fleet_number || '—'}</span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontFamily:font, fontSize:17, fontWeight:700, color:'#f5c842' }}>{fmtEGP(lowestBid.amount)}</div>
+                <div style={{ fontSize:9, color:'#f5c842', fontFamily:font, textAlign:'right' }}>LOWEST BID</div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ padding:'0 18px 14px' }}>
+            <div style={{ fontFamily:font, fontSize:10, color:C.text3, letterSpacing:'.08em', padding:'12px 0 8px' }}>ALL BIDS — COMPANY DETAILS</div>
+            {bids.length === 0 && <div style={{ fontSize:12, color:C.text3, padding:'8px 0' }}>No bids placed yet.</div>}
+            {bids.map((bid, i) => (
+              <div key={bid.id} style={{
+                display:'flex', alignItems:'center', gap:12, padding:'10px 0',
+                borderBottom: i < bids.length-1 ? `1px solid ${C.border}` : 'none',
+              }}>
+                <div style={{
+                  width:26, height:26, borderRadius:'50%',
+                  background: i===0 ? '#f5c842' : C.bg3,
+                  color: i===0 ? '#000' : C.text2,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontFamily:font, fontSize:11, fontWeight:700, flexShrink:0,
+                }}>
+                  {i===0 ? '★' : i+1}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13, fontWeight:600 }}>{bid.company_name}</div>
+                  <div style={{ fontSize:11, color:C.text2, marginTop:2, display:'flex', gap:16 }}>
+                    <span>📞 <strong style={{ color: bid.phone ? C.text : C.text3 }}>{bid.phone || 'No phone'}</strong></span>
+                    <span>🚌 {bid.fleet_number || '—'}</span>
+                  </div>
+                </div>
+                <div style={{ fontFamily:font, fontSize:15, fontWeight:700, color: i===0?'#f5c842':C.text }}>
+                  {fmtEGP(bid.amount)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding:'12px 18px', borderTop:`1px solid ${C.border}`, background:C.bg3, display:'flex', gap:10 }}>
+            <button
+              onClick={onClose} disabled={!!(closing || bids.length === 0)}
+              style={{
+                flex:1, background: bids.length && !closing ? '#f5c842' : C.bg4,
+                color: bids.length && !closing ? '#000' : C.text3,
+                border:'none', borderRadius:10, padding:'12px',
+                fontFamily:font, fontSize:12, fontWeight:700,
+                cursor: bids.length && !closing ? 'pointer':'not-allowed',
+                letterSpacing:'.05em', opacity: closing ? 0.7 : 1,
+              }}
+            >
+              {closing ? 'Awarding…' : bids.length === 0 ? 'No bids to award' : '🏆 Award to Lowest Bidder'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AwardedAdminCard({ tender, font, fmtEGP, fmtDate, fmtTime }) {
+  const bids = tender.bids || [];
+  const [showBids, setShowBids] = React.useState(false);
+
+  return (
+    <div style={{ background:C.bg2, border:'1px solid rgba(245,200,66,.22)', borderRadius:12, overflow:'hidden' }}>
+      <div style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', gap:14 }}>
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:font, fontSize:10, color:'#f5c842', letterSpacing:'.08em', marginBottom:3 }}>TENDER #{tender.id} · AWARDED</div>
+          <div style={{ fontSize:14, fontWeight:700 }}>{tender.from_loc} → {tender.to_loc}</div>
+          <div style={{ fontSize:12, color:C.text2, marginTop:2 }}>{fmtDate(tender.date)} · {fmtTime(tender.pickup_time)}</div>
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <div style={{ fontFamily:font, fontSize:17, fontWeight:700, color:'#f5c842' }}>{fmtEGP(tender.awarded_amount)}</div>
+          <div style={{ fontSize:10, color:C.text3, fontFamily:font }}>awarded amount</div>
+        </div>
+      </div>
+
+      {/* Winner banner */}
+      <div style={{ margin:'0 18px 14px', background:'rgba(245,200,66,.07)', border:'1px solid rgba(245,200,66,.2)', borderRadius:10, padding:'12px 14px' }}>
+        <div style={{ fontSize:10, color:'#f5c842', fontFamily:font, letterSpacing:'.08em', marginBottom:6 }}>WINNER</div>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <span style={{ fontSize:22 }}>🏆</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:700 }}>{tender.winner_company_name || '—'}</div>
+            <div style={{ fontSize:12, marginTop:3, display:'flex', gap:14 }}>
+              <span style={{ color: tender.winner_phone ? C.green : C.text3 }}>
+                📞 {tender.winner_phone ? <strong>{tender.winner_phone}</strong> : <em>No phone on file</em>}
+              </span>
+              {tender.winner_fleet && <span style={{ color:C.text2 }}>🚌 {tender.winner_fleet}</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Show all bids toggle */}
+      {bids.length > 0 && (
+        <div style={{ borderTop:`1px solid ${C.border}` }}>
+          <button onClick={() => setShowBids(s => !s)} style={{ width:'100%', background:'transparent', border:'none', padding:'10px 18px', color:C.text2, fontSize:12, cursor:'pointer', textAlign:'left', fontFamily:font }}>
+            {showBids ? '▲ Hide' : '▼ Show'} all {bids.length} bids
+          </button>
+          {showBids && (
+            <div style={{ padding:'0 18px 14px' }}>
+              {bids.map((bid, i) => (
+                <div key={bid.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'8px 0', borderBottom: i < bids.length-1 ? `1px solid ${C.border}` : 'none' }}>
+                  <div style={{ width:22, height:22, borderRadius:'50%', background: i===0?'#f5c842':C.bg3, color: i===0?'#000':C.text2, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:font, fontSize:10, fontWeight:700, flexShrink:0 }}>
+                    {i===0?'★':i+1}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:12, fontWeight:600 }}>{bid.company_name}</div>
+                    <div style={{ fontSize:11, color:C.text2 }}>📞 {bid.phone || '—'} · 🚌 {bid.fleet_number || '—'}</div>
+                  </div>
+                  <div style={{ fontFamily:font, fontSize:13, fontWeight:700, color: i===0?'#f5c842':C.text }}>{fmtEGP(bid.amount)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
