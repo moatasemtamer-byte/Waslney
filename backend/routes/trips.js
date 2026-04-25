@@ -7,6 +7,48 @@ function getIo() {
   try { return require('../server').io; } catch(_) { return null; }
 }
 
+// ── helper: attach week-assignment fields to a trip row ─────────────────────
+async function attachWeekAssignment(trip, today) {
+  try {
+    const [wa] = await db.query(`
+      SELECT wa.id, wa.week_start, wa.week_end,
+             c.company_name AS assigned_company_name,
+             c.phone        AS assigned_company_phone
+      FROM trip_week_assignments wa
+      JOIN companies c ON c.id = wa.company_id
+      WHERE wa.trip_id = ? AND wa.week_start <= ? AND wa.week_end >= ?
+      ORDER BY wa.created_at DESC LIMIT 1
+    `, [trip.id, today, today]);
+
+    if (!wa.length) return;
+
+    trip.week_assignment_id      = wa[0].id;
+    trip.week_start              = wa[0].week_start;
+    trip.week_end                = wa[0].week_end;
+    trip.assigned_company_name   = wa[0].assigned_company_name;
+    trip.assigned_company_phone  = wa[0].assigned_company_phone;
+
+    const [da] = await db.query(`
+      SELECT cd.name AS daily_driver_name,
+             cc.plate AS daily_car_plate,
+             cc.model AS daily_car_model
+      FROM trip_daily_assignments da
+      LEFT JOIN company_drivers cd ON cd.id = da.driver_id
+      LEFT JOIN company_cars    cc ON cc.id = da.car_id
+      WHERE da.week_assignment_id = ? AND da.assignment_date = ?
+      LIMIT 1
+    `, [wa[0].id, today]);
+
+    if (da.length) {
+      trip.daily_driver_name = da[0].daily_driver_name;
+      trip.daily_car_plate   = da[0].daily_car_plate;
+      trip.daily_car_model   = da[0].daily_car_model;
+    }
+  } catch(e) {
+    // Tables may not exist yet — silently skip
+  }
+}
+
 // GET /api/trips
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -16,40 +58,24 @@ router.get('/', requireAuth, async (req, res) => {
              u.name  AS driver_name,
              u.car   AS driver_car,
              u.plate AS driver_plate,
-             COALESCE(AVG(r.stars),0) AS avg_rating,
-             COUNT(DISTINCT r.id) AS rating_count,
-             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status='confirmed') AS booked_seats,
-             wa.id   AS week_assignment_id,
-             wa.week_start, wa.week_end,
-             wc.company_name AS assigned_company_name,
-             wc.phone        AS assigned_company_phone,
-             da.driver_id    AS daily_driver_id,
-             cd.name         AS daily_driver_name,
-             da.car_id       AS daily_car_id,
-             cc.plate        AS daily_car_plate,
-             cc.model        AS daily_car_model
+             COALESCE((SELECT AVG(r2.stars) FROM ratings r2 WHERE r2.driver_id = t.driver_id), 0) AS avg_rating,
+             COALESCE((SELECT COUNT(*) FROM ratings r2 WHERE r2.driver_id = t.driver_id), 0) AS rating_count,
+             (SELECT COALESCE(SUM(b.seats),0) FROM bookings b WHERE b.trip_id=t.id AND b.status='confirmed') AS booked_seats
       FROM trips t
-      LEFT JOIN users   u  ON u.id = t.driver_id
-      LEFT JOIN ratings r  ON r.driver_id = t.driver_id
-      LEFT JOIN trip_week_assignments wa
-             ON wa.trip_id = t.id AND wa.week_start <= ? AND wa.week_end >= ?
-      LEFT JOIN companies wc ON wc.id = wa.company_id
-      LEFT JOIN trip_daily_assignments da
-             ON da.week_assignment_id = wa.id AND da.assignment_date = ?
-      LEFT JOIN company_drivers cd ON cd.id = da.driver_id
-      LEFT JOIN company_cars    cc ON cc.id = da.car_id
+      LEFT JOIN users u ON u.id = t.driver_id
       WHERE t.status IN ('upcoming','active','tendered','awarded','assigned')
-      GROUP BY t.id
       ORDER BY t.date ASC, t.pickup_time ASC
-    `, [today, today, today]);
-    // Attach stops to each trip
+    `);
+
     for (const trip of trips) {
       const [stops] = await db.query(
         'SELECT * FROM trip_stops WHERE trip_id=? ORDER BY stop_order ASC',
         [trip.id]
       );
       trip.stops = stops;
+      await attachWeekAssignment(trip, today);
     }
+
     res.json(trips);
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });
@@ -84,29 +110,15 @@ router.get('/:id', requireAuth, async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const [trips] = await db.query(`
       SELECT t.*, u.name AS driver_name, u.car AS driver_car, u.plate AS driver_plate,
-             COALESCE(AVG(r.stars),0) AS avg_rating,
-             wa.id   AS week_assignment_id,
-             wa.week_start, wa.week_end,
-             wc.company_name AS assigned_company_name,
-             wc.phone        AS assigned_company_phone,
-             da.driver_id    AS daily_driver_id,
-             cd.name         AS daily_driver_name,
-             da.car_id       AS daily_car_id,
-             cc.plate        AS daily_car_plate,
-             cc.model        AS daily_car_model
+             COALESCE((SELECT AVG(r2.stars) FROM ratings r2 WHERE r2.driver_id = t.driver_id), 0) AS avg_rating
       FROM trips t
       LEFT JOIN users u ON u.id=t.driver_id
-      LEFT JOIN ratings r ON r.driver_id=t.driver_id
-      LEFT JOIN trip_week_assignments wa
-             ON wa.trip_id = t.id AND wa.week_start <= ? AND wa.week_end >= ?
-      LEFT JOIN companies wc ON wc.id = wa.company_id
-      LEFT JOIN trip_daily_assignments da
-             ON da.week_assignment_id = wa.id AND da.assignment_date = ?
-      LEFT JOIN company_drivers cd ON cd.id = da.driver_id
-      LEFT JOIN company_cars    cc ON cc.id = da.car_id
-      WHERE t.id=? GROUP BY t.id
-    `, [today, today, today, req.params.id]);
+      WHERE t.id=?
+    `, [req.params.id]);
     if (!trips.length) return res.status(404).json({ error: 'Trip not found' });
+
+    const trip = trips[0];
+    await attachWeekAssignment(trip, today);
 
     const [bookings] = await db.query(`
       SELECT b.*, u.name AS passenger_name, c.status AS checkin_status
@@ -121,7 +133,7 @@ router.get('/:id', requireAuth, async (req, res) => {
       [req.params.id]
     );
 
-    res.json({ ...trips[0], bookings, stops });
+    res.json({ ...trip, bookings, stops });
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });
   }
@@ -144,7 +156,7 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
 
     const [result] = await db.query(
       'INSERT INTO trips (from_loc,to_loc,pickup_time,dropoff_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [from_loc, to_loc, pickup_time, dropoff_time||null, date, price, total_seats||16, driver_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]
+      [from_loc, to_loc, pickup_time, dropoff_time||null, date, price, total_seats||16, driver_id||null, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]
     );
     const tripId = result.insertId;
 
@@ -212,7 +224,6 @@ router.put('/:id', requireAuth, requireRole('admin'), async (req, res) => {
 router.post('/:id/start', requireAuth, requireRole('driver'), async (req, res) => {
   try {
     await db.query("UPDATE trips SET status='active' WHERE id=? AND driver_id=?", [req.params.id, req.user.id]);
-    // Emit real-time event so all passengers + admin update instantly (no refresh needed)
     const io = getIo();
     if (io) {
       const tripId = req.params.id;
@@ -235,14 +246,13 @@ router.post('/:id/complete', requireAuth, requireRole('driver'), async (req, res
       await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
         [b.passenger_id, `Your trip is complete! Please rate your driver.`]);
     }
-    // Emit real-time event so all passengers + admin update instantly (no refresh needed)
     const io = getIo();
     if (io) {
       const tripId = req.params.id;
       io.to(`trip:${tripId}`).emit('trip:completed', { tripId });
       io.to('admin').emit('trip:status:changed', { tripId, status: 'completed' });
     }
-    // Pool trip cleanup — delete chat, group, invitations, requests
+    // Pool trip cleanup
     try {
       const [[trip]] = await db.query('SELECT is_pool FROM trips WHERE id=?', [req.params.id]);
       if (trip && trip.is_pool) {
