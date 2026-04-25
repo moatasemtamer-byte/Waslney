@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { PlaceSearch as AreaSearch } from '../../components/LeafletSearch.jsx';
 import { useAuth } from '../../App.jsx';
 import * as api from '../../api.js';
+import * as tenderApi from '../../api_tender.js';
 import { C, WaslneyLogo, Tabs, Topbar, Badge, StatCard, DetailRow, CapBar, CapBarLabeled, Stars, Inp, Sel, btnPrimary, btnSm, btnDanger, card, fmtDate, Spinner, sectSt, Avatar } from '../../components/UI.jsx';
 import { AdminMap, StopPicker } from '../../components/TripMap.jsx';
-import SavedPointPicker from '../../components/SavedPointPicker.jsx';
 import socket_module, { connectSocket } from '../../socket.js';
 
 // ── Full-screen photo lightbox ─────────────────────────────────────────────
@@ -28,6 +28,73 @@ function Lightbox({ src, label, onClose }) {
         onClick={e => e.stopPropagation()}>
         ↗ Open in new tab
       </a>
+
+      {/* ── TENDER MODAL ── */}
+      {tenderModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+          onClick={e => { if(e.target===e.currentTarget) setTenderModal(null); }}>
+          <div style={{ background:'#0d0d0d', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:28, width:'100%', maxWidth:480, boxShadow:'0 24px 80px rgba(0,0,0,0.9)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+              <span style={{ fontSize:28 }}>🏷</span>
+              <div>
+                <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>Offer for Tender</div>
+                <div style={{ fontSize:12, color:'#666', marginTop:2 }}>Bus companies will bid — lowest price wins</div>
+              </div>
+              <button onClick={() => setTenderModal(null)} style={{ marginLeft:'auto', background:'transparent', border:'none', color:'#555', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
+            </div>
+
+            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.15)', borderRadius:10, padding:'10px 14px', margin:'14px 0', fontSize:13, color:'#fbbf24', fontWeight:600 }}>
+              📍 {tenderModal.fromLoc} → {tenderModal.toLoc}
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+              <div>
+                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Date *</label>
+                <input type="date" value={tenderForm.ends_date} min={new Date().toISOString().slice(0,10)}
+                  onChange={e => setTenderForm({...tenderForm, ends_date:e.target.value})}
+                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Time *</label>
+                <input type="time" value={tenderForm.ends_time}
+                  onChange={e => setTenderForm({...tenderForm, ends_time:e.target.value})}
+                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Notes for companies (optional)</label>
+              <input value={tenderForm.description}
+                onChange={e => setTenderForm({...tenderForm, description:e.target.value})}
+                placeholder="e.g. A/C required, min 20 seats…"
+                style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+              />
+            </div>
+
+            {tenderErr && (
+              <div style={{ fontSize:12, color:'#f87171', background:'rgba(248,113,113,0.08)', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
+                ⚠ {tenderErr}
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={launchTender} disabled={tenderBusy} style={{
+                flex:1, background: tenderBusy?'#1a1a1a':'#fbbf24', color: tenderBusy?'#555':'#000',
+                border:'none', borderRadius:12, padding:'14px', cursor: tenderBusy?'default':'pointer',
+                fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700,
+              }}>
+                {tenderBusy ? 'Launching…' : '⚡ Launch Tender'}
+              </button>
+              <button onClick={() => setTenderModal(null)} style={{ background:'transparent', color:'#555', border:'1px solid #222', borderRadius:12, padding:'14px 18px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -65,6 +132,73 @@ function DocThumb({ label, url, onView }) {
           <a href={url} target="_blank" rel="noreferrer" style={{ color:C.yellow||'#fbbf24' }}>↗ Open document</a>
         </div>
       )}
+
+      {/* ── TENDER MODAL ── */}
+      {tenderModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+          onClick={e => { if(e.target===e.currentTarget) setTenderModal(null); }}>
+          <div style={{ background:'#0d0d0d', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:28, width:'100%', maxWidth:480, boxShadow:'0 24px 80px rgba(0,0,0,0.9)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+              <span style={{ fontSize:28 }}>🏷</span>
+              <div>
+                <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>Offer for Tender</div>
+                <div style={{ fontSize:12, color:'#666', marginTop:2 }}>Bus companies will bid — lowest price wins</div>
+              </div>
+              <button onClick={() => setTenderModal(null)} style={{ marginLeft:'auto', background:'transparent', border:'none', color:'#555', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
+            </div>
+
+            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.15)', borderRadius:10, padding:'10px 14px', margin:'14px 0', fontSize:13, color:'#fbbf24', fontWeight:600 }}>
+              📍 {tenderModal.fromLoc} → {tenderModal.toLoc}
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+              <div>
+                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Date *</label>
+                <input type="date" value={tenderForm.ends_date} min={new Date().toISOString().slice(0,10)}
+                  onChange={e => setTenderForm({...tenderForm, ends_date:e.target.value})}
+                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Time *</label>
+                <input type="time" value={tenderForm.ends_time}
+                  onChange={e => setTenderForm({...tenderForm, ends_time:e.target.value})}
+                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Notes for companies (optional)</label>
+              <input value={tenderForm.description}
+                onChange={e => setTenderForm({...tenderForm, description:e.target.value})}
+                placeholder="e.g. A/C required, min 20 seats…"
+                style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+              />
+            </div>
+
+            {tenderErr && (
+              <div style={{ fontSize:12, color:'#f87171', background:'rgba(248,113,113,0.08)', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
+                ⚠ {tenderErr}
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={launchTender} disabled={tenderBusy} style={{
+                flex:1, background: tenderBusy?'#1a1a1a':'#fbbf24', color: tenderBusy?'#555':'#000',
+                border:'none', borderRadius:12, padding:'14px', cursor: tenderBusy?'default':'pointer',
+                fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700,
+              }}>
+                {tenderBusy ? 'Launching…' : '⚡ Launch Tender'}
+              </button>
+              <button onClick={() => setTenderModal(null)} style={{ background:'transparent', color:'#555', border:'1px solid #222', borderRadius:12, padding:'14px 18px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -82,7 +216,12 @@ export default function AdminDash() {
   const [editTrip, setEditTrip] = useState(null);
   const [stops,    setStops]   = useState([]);
   const [editStops, setEditStops] = useState([]);
-  const [savedPoints, setSavedPoints] = useState([]);
+
+  // ── Tender state ──────────────────────────────────────────────────────────
+  const [tenderModal, setTenderModal] = useState(null); // { tripId, fromLoc, toLoc } or null
+  const [tenderForm, setTenderForm]   = useState({ ends_date:'', ends_time:'', description:'' });
+  const [tenderBusy, setTenderBusy]   = useState(false);
+  const [tenderErr,  setTenderErr]    = useState('');
 
   // ── Review state ──────────────────────────────────────────────────────────
   const [pendingDrivers, setPendingDrivers] = useState([]);
@@ -132,8 +271,8 @@ export default function AdminDash() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [t, d, u, sp] = await Promise.all([api.getTrips(), api.getDrivers(), api.getUsers(), api.getSavedPoints().catch(()=>[])]);
-      setTrips(t); setDrivers(d); setUsers(u); setSavedPoints(Array.isArray(sp) ? sp : []);
+      const [t, d, u] = await Promise.all([api.getTrips(), api.getDrivers(), api.getUsers()]);
+      setTrips(t); setDrivers(d); setUsers(u);
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setLoading(false); }
   }
@@ -174,8 +313,32 @@ export default function AdminDash() {
     } catch(e) { notify('Error', e.message, 'error'); }
   }
 
-  function handlePointSaved() {
-    api.getSavedPoints().then(sp => setSavedPoints(Array.isArray(sp) ? sp : [])).catch(() => {});
+  function openTenderModal(tripId, fromLoc, toLoc) {
+    // Pre-fill deadline to 24h from now
+    const d = new Date(Date.now() + 24*3600*1000);
+    const dateStr = d.toISOString().slice(0,10);
+    const timeStr = d.toTimeString().slice(0,5);
+    setTenderForm({ ends_date: dateStr, ends_time: timeStr, description:'' });
+    setTenderErr('');
+    setTenderModal({ tripId, fromLoc, toLoc });
+  }
+
+  async function launchTender() {
+    if (!tenderForm.ends_date || !tenderForm.ends_time) { setTenderErr('Set deadline date and time'); return; }
+    const endsAt  = new Date(`${tenderForm.ends_date}T${tenderForm.ends_time}`);
+    const minutes = Math.round((endsAt - Date.now()) / 60000);
+    if (minutes < 5) { setTenderErr('Deadline must be at least 5 minutes from now'); return; }
+    setTenderBusy(true); setTenderErr('');
+    try {
+      await tenderApi.createTender(
+        { trip_id: tenderModal.tripId, duration_minutes: minutes, description: tenderForm.description },
+        api.getToken ? api.getToken() : localStorage.getItem('token')
+      );
+      notify('Tender launched! 🏷', `${tenderModal.fromLoc} → ${tenderModal.toLoc} is now open for bids.`);
+      setTenderModal(null);
+      loadAll();
+    } catch(e) { setTenderErr(e.message); }
+    finally { setTenderBusy(false); }
   }
 
   async function handleCreate() {
@@ -289,18 +452,8 @@ export default function AdminDash() {
           <div style={card}>
             <p style={sectSt}>New trip</p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-              <SavedPointPicker
-                label="📍 Pickup area" type="pickup"
-                value={form.from_loc ? { name: form.from_loc } : null}
-                savedPoints={savedPoints} onPointSaved={handlePointSaved}
-                onChange={c => { setForm({...form, from_loc: c ? c.name : ''}); if (c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
-              />
-              <SavedPointPicker
-                label="🏁 Drop-off area" type="dropoff"
-                value={form.to_loc ? { name: form.to_loc } : null}
-                savedPoints={savedPoints} onPointSaved={handlePointSaved}
-                onChange={c => { setForm({...form, to_loc: c ? c.name : ''}); if (c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
-              />
+              <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+              <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
               <Inp label="📅 Date"             type="date"   value={form.date}         onChange={f('date')} />
               <Inp label="🕐 Pickup time"      type="time"   value={form.pickup_time}  onChange={f('pickup_time')} />
               <Inp label="🕐 Est. drop-off"    type="time"   value={form.dropoff_time} onChange={f('dropoff_time')} />
@@ -314,7 +467,30 @@ export default function AdminDash() {
             <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
             <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to add pickup 🟢 and drop-off 🔵 points.</p>
             <StopPicker stops={stops} onChange={setStops} height={340} centerOn={mapCenter} />
-            <button onClick={handleCreate} style={btnPrimary}>Create trip</button>
+            {/* ── Tender option inside Create ── */}
+            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:12, padding:'14px 16px', marginTop:8 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:'#fbbf24', marginBottom:4 }}>🏷 Offer this trip for tender instead?</div>
+              <div style={{ fontSize:12, color:'#555', marginBottom:10 }}>Skip assigning a driver — publish the trip for bus companies to bid on.</div>
+              <button
+                onClick={async () => {
+                  const { from_loc, to_loc, date } = form;
+                  if (!from_loc||!to_loc||!date) { notify('Incomplete','Fill from, to, and date first.','error'); return; }
+                  if (stops.length < 2) { notify('Add stops','Add at least 1 pickup and 1 drop-off on the map.','error'); return; }
+                  // Create the trip first (without driver), then open tender modal
+                  try {
+                    const created = await api.createTrip({ ...form, price: parseFloat(form.price)||0, total_seats: parseInt(form.total_seats)||16, stops });
+                    setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'' });
+                    setStops([]); setMapCenter(null);
+                    loadAll();
+                    openTenderModal(created.id || created.trip_id, from_loc, to_loc);
+                  } catch(e) { notify('Error', e.message, 'error'); }
+                }}
+                style={{ background:'rgba(251,191,36,0.12)', color:'#fbbf24', border:'1px solid rgba(251,191,36,0.3)', borderRadius:8, padding:'9px 20px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:600 }}
+              >
+                🏷 Create & offer for tender →
+              </button>
+            </div>
+            <button onClick={handleCreate} style={btnPrimary}>Create trip (assign driver now)</button>
           </div>
         )}
 
@@ -337,8 +513,22 @@ export default function AdminDash() {
                   </div>
                   <CapBarLabeled booked={t.booked_seats||0} total={t.total_seats} />
                   {t.status !== 'cancelled' && t.status !== 'completed' && (
-                    <div style={{ display:'flex', gap:8, marginTop:12 }}>
+                    <div style={{ display:'flex', gap:8, marginTop:12, flexWrap:'wrap' }}>
                       <button onClick={() => { setEditTrip({...t}); setEditStops(t.stops||[]); }} style={btnSm}>Edit</button>
+                      {!['tendered','awarded','assigned'].includes(t.status) && (
+                        <button
+                          onClick={() => openTenderModal(t.id, t.from_loc, t.to_loc)}
+                          style={{ background:'rgba(251,191,36,0.1)', color:'#fbbf24', border:'1px solid rgba(251,191,36,0.28)', borderRadius:8, padding:'7px 14px', fontFamily:"'Sora',sans-serif", fontSize:12, cursor:'pointer', fontWeight:600 }}
+                        >
+                          🏷 Offer for tender
+                        </button>
+                      )}
+                      {['tendered'].includes(t.status) && (
+                        <span style={{ fontSize:11, color:'#fbbf24', background:'rgba(251,191,36,0.08)', border:'1px solid rgba(251,191,36,0.2)', borderRadius:6, padding:'4px 10px', display:'flex', alignItems:'center', gap:4 }}>⚡ Bidding open</span>
+                      )}
+                      {['awarded','assigned'].includes(t.status) && (
+                        <span style={{ fontSize:11, color:'#34d399', background:'rgba(52,211,153,0.08)', border:'1px solid rgba(52,211,153,0.2)', borderRadius:6, padding:'4px 10px', display:'flex', alignItems:'center', gap:4 }}>🏆 Tender awarded</span>
+                      )}
                       <button onClick={() => handleCancel(t.id)} style={btnDanger}>Cancel trip</button>
                     </div>
                   )}
@@ -355,18 +545,8 @@ export default function AdminDash() {
             <div style={card}>
               <p style={sectSt}>Edit trip #{editTrip.id}</p>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <SavedPointPicker
-                  label="📍 Pickup area" type="pickup"
-                  value={editTrip.from_loc ? { name: editTrip.from_loc } : null}
-                  savedPoints={savedPoints} onPointSaved={handlePointSaved}
-                  onChange={c => { setEditTrip({...editTrip, from_loc: c ? c.name : ''}); if (c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
-                />
-                <SavedPointPicker
-                  label="🏁 Drop-off area" type="dropoff"
-                  value={editTrip.to_loc ? { name: editTrip.to_loc } : null}
-                  savedPoints={savedPoints} onPointSaved={handlePointSaved}
-                  onChange={c => { setEditTrip({...editTrip, to_loc: c ? c.name : ''}); if (c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }}
-                />
+                <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+                <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
                 <Inp label="Date"          type="date"   value={editTrip.date?.slice(0,10)}  onChange={e=>setEditTrip({...editTrip,date:e.target.value})} />
                 <Inp label="Pickup time"   type="time"   value={editTrip.pickup_time}        onChange={e=>setEditTrip({...editTrip,pickup_time:e.target.value})} />
                 <Inp label="Drop-off time" type="time"   value={editTrip.dropoff_time||''}   onChange={e=>setEditTrip({...editTrip,dropoff_time:e.target.value})} />
@@ -644,6 +824,73 @@ export default function AdminDash() {
         )}
 
       </div>
+
+      {/* ── TENDER MODAL ── */}
+      {tenderModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}
+          onClick={e => { if(e.target===e.currentTarget) setTenderModal(null); }}>
+          <div style={{ background:'#0d0d0d', border:'1px solid rgba(251,191,36,0.3)', borderRadius:20, padding:28, width:'100%', maxWidth:480, boxShadow:'0 24px 80px rgba(0,0,0,0.9)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
+              <span style={{ fontSize:28 }}>🏷</span>
+              <div>
+                <div style={{ fontSize:18, fontWeight:800, color:'#fff' }}>Offer for Tender</div>
+                <div style={{ fontSize:12, color:'#666', marginTop:2 }}>Bus companies will bid — lowest price wins</div>
+              </div>
+              <button onClick={() => setTenderModal(null)} style={{ marginLeft:'auto', background:'transparent', border:'none', color:'#555', fontSize:22, cursor:'pointer', lineHeight:1 }}>×</button>
+            </div>
+
+            <div style={{ background:'rgba(251,191,36,0.06)', border:'1px solid rgba(251,191,36,0.15)', borderRadius:10, padding:'10px 14px', margin:'14px 0', fontSize:13, color:'#fbbf24', fontWeight:600 }}>
+              📍 {tenderModal.fromLoc} → {tenderModal.toLoc}
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+              <div>
+                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Date *</label>
+                <input type="date" value={tenderForm.ends_date} min={new Date().toISOString().slice(0,10)}
+                  onChange={e => setTenderForm({...tenderForm, ends_date:e.target.value})}
+                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Deadline Time *</label>
+                <input type="time" value={tenderForm.ends_time}
+                  onChange={e => setTenderForm({...tenderForm, ends_time:e.target.value})}
+                  style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <label style={{ fontSize:11, color:'#666', letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:5 }}>Notes for companies (optional)</label>
+              <input value={tenderForm.description}
+                onChange={e => setTenderForm({...tenderForm, description:e.target.value})}
+                placeholder="e.g. A/C required, min 20 seats…"
+                style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'11px 12px', color:'#fff', fontFamily:"'Sora',sans-serif", fontSize:13, outline:'none', boxSizing:'border-box' }}
+              />
+            </div>
+
+            {tenderErr && (
+              <div style={{ fontSize:12, color:'#f87171', background:'rgba(248,113,113,0.08)', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
+                ⚠ {tenderErr}
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={launchTender} disabled={tenderBusy} style={{
+                flex:1, background: tenderBusy?'#1a1a1a':'#fbbf24', color: tenderBusy?'#555':'#000',
+                border:'none', borderRadius:12, padding:'14px', cursor: tenderBusy?'default':'pointer',
+                fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700,
+              }}>
+                {tenderBusy ? 'Launching…' : '⚡ Launch Tender'}
+              </button>
+              <button onClick={() => setTenderModal(null)} style={{ background:'transparent', color:'#555', border:'1px solid #222', borderRadius:12, padding:'14px 18px', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:13 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../App.jsx';
 import { sendOTP, register, login } from '../api.js';
+import * as tenderApi from '../api_tender.js';
 import { WaslneyLogo, Inp, btnPrimary } from '../components/UI.jsx';
 
 export default function Landing() {
@@ -11,6 +12,10 @@ export default function Landing() {
   const [otp,     setOtp]     = useState(['','','','','','']);
   const [devOtp,  setDevOtp]  = useState('');
   const [loading, setLoading] = useState(false);
+  const [companyMode, setCompanyMode] = useState(false); // company register/login
+  const [companyTab,  setCompanyTab]  = useState('login'); // login | register
+  const [cForm, setCForm] = useState({ company_name:'', fleet_number:'', password:'' });
+  const [cErr,  setCErr]  = useState('');
 
   const f = k => e => setForm({ ...form, [k]: e.target.value });
 
@@ -49,6 +54,76 @@ export default function Landing() {
     } catch(e) { notify('Wrong credentials', e.message, 'error'); }
     finally { setLoading(false); }
   }
+
+  async function handleCompanyAuth() {
+    setCErr('');
+    setLoading(true);
+    try {
+      let res;
+      if (companyTab === 'login') {
+        res = await tenderApi.companyLogin({ company_name: cForm.company_name, password: cForm.password });
+      } else {
+        if (!cForm.fleet_number) { setCErr('Fleet number is required'); setLoading(false); return; }
+        res = await tenderApi.companyRegister(cForm);
+      }
+      localStorage.setItem('company_token', res.token);
+      localStorage.setItem('company_info', JSON.stringify(res.company));
+      window.location.href = '/company';
+    } catch(e) { setCErr(e.message); }
+    finally { setLoading(false); }
+  }
+
+  // COMPANY AUTH SCREEN
+  if (companyMode) return (
+    <div style={{ minHeight:'100vh', background:'#000', display:'flex', flexDirection:'column', fontFamily:"'Sora',sans-serif" }}>
+      <div style={{ padding:'18px 24px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <button onClick={() => setCompanyMode(false)} style={{ background:'transparent', border:'none', color:'#fff', fontSize:24, cursor:'pointer', padding:4 }}>←</button>
+        <WaslneyLogo size={26} />
+        <div style={{ width:40 }} />
+      </div>
+      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 24px 40px' }}>
+        <div style={{ width:'100%', maxWidth:400 }}>
+          <div style={{ textAlign:'center', marginBottom:28 }}>
+            <div style={{ fontSize:52, marginBottom:12 }}>🚌</div>
+            <h2 style={{ fontSize:26, fontWeight:800, color:'#fff', marginBottom:6 }}>Bus Company Portal</h2>
+            <p style={{ fontSize:13, color:'#555' }}>Bid on trips and manage your fleet</p>
+          </div>
+
+          {/* Toggle */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', background:'#0d0d0d', borderRadius:12, padding:4, marginBottom:20, border:'1px solid #1a1a1a' }}>
+            {['login','register'].map(t => (
+              <button key={t} onClick={() => { setCompanyTab(t); setCErr(''); }} style={{
+                padding:'10px', background: companyTab===t?'#1a1a1a':'transparent',
+                color: companyTab===t?'#fbbf24':'#555', border:'none', cursor:'pointer',
+                fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:600, borderRadius:9,
+                transition:'all .15s',
+              }}>
+                {t === 'login' ? '→ Sign In' : '+ Register'}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            <Inp label="Company Name" value={cForm.company_name} onChange={e => setCForm({...cForm,company_name:e.target.value})} placeholder="e.g. Cairo Express Co." />
+            {companyTab === 'register' && (
+              <Inp label="Fleet / Bus Number" value={cForm.fleet_number} onChange={e => setCForm({...cForm,fleet_number:e.target.value})} placeholder="e.g. BUS-2024" />
+            )}
+            <Inp label="Password" type="password" value={cForm.password} onChange={e => setCForm({...cForm,password:e.target.value})} placeholder="••••••••" />
+          </div>
+
+          {cErr && (
+            <div style={{ marginTop:12, fontSize:12, color:'#f87171', background:'rgba(248,113,113,0.08)', border:'1px solid rgba(248,113,113,0.2)', borderRadius:8, padding:'9px 12px' }}>
+              ⚠ {cErr}
+            </div>
+          )}
+
+          <button onClick={handleCompanyAuth} disabled={loading} style={{ ...btnPrimary, marginTop:16, opacity: loading?0.6:1 }}>
+            {loading ? 'Please wait…' : companyTab === 'login' ? '→ Sign In' : '+ Create Account'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   // HOME
   if (mode === 'home') return (
@@ -90,6 +165,17 @@ export default function Landing() {
             onClick={() => { setRole('admin'); setMode('signup'); }}
             style={{ background:'transparent', color:'#333', border:'1px solid #1a1a1a', borderRadius:12, padding:'11px 18px', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif", display:'flex', alignItems:'center', gap:8, justifyContent:'center' }}>
             ⚙️ Admin portal
+          </button>
+
+          {/* Company portal */}
+          <button
+            onClick={() => setCompanyMode(true)}
+            style={{ background:'rgba(251,191,36,0.07)', color:'#fbbf24', border:'1px solid rgba(251,191,36,0.25)', borderRadius:12, padding:'13px 18px', fontSize:13, cursor:'pointer', fontFamily:"'Sora',sans-serif", display:'flex', alignItems:'center', gap:10, fontWeight:600 }}>
+            <span style={{ fontSize:22 }}>🚌</span>
+            <div style={{ textAlign:'left' }}>
+              <div style={{ fontSize:13, fontWeight:700 }}>Bus company?</div>
+              <div style={{ fontSize:11, fontWeight:400, opacity:0.7 }}>Join & bid on trips</div>
+            </div>
           </button>
         </div>
 
