@@ -650,21 +650,6 @@ export default function Landing({ onEnterCompanyPortal }) {
           Forgot password?
         </span>
       </p>
-      <div style={{ marginTop:24, padding:'16px', background:'#0d0d0d', borderRadius:12, border:'1px solid #1a1a1a' }}>
-        <p style={{ fontSize:11, color:'#444', marginBottom:10, textAlign:'center', textTransform:'uppercase', letterSpacing:'.08em' }}>Demo accounts (password: password)</p>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-          {[
-            ['+20100111222','👤 Passenger'],
-            ['+20101333444','🚐 Driver'],
-            ['+20100000001','⚙️ Admin'],
-          ].map(([ph,label]) => (
-            <button key={ph} onClick={() => setForm(p => ({ ...p, phone:ph, password:'password' }))}
-              style={{ background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:8, padding:'7px 14px', color:'#fff', fontSize:12, cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
       <p style={{ textAlign:'center', marginTop:20, fontSize:12, color:'#444' }}>
         No account?{' '}
         <span onClick={() => setMode('home')} style={{ color:'#fbbf24', cursor:'pointer', fontWeight:600 }}>Create one →</span>
