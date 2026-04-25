@@ -138,10 +138,18 @@ module.exports = async function runMigrations() {
       await db.query(`ALTER TABLE trips MODIFY COLUMN status ENUM('upcoming','active','completed','cancelled','tendered','awarded','assigned') DEFAULT 'upcoming'`);
     } catch(_) {}
 
-    // Add phone column to companies if missing
+    // Add phone column to companies if missing — compatible with older MySQL
     try {
-      await db.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone VARCHAR(30) DEFAULT NULL`);
-    } catch(_) {}
+      // Check if column already exists first
+      const [cols] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'companies' AND COLUMN_NAME = 'phone'`
+      );
+      if (!cols[0].cnt) {
+        await db.query(`ALTER TABLE companies ADD COLUMN phone VARCHAR(30) DEFAULT NULL`);
+        console.log('✅  Added phone column to companies');
+      }
+    } catch(e) { console.warn('⚠️  Could not add phone column:', e.message); }
 
     console.log('✅  Migrations done');
   } catch (err) {

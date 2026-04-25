@@ -33,12 +33,28 @@ router.post('/company/register', async (req, res) => {
     const [ex] = await db.query('SELECT id FROM companies WHERE company_name=?', [company_name]);
     if (ex.length) return res.status(409).json({ error: 'Company name already exists' });
     const hash = await bcrypt.hash(password, 10);
-    const [r] = await db.query(
-      'INSERT INTO companies (company_name, fleet_number, password_hash, phone) VALUES (?,?,?,?)',
-      [company_name.trim(), fleet_number.trim(), hash, phone || null]
-    );
-    const token = jwt.sign({ id: r.insertId, company_name, type: 'company' }, JWT_SECRET, { expiresIn: '30d' });
-    res.status(201).json({ token, company: { id: r.insertId, company_name, fleet_number, phone: phone || null } });
+
+    // Try insert with phone column; fall back without it if column doesn't exist yet
+    let insertId;
+    try {
+      const [r] = await db.query(
+        'INSERT INTO companies (company_name, fleet_number, password_hash, phone) VALUES (?,?,?,?)',
+        [company_name.trim(), fleet_number.trim(), hash, phone || null]
+      );
+      insertId = r.insertId;
+    } catch(colErr) {
+      // phone column missing — insert without it then try to add column
+      const [r] = await db.query(
+        'INSERT INTO companies (company_name, fleet_number, password_hash) VALUES (?,?,?)',
+        [company_name.trim(), fleet_number.trim(), hash]
+      );
+      insertId = r.insertId;
+      // Best-effort: add the column for future requests
+      try { await db.query(`ALTER TABLE companies ADD COLUMN phone VARCHAR(30) DEFAULT NULL`); } catch(_) {}
+    }
+
+    const token = jwt.sign({ id: insertId, company_name, type: 'company' }, JWT_SECRET, { expiresIn: '30d' });
+    res.status(201).json({ token, company: { id: insertId, company_name, fleet_number, phone: phone || null } });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -51,7 +67,7 @@ router.post('/company/login', async (req, res) => {
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = jwt.sign({ id: rows[0].id, company_name: rows[0].company_name, type: 'company' }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, company: { id: rows[0].id, company_name: rows[0].company_name, fleet_number: rows[0].fleet_number, phone: rows[0].phone } });
+    res.json({ token, company: { id: rows[0].id, company_name: rows[0].company_name, fleet_number: rows[0].fleet_number, phone: rows[0].phone || null } });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
 
