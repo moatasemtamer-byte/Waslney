@@ -99,7 +99,7 @@ export default function Landing({ onEnterCompanyPortal }) {
   // mode: home | signup | docs | otp | login | driver-status
   const [mode,         setMode]         = useState('home');
   const [role,         setRole]         = useState('');
-  const [form,         setForm]         = useState({ name: '', phone: '', password: '', car: '', plate: '' });
+  const [form,         setForm]         = useState({ name: '', phone: '', email: '', password: '', car: '', plate: '' });
   const [docs,         setDocs]         = useState({ profile: '', carLicense: '', driverLicense: '', criminal: '' });
   const [docErr,       setDocErr]       = useState({});
   const [otp,          setOtp]          = useState(['','','','','','']);
@@ -134,10 +134,10 @@ export default function Landing({ onEnterCompanyPortal }) {
   async function sendOTPStep() {
     setLoading(true);
     try {
-      const res = await sendOTP(form.phone);
-      setDevOtp(res.dev_otp || '');
+      const res = await sendOTP(form.email);
+      // email OTP - no dev code
       setMode('otp');
-      notify('Code sent', `OTP: ${res.dev_otp}`, 'info');
+      notify('Code sent', 'Check your email for the 6-digit code.', 'info');
     } catch(e) { notify('Error', e.message, 'error'); }
     finally { setLoading(false); }
   }
@@ -149,7 +149,7 @@ export default function Landing({ onEnterCompanyPortal }) {
     setLoading(true);
     try {
       const payload = {
-        ...form, role, otp: code,
+        ...form, role, otp: code, email: form.email,
         ...(role === 'driver' ? {
           profile_photo:         docs.profile,
           car_license_photo:     docs.carLicense,
@@ -189,7 +189,7 @@ export default function Landing({ onEnterCompanyPortal }) {
   }
 
   function reset() {
-    setForm({ name:'', phone:'', password:'', car:'', plate:'' });
+    setForm({ name:'', phone:'', email:'', password:'', car:'', plate:'' });
     setDocs({ profile:'', carLicense:'', driverLicense:'', criminal:'' });
     setDocErr({}); setOtp(['','','','','','']); setDevOtp('');
   }
@@ -314,6 +314,7 @@ export default function Landing({ onEnterCompanyPortal }) {
 
       <Inp label="Full name"    value={form.name}     onChange={f('name')}     placeholder="Ahmed Hassan" />
       <Inp label="Phone number" value={form.phone}    onChange={f('phone')}    placeholder="+20 100 000 0000" />
+      <Inp label="Email address" value={form.email}    onChange={f('email')}    placeholder="you@example.com" type="email" />
       <Inp label="Password"     value={form.password} onChange={f('password')} placeholder="Choose a password" type="password" />
       {role === 'driver' && <>
         <Inp label="Car model"     value={form.car}   onChange={f('car')}   placeholder="Toyota Hiace 2022" />
@@ -380,10 +381,10 @@ export default function Landing({ onEnterCompanyPortal }) {
     <Page onBack={() => setMode(role === 'driver' ? 'docs' : 'signup')}>
       {role === 'driver' && <Steps step={3} />}
       <div style={{ textAlign:'center' }}>
-        <div style={{ fontSize:52, marginBottom:16 }}>📱</div>
-        <h2 style={{ fontSize:24, fontWeight:800, color:'#fff', marginBottom:8 }}>Verify your number</h2>
-        <p style={{ color:'#666', fontSize:14, marginBottom:6 }}>Code sent to {form.phone}</p>
-        {devOtp && <p style={{ color:'#fbbf24', fontSize:13, marginBottom:28, background:'rgba(251,191,36,0.1)', borderRadius:8, padding:'8px 16px', display:'inline-block' }}>Demo code: <b>{devOtp}</b></p>}
+        <div style={{ fontSize:52, marginBottom:16 }}>✉️</div>
+        <h2 style={{ fontSize:24, fontWeight:800, color:'#fff', marginBottom:8 }}>Verify your email</h2>
+        <p style={{ color:'#666', fontSize:14, marginBottom:6 }}>Code sent to {form.email}</p>
+
         <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:32 }}>
           {otp.map((v,i) => (
             <input key={i} id={`o${i}`} maxLength={1} value={v}

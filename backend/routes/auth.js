@@ -1,16 +1,28 @@
 // backend/routes/auth.js
 require('dotenv').config();
-const express = require('express');
-const bcrypt  = require('bcryptjs');
-const jwt     = require('jsonwebtoken');
-const db      = require('../db');
+const express    = require('express');
+const bcrypt     = require('bcryptjs');
+const jwt        = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
+const db         = require('../db');
 const { requireAuth } = require('../auth');
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'waslney_secret_change_me';
 
-// In-memory OTP store (fine for single Railway instance)
-const otpStore = new Map(); // phone -> { code, expires }
+// ── Email transporter (Hostinger SMTP — support@waslney.com) ─────────────────
+const transporter = nodemailer.createTransport({
+  host: 'smtp.hostinger.com',
+  port: 465,
+  secure: true,                           // SSL on port 465
+  auth: {
+    user: process.env.MAIL_USER,          // support@waslney.com
+    pass: process.env.MAIL_PASS,          // your Hostinger email password
+  },
+});
+
+// In-memory OTP store (fine for single-instance server)
+const otpStore = new Map(); // email -> { code, expires }
 
 function signToken(user) {
   return jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
@@ -18,22 +30,43 @@ function signToken(user) {
 
 // ── POST /api/auth/send-otp ───────────────────────────────────────────────────
 router.post('/send-otp', async (req, res) => {
-  const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: 'Phone required' });
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email required' });
 
   const code    = String(Math.floor(100000 + Math.random() * 900000));
   const expires = Date.now() + 10 * 60 * 1000; // 10 min
-  otpStore.set(phone, { code, expires });
+  otpStore.set(email, { code, expires });
 
-  console.log(`📱 OTP for ${phone}: ${code}`);
-  // TODO: send via SMS in production
-  res.json({ ok: true, dev_otp: code });
+  try {
+    await transporter.sendMail({
+      from: `"Waslney" <${process.env.MAIL_USER}>`,
+      to: email,
+      subject: 'Your Waslney verification code',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#0d0d0d;border-radius:16px;color:#fff">
+          <h2 style="color:#fbbf24;margin-bottom:8px">Verify your email</h2>
+          <p style="color:#aaa;margin-bottom:24px">Use the code below to complete your Waslney registration. It expires in 10 minutes.</p>
+          <div style="letter-spacing:12px;font-size:36px;font-weight:800;text-align:center;padding:20px;background:#1a1a1a;border-radius:12px;color:#fff;margin-bottom:24px">
+            ${code}
+          </div>
+          <p style="color:#555;font-size:12px">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+      `,
+    });
+
+    console.log(`✉️  OTP sent to ${email}`);
+    res.json({ ok: true });
+
+  } catch (err) {
+    console.error('Mail send error:', err);
+    res.status(500).json({ error: 'Failed to send verification email. Check MAIL_USER / MAIL_PASS in .env' });
+  }
 });
 
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   const {
-    name, phone, password, role, otp,
+    name, phone, email, password, role, otp,
     car, plate,
     profile_photo,
     car_license_photo,
@@ -41,16 +74,16 @@ router.post('/register', async (req, res) => {
     criminal_record_photo,
   } = req.body;
 
-  if (!name || !phone || !password || !role) {
+  if (!name || !phone || !email || !password || !role) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  // Verify OTP
-  const stored = otpStore.get(phone);
+  // Verify OTP against email
+  const stored = otpStore.get(email);
   if (!stored || stored.code !== String(otp) || Date.now() > stored.expires) {
     return res.status(400).json({ error: 'Invalid or expired OTP' });
   }
-  otpStore.delete(phone);
+  otpStore.delete(email);
 
   // Check phone not already taken
   const [[existing]] = await db.query('SELECT id FROM users WHERE phone = ?', [phone]);
@@ -69,9 +102,9 @@ router.post('/register', async (req, res) => {
     const account_status = role === 'driver' ? 'pending_review' : 'active';
 
     const [result] = await db.query(
-      `INSERT INTO users (name, phone, password, role, car, plate, profile_photo, account_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, phone, hash, role, car || null, plate || null, profile_photo || null, account_status]
+      `INSERT INTO users (name, phone, email, password, role, car, plate, profile_photo, account_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, phone, email || null, hash, role, car || null, plate || null, profile_photo || null, account_status]
     );
     const userId = result.insertId;
 
@@ -86,7 +119,7 @@ router.post('/register', async (req, res) => {
     }
 
     const [[user]] = await db.query(
-      `SELECT id, name, phone, role, car, plate, account_status, created_at
+      `SELECT id, name, phone, email, role, car, plate, account_status, created_at
        FROM users WHERE id = ?`,
       [userId]
     );
@@ -141,7 +174,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const [[user]] = await db.query(
-      `SELECT id, name, phone, role, car, plate, account_status, created_at
+      `SELECT id, name, phone, email, role, car, plate, account_status, created_at
        FROM users WHERE id = ?`,
       [req.user.id]
     );
