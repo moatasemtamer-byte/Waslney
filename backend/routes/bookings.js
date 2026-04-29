@@ -55,7 +55,7 @@ router.get('/week-schedule', requireAuth, async (req, res) => {
   const { trip_id } = req.query;
   if (!trip_id) return res.status(400).json({ error: 'trip_id required' });
   try {
-    const [tripRows] = await db.query('SELECT * FROM trips WHERE id = ?', [trip_id]);
+    const [tripRows] = await db.query('SELECT * FROM trips WHERE id = ? AND status IN (\'upcoming\',\'active\',\'tendered\',\'awarded\',\'assigned\')', [trip_id]);
     if (!tripRows.length) return res.status(404).json({ error: 'Trip not found' });
     const trip = tripRows[0];
     const today = new Date(); today.setHours(0,0,0,0);
@@ -146,7 +146,7 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
 
   try {
     const [tripRows] = await db.query(
-      "SELECT * FROM trips WHERE id=? AND status IN ('upcoming','active')", [trip_id]
+      "SELECT * FROM trips WHERE id=? AND status IN ('upcoming','active','tendered','awarded','assigned')", [trip_id]
     );
     if (!tripRows.length) return res.status(404).json({ error: 'Trip not found or not available' });
     const trip = tripRows[0];

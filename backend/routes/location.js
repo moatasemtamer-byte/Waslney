@@ -12,7 +12,7 @@ router.get('/trip/:tripId', requireAuth, async (req, res) => {
       JOIN users  u ON u.id = dl.driver_id
       WHERE dl.trip_id=?
     `, [req.params.tripId]);
-    if (!rows.length) return res.status(404).json({ error: 'No location data yet' });
+    if (!rows.length) return res.status(200).json({ lat: null, lng: null, driver_name: null, updated_at: null });
     res.json(rows[0]);
   } catch (err) {
     console.error(err); res.status(500).json({ error: 'Server error' });

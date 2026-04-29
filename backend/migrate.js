@@ -197,6 +197,21 @@ module.exports = async function runMigrations() {
       }
     } catch(e) { console.warn('⚠️  Could not add phone column:', e.message); }
 
+    // ── Driver locations table (used by location.js) ────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS driver_locations (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        driver_id  INT NOT NULL,
+        trip_id    INT NOT NULL,
+        lat        DECIMAL(10,8) NOT NULL,
+        lng        DECIMAL(10,8) NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_driver_trip (driver_id, trip_id),
+        FOREIGN KEY (driver_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (trip_id)   REFERENCES trips(id) ON DELETE CASCADE
+      )
+    `);
+
     // ── Daily booking round: booking_settings table ─────────────────────────
     await db.query(`
       CREATE TABLE IF NOT EXISTS booking_settings (
@@ -207,6 +222,8 @@ module.exports = async function runMigrations() {
         updated_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
+    // Ensure default settings row always exists
+    await db.query(`INSERT IGNORE INTO booking_settings (id, booking_round_start_day, surge_percent, surge_after_friday) VALUES (1, 5, 10.00, 1)`);
 
     // Add travel_date column to bookings (per-day booking)
     try {
