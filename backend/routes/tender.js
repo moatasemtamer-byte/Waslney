@@ -273,6 +273,14 @@ router.post('/tenders/:id/close', requireAuth, requireRole('admin'), async (req,
     );
     await db.query("UPDATE trips SET status='awarded' WHERE id=?", [tenders[0].trip_id]);
 
+    // If this is a batch tender, update the batch status
+    if (tenders[0].batch_id) {
+      await db.query(
+        "UPDATE dispatch_batches SET status='tendered', dispatch_type='tender' WHERE id=? AND status='tendered'",
+        [tenders[0].batch_id]
+      );
+    }
+
     // Create the weekly assignment record
     const [waResult] = await db.query(
       'INSERT INTO trip_week_assignments (tender_id, trip_id, company_id, week_start, week_end) VALUES (?,?,?,?,?)',
@@ -523,5 +531,87 @@ router.get('/trip/:tripId/current-assignment', async (req, res) => {
     });
   } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
 });
+
+
+// ══════════════════════════════════════════════════════════════════
+// BATCH TENDERS — company sees & wins batch-specific tenders
+// ══════════════════════════════════════════════════════════════════
+
+// GET /api/tender/won-batches — company: list batch tenders they've won
+router.get('/won-batches', companyAuth, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT tn.id AS tender_id, tn.awarded_amount, tn.awarded_at,
+             dbt.id AS batch_id, dbt.travel_date, dbt.vehicle_type, dbt.capacity,
+             dbt.driver_name, dbt.driver_phone, dbt.car_plate, dbt.car_model,
+             dbt.status AS batch_status,
+             t.from_loc, t.to_loc, t.pickup_time, t.dropoff_time,
+             COUNT(dbb.booking_id) AS passenger_count
+      FROM tenders tn
+      JOIN dispatch_batches dbt ON dbt.id = tn.batch_id
+      JOIN trips t ON t.id = dbt.trip_id
+      LEFT JOIN dispatch_batch_bookings dbb ON dbb.batch_id = dbt.id
+      WHERE tn.winner_company_id=? AND tn.status='awarded' AND tn.batch_id IS NOT NULL
+      GROUP BY tn.id, dbt.id, t.id
+      ORDER BY dbt.travel_date DESC
+    `, [req.company.id]);
+    res.json(rows);
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST /api/tender/batches/:batchId/assign-driver — company assigns driver+car to their won batch
+router.post('/batches/:batchId/assign-driver', companyAuth, async (req, res) => {
+  const { driver_id, car_id } = req.body;
+  if (!driver_id || !car_id) return res.status(400).json({ error: 'driver_id and car_id required' });
+  try {
+    // Verify batch was awarded to this company
+    const [batches] = await db.query(`
+      SELECT dbt.* FROM dispatch_batches dbt
+      JOIN tenders tn ON tn.id = dbt.tender_id
+      WHERE dbt.id=? AND tn.winner_company_id=? AND tn.status='awarded'
+    `, [req.params.batchId, req.company.id]);
+    if (!batches.length) return res.status(403).json({ error: 'Not your batch' });
+
+    const [drivers] = await db.query('SELECT * FROM company_drivers WHERE id=? AND company_id=?', [driver_id, req.company.id]);
+    const [cars]    = await db.query('SELECT * FROM company_cars WHERE id=? AND company_id=?', [car_id, req.company.id]);
+    if (!drivers.length || !cars.length) return res.status(403).json({ error: 'Driver or car not in your fleet' });
+
+    await db.query(`
+      UPDATE dispatch_batches
+      SET driver_name=?, driver_phone=?, car_plate=?, car_model=?, status='assigned'
+      WHERE id=?
+    `, [drivers[0].name, drivers[0].phone || '', cars[0].plate, cars[0].model || '', req.params.batchId]);
+
+    // Notify passengers
+    const [passengers] = await db.query(`
+      SELECT bk.passenger_id FROM bookings bk
+      JOIN dispatch_batch_bookings dbb ON dbb.booking_id = bk.id
+      WHERE dbb.batch_id=?
+    `, [req.params.batchId]);
+
+    const [batch] = await db.query(`
+      SELECT dbt.travel_date, t.from_loc, t.to_loc
+      FROM dispatch_batches dbt JOIN trips t ON t.id=dbt.trip_id WHERE dbt.id=?
+    `, [req.params.batchId]);
+
+    if (batch.length) {
+      const b = batch[0];
+      for (const p of passengers) {
+        await db.query('INSERT INTO notifications (user_id, message) VALUES (?,?)', [
+          p.passenger_id,
+          `Your driver for ${b.travel_date} (${b.from_loc} → ${b.to_loc}) is ${drivers[0].name} — ${cars[0].plate}. Have a safe trip! 🚌`
+        ]);
+      }
+    }
+
+    const io = getIo();
+    if (io) io.emit('batch:driver_assigned', { batch_id: req.params.batchId, driver: drivers[0].name, car: cars[0].plate });
+
+    res.json({ ok: true, driver_name: drivers[0].name, car_plate: cars[0].plate });
+  } catch(e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// GET /api/tender/tenders/:id (extended) — include batch info if batch tender
+// Overrides the existing route — insert batch-aware version before module.exports
 
 module.exports = router;

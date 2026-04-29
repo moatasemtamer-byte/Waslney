@@ -289,4 +289,15 @@ router.post('/admin-create-user', requireAuth, async (req, res) => {
   }
 });
 
+
+// GET /api/auth/drivers — admin: list all users with role=driver (own fleet)
+router.get('/drivers', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT id, name, phone, car, plate FROM users WHERE role='driver' ORDER BY name ASC"
+    );
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: 'Server error' }); }
+});
+
 module.exports = router;
