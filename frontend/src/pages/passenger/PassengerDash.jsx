@@ -673,6 +673,12 @@ export default function PassengerDash(){
         return updated;
       });
     });
+    // Driver assigned by company — refresh bookings and notify passenger
+    socket.on('driver:assigned', ({ bookingId, driverName, carPlate, travelDate, message }) => {
+      loadBookings();
+      loadNotifs();
+      notify('🚌 Driver Assigned!', `${driverName} — ${carPlate}`, 'success');
+    });
     return()=>{
       socket.off('checkin:update');
       socket.off('pool:confirmed');
@@ -680,6 +686,7 @@ export default function PassengerDash(){
       socket.off('pool:chat:message');
       socket.off('trip:started');
       socket.off('trip:completed');
+      socket.off('driver:assigned');
     };
   },[user.id]);
 
