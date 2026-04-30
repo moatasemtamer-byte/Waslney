@@ -96,11 +96,23 @@ router.get('/mine', requireAuth, async (req, res) => {
              t.status   AS trip_status,
              t.pickup_lat, t.pickup_lng, t.dropoff_lat, t.dropoff_lng,
              u.name     AS driver_name, u.car AS driver_car, u.plate AS driver_plate,
-             c.status   AS checkin_status
+             c.status   AS checkin_status,
+             -- Dispatch batch info (overrides trip driver when batch is assigned)
+             dbt.status          AS batch_status,
+             dbt.driver_name     AS batch_driver_name,
+             dbt.driver_phone    AS batch_driver_phone,
+             dbt.car_plate       AS batch_car_plate,
+             dbt.car_model       AS batch_car_model,
+             dbt.dispatch_type   AS batch_dispatch_type,
+             co.company_name     AS batch_company_name
       FROM bookings b
       JOIN trips  t ON t.id = b.trip_id
       JOIN users  u ON u.id = t.driver_id
       LEFT JOIN checkins c ON c.booking_id = b.id
+      -- Find if this booking is in a dispatched batch
+      LEFT JOIN dispatch_batch_bookings dbb ON dbb.booking_id = b.id
+      LEFT JOIN dispatch_batches dbt ON dbt.id = dbb.batch_id
+      LEFT JOIN companies co ON co.id = dbt.assigned_company_id
       WHERE b.passenger_id = ?
       ORDER BY b.travel_date DESC, b.created_at DESC
     `, [req.user.id]);
