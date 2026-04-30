@@ -107,7 +107,7 @@ router.get('/mine', requireAuth, async (req, res) => {
              co.company_name     AS batch_company_name
       FROM bookings b
       JOIN trips  t ON t.id = b.trip_id
-      JOIN users  u ON u.id = t.driver_id
+      LEFT JOIN users  u ON u.id = t.driver_id
       LEFT JOIN checkins c ON c.booking_id = b.id
       -- Find if this booking is in a dispatched batch
       LEFT JOIN dispatch_batch_bookings dbb ON dbb.booking_id = b.id
