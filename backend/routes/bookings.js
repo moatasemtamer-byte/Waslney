@@ -197,13 +197,15 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
 
     await db.query('INSERT INTO notifications (user_id, message) VALUES (?,?)',
       [req.user.id, `Booking confirmed for ${dayName} ${travel_date}: ${trip.from_loc} → ${trip.to_loc}${isSurge ? ` (surge +${effectivePrice - trip.price} EGP)` : ''}`]);
-    await db.query('INSERT INTO notifications (user_id, message) VALUES (?,?)',
-      [trip.driver_id, `New booking: ${seats} seat(s) on ${dayName} ${travel_date} — ${trip.from_loc} → ${trip.to_loc}`]);
+    if (trip.driver_id) {
+      await db.query('INSERT INTO notifications (user_id, message) VALUES (?,?)',
+        [trip.driver_id, `New booking: ${seats} seat(s) on ${dayName} ${travel_date} — ${trip.from_loc} → ${trip.to_loc}`]);
+    }
 
     const [booking] = await db.query(`
       SELECT b.*, t.from_loc, t.to_loc, t.pickup_time, t.date, t.price,
              u.name AS driver_name, u.car AS driver_car, u.plate AS driver_plate
-      FROM bookings b JOIN trips t ON t.id=b.trip_id JOIN users u ON u.id=t.driver_id
+      FROM bookings b JOIN trips t ON t.id=b.trip_id LEFT JOIN users u ON u.id=t.driver_id
       WHERE b.id = ?
     `, [bookingId]);
 
