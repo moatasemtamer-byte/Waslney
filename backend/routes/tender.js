@@ -405,11 +405,8 @@ router.post('/won/:weekAssignmentId/daily', companyAuth, async (req, res) => {
     if (!wa.length) return res.status(403).json({ error: 'Not your assignment' });
 
     // Check the date is within the week window
-    const d = new Date(assignment_date);
-    const wStart = new Date(wa[0].week_start);
-    const wEnd   = new Date(wa[0].week_end);
-    wEnd.setHours(23, 59, 59);
-    if (d < wStart || d > wEnd)
+    // Compare as strings to avoid timezone shift issues
+    if (assignment_date < wa[0].week_start || assignment_date > wa[0].week_end)
       return res.status(400).json({ error: `Date must be within ${wa[0].week_start} – ${wa[0].week_end}` });
 
     // Verify driver/car belong to company
@@ -431,10 +428,7 @@ router.post('/won/:weekAssignmentId/daily', companyAuth, async (req, res) => {
         'UPDATE tenders SET assigned_driver_id=?, assigned_car_id=? WHERE id=?',
         [driver_id, car_id, wa[0].tender_id]
       );
-      await db.query(
-        "UPDATE trips SET status='assigned', driver_car=? WHERE id=?",
-        [cars[0].plate, wa[0].trip_id]
-      );
+      await db.query("UPDATE trips SET status='assigned' WHERE id=?", [wa[0].trip_id]);
     }
 
     const io = getIo();
