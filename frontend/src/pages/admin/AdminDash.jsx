@@ -1680,16 +1680,54 @@ function DispatchTab({ token, notify, trips, hdr, API }) {
             {trips.map(t => <option key={t.id} value={t.id}>#{t.id} · {t.from_loc} → {t.to_loc} · {t.pickup_time}</option>)}
           </select>
         </div>
-        <div style={{ flex:1, minWidth:140 }}>
-          <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Date</div>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
-            style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:13, fontFamily:"'Sora',sans-serif", outline:'none', boxSizing:'border-box' }} />
-        </div>
-        <button onClick={loadSummary} disabled={loading}
-          style={{ background:'#fbbf24', color:'#000', border:'none', borderRadius:10, padding:'12px 20px', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
-          {loading ? '…' : '📊 Load'}
-        </button>
       </div>
+      {/* Day selector buttons — shows next 6 working days (Sat–Thu, skip Fri) */}
+      {(() => {
+        const days = [];
+        const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const daysFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        let d = new Date();
+        while (days.length < 7) {
+          d = new Date(d); d.setDate(d.getDate() + (days.length === 0 ? 0 : 1));
+          if (d.getDay() === 5) { d.setDate(d.getDate() + 1); } // skip Friday
+          const iso = d.toISOString().slice(0,10);
+          days.push({ iso, label: dayNames[d.getDay()], date: iso.slice(5), full: daysFull[d.getDay()] });
+          if (days.length === 0) break;
+        }
+        // build next 7 non-friday days
+        const result = [];
+        const start = new Date();
+        for (let i = 0; result.length < 7; i++) {
+          const dd = new Date(start); dd.setDate(start.getDate() + i);
+          if (dd.getDay() === 5) continue; // skip Fri
+          const iso = dd.toISOString().slice(0,10);
+          result.push({ iso, label: dayNames[dd.getDay()], date: iso.slice(5) });
+        }
+        return (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Select Day</div>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {result.map(day => (
+                <button key={day.iso} onClick={() => { setDate(day.iso); setSummary(null); }}
+                  style={{ padding:'10px 14px', borderRadius:12, border:'none', cursor:'pointer',
+                    fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700,
+                    background: date === day.iso ? '#fbbf24' : '#1a1a1a',
+                    color: date === day.iso ? '#000' : '#888',
+                    minWidth:64, textAlign:'center' }}>
+                  <div>{day.label}</div>
+                  <div style={{ fontSize:10, fontWeight:400, marginTop:2, opacity:.7 }}>{day.date}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+      <button onClick={loadSummary} disabled={loading || !tripId || !date}
+        style={{ background: tripId && date ? '#fbbf24' : '#1a1a1a', color: tripId && date ? '#000' : '#555',
+          border:'none', borderRadius:10, padding:'12px 20px', fontFamily:"'Sora',sans-serif",
+          fontSize:13, fontWeight:700, cursor: tripId && date ? 'pointer' : 'default', marginBottom:16 }}>
+        {loading ? '…' : '📊 Load Bookings'}
+      </button>
 
       {/* Summary bar */}
       {summary && (
