@@ -1344,9 +1344,10 @@ function ManageBookingsTab({ token, notify, trips }) {
       {/* Sub-tabs */}
       <div style={{ display:'flex', gap:8, marginBottom:20 }}>
         {[
-          { id:'schedule', label:'🗓 Route Schedule' },
-          { id:'daily',    label:'📋 Daily View' },
-          { id:'settings', label:'⚙️ Settings' },
+          { id:'schedule',  label:'🗓 Route Schedule' },
+          { id:'daily',     label:'📋 Daily View' },
+          { id:'dispatch',  label:'🚌 Dispatch' },
+          { id:'settings',  label:'⚙️ Settings' },
         ].map(t => (
           <button key={t.id} onClick={() => setView(t.id)}
             style={{ padding:'9px 16px', borderRadius:10, border:'none', cursor:'pointer', fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700,
@@ -1471,6 +1472,11 @@ function ManageBookingsTab({ token, notify, trips }) {
         </div>
       )}
 
+      {/* ── DISPATCH VIEW ── */}
+      {view === 'dispatch' && (
+        <DispatchTab token={token} notify={notify} trips={trips} hdr={hdr} API={API} />
+      )}
+
       {/* ── SETTINGS VIEW ── */}
       {view === 'settings' && (
         <div style={{ background:'#0d0d0d', border:'1px solid #1a1a1a', borderRadius:16, padding:'20px 22px' }}>
@@ -1535,6 +1541,441 @@ function ManageBookingsTab({ token, notify, trips }) {
             style={{ background:'#fbbf24', color:'#000', border:'none', borderRadius:12, padding:'13px 18px', fontFamily:"'Sora',sans-serif", fontSize:14, fontWeight:700, cursor:'pointer', width:'100%', opacity: savingSettings ? 0.7 : 1 }}>
             {savingSettings ? 'Saving…' : '💾 Save Settings'}
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// DISPATCH TAB — split daily bookings into vehicle batches
+// ═══════════════════════════════════════════════════════════════════
+function DispatchTab({ token, notify, trips, hdr, API }) {
+  const [tripId,     setTripId]     = useState('');
+  const [date,       setDate]       = useState('');
+  const [summary,    setSummary]    = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const [companies,  setCompanies]  = useState([]);
+  const [drivers,    setDrivers]    = useState([]);     // own drivers (users with role=driver)
+
+  // Create-batch modal state
+  const [showCreate,  setShowCreate]  = useState(false);
+  const [newVehicle,  setNewVehicle]  = useState('coaster');
+  const [newCap,      setNewCap]      = useState(24);
+  const [creating,    setCreating]    = useState(false);
+
+  // Per-batch action modals
+  const [actionBatch,  setActionBatch]  = useState(null); // {batch, type:'own'|'company'|'tender'}
+  const [ownDriverId,  setOwnDriverId]  = useState('');
+  const [ownCarPlate,  setOwnCarPlate]  = useState('');
+  const [coCompanyId,  setCoCompanyId]  = useState('');
+  const [tenderMins,   setTenderMins]   = useState(120);
+  const [actioning,    setActioning]    = useState(false);
+
+  // Passenger list modal
+  const [paxBatch,  setPaxBatch]  = useState(null);
+  const [paxList,   setPaxList]   = useState([]);
+  const [paxLoading,setPaxLoading]= useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/bookings/companies`, { headers: hdr })
+      .then(r => r.json()).then(setCompanies).catch(() => {});
+    fetch(`${API}/auth/drivers`, { headers: hdr })
+      .then(r => r.json()).then(setDrivers).catch(() => {});
+  }, []);
+
+  async function loadSummary() {
+    if (!tripId || !date) return notify('Missing','Select route and date','error');
+    setLoading(true); setSummary(null);
+    try {
+      const r = await fetch(`${API}/bookings/dispatch/summary?trip_id=${tripId}&date=${date}`, { headers: hdr });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed');
+      setSummary(data);
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setLoading(false); }
+  }
+
+  async function createBatch() {
+    setCreating(true);
+    try {
+      const r = await fetch(`${API}/bookings/dispatch/batch`, {
+        method: 'POST', headers: hdr,
+        body: JSON.stringify({ trip_id: tripId, travel_date: date, vehicle_type: newVehicle, capacity: newCap }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed');
+      notify('Batch Created', `${data.passenger_count} passengers assigned to ${newVehicle}`);
+      setShowCreate(false);
+      await loadSummary();
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setCreating(false); }
+  }
+
+  async function deleteBatch(batchId) {
+    if (!confirm('Delete this batch? Passengers will return to unassigned.')) return;
+    try {
+      const r = await fetch(`${API}/bookings/dispatch/batch/${batchId}`, { method: 'DELETE', headers: hdr });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.error); }
+      notify('Deleted', 'Batch removed');
+      await loadSummary();
+    } catch(e) { notify('Error', e.message, 'error'); }
+  }
+
+  async function doAction() {
+    if (!actionBatch) return;
+    setActioning(true);
+    const { batch, type } = actionBatch;
+    try {
+      let url, body;
+      if (type === 'tender') {
+        url = `${API}/bookings/dispatch/batch/${batch.id}/tender`;
+        body = { duration_minutes: tenderMins };
+      } else if (type === 'own') {
+        if (!ownDriverId) throw new Error('Select a driver');
+        url = `${API}/bookings/dispatch/batch/${batch.id}/own`;
+        body = { driver_id: ownDriverId, car_plate: ownCarPlate };
+      } else if (type === 'company') {
+        if (!coCompanyId) throw new Error('Select a company');
+        url = `${API}/bookings/dispatch/batch/${batch.id}/company`;
+        body = { company_id: coCompanyId };
+      }
+      const r = await fetch(url, { method: 'PUT', headers: hdr, body: JSON.stringify(body) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed');
+      notify('Done', type === 'tender' ? 'Tender posted' : type === 'own' ? `Driver ${data.driver_name} assigned` : `Assigned to ${data.company_name}`);
+      setActionBatch(null);
+      await loadSummary();
+    } catch(e) { notify('Error', e.message, 'error'); }
+    finally { setActioning(false); }
+  }
+
+  async function loadPax(batch) {
+    setPaxBatch(batch); setPaxList([]); setPaxLoading(true);
+    try {
+      const r = await fetch(`${API}/bookings/dispatch/batch/${batch.id}/passengers`, { headers: hdr });
+      setPaxList(await r.json());
+    } catch(_) {}
+    finally { setPaxLoading(false); }
+  }
+
+  const statusColor = s => ({ pending:'#fbbf24', tendered:'#60a5fa', assigned:'#4ade80', completed:'#888' }[s] || '#888');
+  const vehicleLabel = v => v === 'hiace' ? '🚐 Hiace' : v === 'coaster' ? '🚌 Coaster' : '🚗 Other';
+
+  return (
+    <div style={{ fontFamily:"'Sora',sans-serif", maxWidth:900, margin:'0 auto' }}>
+      <div style={{ fontSize:20, fontWeight:800, color:'#fff', marginBottom:4 }}>🚌 Dispatch Manager</div>
+      <div style={{ fontSize:12, color:'#555', marginBottom:20 }}>
+        Split daily bookings into vehicle batches · Tender or assign each batch
+      </div>
+
+      {/* Route + Date Selector */}
+      <div style={{ background:'#0d0d0d', border:'1px solid #1a1a1a', borderRadius:14, padding:'16px 18px', marginBottom:16, display:'flex', gap:12, flexWrap:'wrap', alignItems:'flex-end' }}>
+        <div style={{ flex:2, minWidth:180 }}>
+          <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Route</div>
+          <select value={tripId} onChange={e => setTripId(e.target.value)}
+            style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:13, fontFamily:"'Sora',sans-serif", outline:'none' }}>
+            <option value="">— choose route —</option>
+            {trips.map(t => <option key={t.id} value={t.id}>#{t.id} · {t.from_loc} → {t.to_loc} · {t.pickup_time}</option>)}
+          </select>
+        </div>
+        <div style={{ flex:1, minWidth:140 }}>
+          <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:6 }}>Date</div>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+            style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:13, fontFamily:"'Sora',sans-serif", outline:'none', boxSizing:'border-box' }} />
+        </div>
+        <button onClick={loadSummary} disabled={loading}
+          style={{ background:'#fbbf24', color:'#000', border:'none', borderRadius:10, padding:'12px 20px', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+          {loading ? '…' : '📊 Load'}
+        </button>
+      </div>
+
+      {/* Summary bar */}
+      {summary && (
+        <>
+          <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap' }}>
+            {[
+              { label:'Total Booked', value: summary.total, color:'#fff' },
+              { label:'Unassigned',   value: summary.unassigned, color: summary.unassigned > 0 ? '#fbbf24' : '#4ade80' },
+              { label:'In Batches',   value: summary.assigned, color:'#60a5fa' },
+              { label:'Batches',      value: summary.batches.length, color:'#a78bfa' },
+            ].map(s => (
+              <div key={s.label} style={{ flex:1, minWidth:100, background:'#0d0d0d', border:'1px solid #1a1a1a', borderRadius:12, padding:'12px 14px', textAlign:'center' }}>
+                <div style={{ fontSize:22, fontWeight:800, color:s.color }}>{s.value}</div>
+                <div style={{ fontSize:11, color:'#555', marginTop:2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Create batch button */}
+          {summary.unassigned > 0 && (
+            <button onClick={() => { setShowCreate(true); setNewVehicle('coaster'); setNewCap(24); }}
+              style={{ background:'rgba(251,191,36,0.12)', border:'1.5px dashed rgba(251,191,36,0.4)', color:'#fbbf24', borderRadius:12, padding:'12px 18px', width:'100%', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer', marginBottom:16 }}>
+              + Create New Batch ({summary.unassigned} passengers unassigned)
+            </button>
+          )}
+
+          {summary.unassigned === 0 && summary.total > 0 && (
+            <div style={{ background:'rgba(74,222,128,0.08)', border:'1px solid rgba(74,222,128,0.2)', borderRadius:12, padding:'12px 16px', marginBottom:16, color:'#4ade80', fontSize:13, fontWeight:700 }}>
+              ✅ All {summary.total} passengers are assigned to batches
+            </div>
+          )}
+
+          {/* Batch cards */}
+          {summary.batches.length === 0 && summary.total > 0 && (
+            <div style={{ textAlign:'center', padding:40, color:'#555', fontSize:13 }}>
+              No batches yet — create one to start dispatching
+            </div>
+          )}
+
+          {summary.batches.map(batch => (
+            <div key={batch.id} style={{ background:'#0d0d0d', border:`1.5px solid ${statusColor(batch.status)}33`, borderRadius:14, padding:'16px 18px', marginBottom:12 }}>
+              {/* Batch header */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>
+                    {vehicleLabel(batch.vehicle_type)}
+                  </div>
+                  <div style={{ fontSize:12, color:'#888' }}>
+                    cap: <span style={{ color:'#fff', fontWeight:700 }}>{batch.capacity}</span>
+                  </div>
+                  <div style={{ fontSize:12, color:'#888' }}>
+                    · <span style={{ color:'#fff', fontWeight:700 }}>{batch.passenger_count}</span> pax
+                  </div>
+                </div>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize:11, background:`${statusColor(batch.status)}22`, color:statusColor(batch.status), borderRadius:8, padding:'4px 10px', fontWeight:700, textTransform:'uppercase' }}>
+                    {batch.status}
+                  </span>
+                  <button onClick={() => loadPax(batch)}
+                    style={{ fontSize:11, background:'#1a1a1a', color:'#888', border:'1px solid #2a2a2a', borderRadius:8, padding:'4px 10px', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                    👥 View Passengers
+                  </button>
+                  {batch.status === 'pending' && (
+                    <button onClick={() => deleteBatch(batch.id)}
+                      style={{ fontSize:11, background:'rgba(248,113,113,0.1)', color:'#f87171', border:'1px solid rgba(248,113,113,0.3)', borderRadius:8, padding:'4px 10px', cursor:'pointer', fontFamily:"'Sora',sans-serif" }}>
+                      🗑
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Assigned info */}
+              {(batch.status === 'assigned' || batch.status === 'completed') && (
+                <div style={{ background:'rgba(74,222,128,0.06)', border:'1px solid rgba(74,222,128,0.2)', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
+                  {batch.driver_name && (
+                    <div style={{ fontSize:13, color:'#4ade80', fontWeight:700, marginBottom:2 }}>
+                      👤 {batch.driver_name} · {batch.car_plate || ''} {batch.car_model ? `(${batch.car_model})` : ''}
+                    </div>
+                  )}
+                  {!batch.driver_name && batch.company_name && (
+                    <div style={{ fontSize:13, color:'#60a5fa', fontWeight:700 }}>
+                      🏢 {batch.company_name} — awaiting driver assignment
+                    </div>
+                  )}
+                  {batch.dispatch_type === 'own' && (
+                    <div style={{ fontSize:11, color:'#555', marginTop:2 }}>Own vehicle</div>
+                  )}
+                  {batch.dispatch_type === 'company' && batch.company_name && (
+                    <div style={{ fontSize:11, color:'#555', marginTop:2 }}>{batch.company_name}</div>
+                  )}
+                </div>
+              )}
+
+              {batch.status === 'tendered' && (
+                <div style={{ background:'rgba(96,165,250,0.06)', border:'1px solid rgba(96,165,250,0.2)', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
+                  <div style={{ fontSize:13, color:'#60a5fa', fontWeight:700 }}>🏷 Posted as Tender #{batch.tender_id}</div>
+                  <div style={{ fontSize:11, color:'#555', marginTop:2 }}>Waiting for companies to bid</div>
+                </div>
+              )}
+
+              {/* Action buttons (only for pending batches) */}
+              {batch.status === 'pending' && (
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                  <button onClick={() => { setActionBatch({ batch, type:'tender' }); setTenderMins(120); }}
+                    style={{ flex:1, minWidth:100, background:'rgba(96,165,250,0.12)', border:'1.5px solid rgba(96,165,250,0.4)', color:'#60a5fa', borderRadius:10, padding:'10px 14px', fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    🏷 Post Tender
+                  </button>
+                  <button onClick={() => { setActionBatch({ batch, type:'own' }); setOwnDriverId(''); setOwnCarPlate(''); }}
+                    style={{ flex:1, minWidth:100, background:'rgba(167,139,250,0.12)', border:'1.5px solid rgba(167,139,250,0.4)', color:'#a78bfa', borderRadius:10, padding:'10px 14px', fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    👤 Own Driver
+                  </button>
+                  <button onClick={() => { setActionBatch({ batch, type:'company' }); setCoCompanyId(''); }}
+                    style={{ flex:1, minWidth:100, background:'rgba(251,191,36,0.12)', border:'1.5px solid rgba(251,191,36,0.4)', color:'#fbbf24', borderRadius:10, padding:'10px 14px', fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    🏢 Assign Company
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* ── CREATE BATCH MODAL ── */}
+      {showCreate && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+          onClick={e => { if(e.target===e.currentTarget) setShowCreate(false); }}>
+          <div style={{ background:'#111', border:'1px solid #2a2a2a', borderRadius:18, padding:'24px 28px', width:'100%', maxWidth:420 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:'#fff', marginBottom:20 }}>Create New Batch</div>
+
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Vehicle Type</div>
+              <div style={{ display:'flex', gap:8 }}>
+                {[
+                  { v:'coaster', label:'🚌 Coaster', cap:24 },
+                  { v:'hiace',   label:'🚐 Hiace',   cap:14 },
+                  { v:'other',   label:'🚗 Other',    cap:10 },
+                ].map(vt => (
+                  <button key={vt.v}
+                    onClick={() => { setNewVehicle(vt.v); setNewCap(vt.cap); }}
+                    style={{ flex:1, background: newVehicle===vt.v ? '#fbbf24' : '#1a1a1a', color: newVehicle===vt.v ? '#000' : '#888', border:'none', borderRadius:10, padding:'10px 8px', fontFamily:"'Sora',sans-serif", fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    {vt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom:24 }}>
+              <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>
+                Capacity <span style={{ color:'#888', textTransform:'none', letterSpacing:0 }}>(editable)</span>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                <input type="range" min={1} max={60} value={newCap} onChange={e => setNewCap(parseInt(e.target.value))}
+                  style={{ flex:1, accentColor:'#fbbf24' }} />
+                <div style={{ fontSize:24, fontWeight:800, color:'#fbbf24', minWidth:40, textAlign:'right' }}>{newCap}</div>
+              </div>
+              <div style={{ fontSize:11, color:'#555', marginTop:4 }}>
+                System will auto-fill up to {newCap} passengers from the unassigned queue (FIFO)
+              </div>
+            </div>
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setShowCreate(false)}
+                style={{ flex:1, background:'#1a1a1a', color:'#888', border:'1px solid #2a2a2a', borderRadius:12, padding:'12px', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={createBatch} disabled={creating}
+                style={{ flex:2, background:'#fbbf24', color:'#000', border:'none', borderRadius:12, padding:'12px', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer', opacity:creating?0.7:1 }}>
+                {creating ? 'Creating…' : `✅ Create ${vehicleLabel(newVehicle)} Batch`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ACTION MODAL (Tender / Own / Company) ── */}
+      {actionBatch && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+          onClick={e => { if(e.target===e.currentTarget) setActionBatch(null); }}>
+          <div style={{ background:'#111', border:'1px solid #2a2a2a', borderRadius:18, padding:'24px 28px', width:'100%', maxWidth:440 }}>
+            {/* Header */}
+            <div style={{ fontSize:16, fontWeight:800, color:'#fff', marginBottom:4 }}>
+              {actionBatch.type === 'tender'  ? '🏷 Post as Tender' :
+               actionBatch.type === 'own'     ? '👤 Assign Own Driver' :
+                                                '🏢 Assign to Company'}
+            </div>
+            <div style={{ fontSize:12, color:'#555', marginBottom:20 }}>
+              {vehicleLabel(actionBatch.batch.vehicle_type)} · {actionBatch.batch.passenger_count} passengers
+            </div>
+
+            {/* TENDER fields */}
+            {actionBatch.type === 'tender' && (
+              <div style={{ marginBottom:20 }}>
+                <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Tender Duration</div>
+                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                  <input type="range" min={30} max={480} step={30} value={tenderMins} onChange={e => setTenderMins(parseInt(e.target.value))}
+                    style={{ flex:1, accentColor:'#60a5fa' }} />
+                  <div style={{ fontSize:16, fontWeight:800, color:'#60a5fa', minWidth:70 }}>
+                    {tenderMins >= 60 ? `${tenderMins/60}h` : `${tenderMins}m`}
+                  </div>
+                </div>
+                <div style={{ fontSize:11, color:'#555', marginTop:6 }}>
+                  Tender will be visible to all registered companies for {tenderMins} minutes
+                </div>
+              </div>
+            )}
+
+            {/* OWN DRIVER fields */}
+            {actionBatch.type === 'own' && (
+              <div style={{ marginBottom:20 }}>
+                <div style={{ marginBottom:14 }}>
+                  <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Select Driver</div>
+                  <select value={ownDriverId} onChange={e => setOwnDriverId(e.target.value)}
+                    style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:13, fontFamily:"'Sora',sans-serif", outline:'none' }}>
+                    <option value="">— select driver —</option>
+                    {drivers.map(d => <option key={d.id} value={d.id}>{d.name} {d.plate ? `· ${d.plate}` : ''}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Car Plate (optional override)</div>
+                  <input value={ownCarPlate} onChange={e => setOwnCarPlate(e.target.value)}
+                    placeholder="e.g. ABC 1234"
+                    style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:13, fontFamily:"'Sora',sans-serif", outline:'none', boxSizing:'border-box' }} />
+                </div>
+              </div>
+            )}
+
+            {/* COMPANY fields */}
+            {actionBatch.type === 'company' && (
+              <div style={{ marginBottom:20 }}>
+                <div style={{ fontSize:11, color:'#555', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:8 }}>Select Company</div>
+                {companies.length === 0
+                  ? <div style={{ fontSize:13, color:'#555' }}>No registered companies yet</div>
+                  : <select value={coCompanyId} onChange={e => setCoCompanyId(e.target.value)}
+                      style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, padding:'11px 14px', color:'#fff', fontSize:13, fontFamily:"'Sora',sans-serif", outline:'none' }}>
+                      <option value="">— select company —</option>
+                      {companies.map(c => <option key={c.id} value={c.id}>{c.company_name} {c.fleet_number ? `(fleet: ${c.fleet_number})` : ''}</option>)}
+                    </select>
+                }
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setActionBatch(null)}
+                style={{ flex:1, background:'#1a1a1a', color:'#888', border:'1px solid #2a2a2a', borderRadius:12, padding:'12px', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={doAction} disabled={actioning}
+                style={{ flex:2, background: actionBatch.type==='tender' ? '#60a5fa' : actionBatch.type==='own' ? '#a78bfa' : '#fbbf24', color: actionBatch.type==='company' ? '#000' : '#fff', border:'none', borderRadius:12, padding:'12px', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer', opacity:actioning?0.7:1 }}>
+                {actioning ? 'Working…' :
+                 actionBatch.type === 'tender'  ? 'Post Tender' :
+                 actionBatch.type === 'own'     ? 'Assign Driver' :
+                                                  'Assign Company'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── PASSENGER LIST MODAL ── */}
+      {paxBatch && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+          onClick={e => { if(e.target===e.currentTarget) setPaxBatch(null); }}>
+          <div style={{ background:'#111', border:'1px solid #2a2a2a', borderRadius:18, padding:'24px 28px', width:'100%', maxWidth:440, maxHeight:'80vh', overflowY:'auto' }}>
+            <div style={{ fontSize:16, fontWeight:800, color:'#fff', marginBottom:4 }}>
+              {vehicleLabel(paxBatch.vehicle_type)} Passengers
+            </div>
+            <div style={{ fontSize:12, color:'#555', marginBottom:16 }}>
+              {paxBatch.passenger_count} passenger(s) · cap {paxBatch.capacity}
+            </div>
+            {paxLoading && <div style={{ color:'#555', textAlign:'center', padding:20 }}>Loading…</div>}
+            {paxList.map((p, i) => (
+              <div key={p.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid #1a1a1a' }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{i+1}. {p.passenger_name}</div>
+                  <div style={{ fontSize:11, color:'#555' }}>{p.passenger_phone} {p.pickup_note ? `· ${p.pickup_note}` : ''}</div>
+                </div>
+                <div style={{ fontSize:12, color: p.is_surge ? '#fbbf24' : '#888', fontWeight:700 }}>
+                  {p.effective_price} EGP {p.is_surge ? '⚡' : ''}
+                </div>
+              </div>
+            ))}
+            <button onClick={() => setPaxBatch(null)}
+              style={{ marginTop:16, width:'100%', background:'#1a1a1a', color:'#888', border:'1px solid #2a2a2a', borderRadius:12, padding:'12px', fontFamily:"'Sora',sans-serif", fontSize:13, fontWeight:700, cursor:'pointer' }}>
+              Close
+            </button>
+          </div>
         </div>
       )}
     </div>

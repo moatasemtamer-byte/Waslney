@@ -203,7 +203,14 @@ function TripDetailSheet({ booking, poolRequest, userLocation, onOpenChat, onClo
               </div>
               {booking && (
                 <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                  {booking.date} · {booking.pickup_time} · {booking.driver_name}
+                  {booking.date} · {booking.pickup_time} ·{' '}
+                  {booking.batch_status === 'assigned' && booking.batch_driver_name
+                    ? <span style={{color:'#4ade80',fontWeight:700}}>✅ {booking.batch_driver_name}</span>
+                    : booking.batch_status === 'tendered'
+                    ? <span style={{color:'#60a5fa',fontWeight:700}}>🏷 Being arranged</span>
+                    : booking.batch_status === 'pending'
+                    ? <span style={{color:'#fbbf24',fontWeight:700}}>⏳ Pending vehicle</span>
+                    : booking.driver_name}
                 </div>
               )}
               {poolRequest && (
@@ -548,9 +555,6 @@ export default function PassengerDash(){
   const[selBooking,setSelBooking]=useState(null);
   const[travelDate,setTravelDate]=useState(''); // selected travel date for booking
   const[weekSchedule,setWeekSchedule]=useState(null); // schedule for selected trip
-  const[confirmModal,setConfirmModal]=useState(null); // {trip, dayInfo, selDay} for inline confirm
-  const[tripSchedules,setTripSchedules]=useState({}); // map of tripId → schedule for search cards
-  const[cardSelectedDays,setCardSelectedDays]=useState({}); // map of tripId → selected date on card
 
   // Search
   const[fromCoord,setFromCoord]=useState(null);
@@ -785,30 +789,7 @@ export default function PassengerDash(){
         if(!bestDropoff&&toWords.length&&nameContains(trip.to_loc,toWords)){bestDropoff=dropoffStops[0]||{type:'dropoff',lat:trip.dropoff_lat,lng:trip.dropoff_lng,label:trip.to_loc};bestDropoffDist=bestDropoff?.lat?haversineDistance(toCoord.lat,toCoord.lng,parseFloat(bestDropoff.lat),parseFloat(bestDropoff.lng)):0;}
         if(bestPickup&&bestDropoff)enriched.push({...trip,bestPickup,bestDropoff,bestPickupDist,bestDropoffDist});
       }
-      if(enriched.length){
-        enriched.sort((a,b)=>(a.bestPickupDist||0)-(b.bestPickupDist||0));
-        setMatchedTrips(enriched);
-        // Load week-schedules for all found trips in parallel
-        setTripSchedules({});setCardSelectedDays({});
-        const token=localStorage.getItem('shuttle_token');
-        enriched.forEach(async trip=>{
-          try{
-            const r=await fetch(`/api/bookings/week-schedule?trip_id=${trip.id}`,{headers:{Authorization:`Bearer ${token}`}});
-            const data=await r.json();
-            setTripSchedules(prev=>{
-              const updated={...prev,[trip.id]:data};
-              return updated;
-            });
-            // Auto-select first available day for each card
-            if(data.schedule){
-              const firstAvail=data.schedule.find(d=>d.available>0);
-              if(firstAvail){
-                setCardSelectedDays(prev=>({...prev,[trip.id]:firstAvail.date}));
-              }
-            }
-          }catch(e){}
-        });
-      }
+      if(enriched.length){enriched.sort((a,b)=>(a.bestPickupDist||0)-(b.bestPickupDist||0));setMatchedTrips(enriched);}
       else{setMatchedTrips([]);}
     }catch(e){notify('Error',e.message,'error');}
     finally{setSearching(false);}
@@ -825,25 +806,6 @@ export default function PassengerDash(){
       const msg=e.message||'';
       if(msg==='already_reserved'||msg.toLowerCase().includes('already'))notify('Already reserved','You have an active booking on this trip for this day.','warning');
       else if(msg.toLowerCase().includes('seats'))notify('No seats available',msg,'error');
-      else notify('Error',msg,'error');
-    }finally{setBooking(false);}
-  }
-
-  async function quickBook(trip, selDay, seats){
-    setBooking(true);
-    try{
-      await api.bookTrip({trip_id:trip.id,seats,pickup_note:trip.bestPickup?.label||'',travel_date:selDay});
-      setConfirmModal(null);
-      await loadBookings();
-      changeTab('activity');
-      const dayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(selDay).getDay()];
-      notify('Booking confirmed!',`${dayName} ${selDay.slice(5)} · ${trip.from_loc} → ${trip.to_loc}`);
-    }catch(e){
-      const msg=e.message||'';
-      if(msg==='already_reserved'||msg.toLowerCase().includes('already'))
-        notify('Already booked','You already have a booking on this trip for this day.','warning');
-      else if(msg.toLowerCase().includes('seats'))
-        notify('No seats left',msg,'error');
       else notify('Error',msg,'error');
     }finally{setBooking(false);}
   }
@@ -1171,134 +1133,42 @@ export default function PassengerDash(){
 
             {matchedTrips.length>0&&(
               <div>
-                <p style={{fontSize:13,color:'#555',marginBottom:16}}>{matchedTrips.length} route{matchedTrips.length!==1?'s':''} found — pick a day to book</p>
+                <p style={{fontSize:13,color:'#555',marginBottom:16}}>{matchedTrips.length} trip{matchedTrips.length!==1?'s':''} found</p>
                 {matchedTrips.map(t=>{
-                  const sched=tripSchedules[t.id];
-                  const selDay=cardSelectedDays[t.id]||'';
-                  const selDayInfo=sched?.schedule?.find(d=>d.date===selDay);
-                  const avail=selDayInfo?selDayInfo.available:(t.total_seats-t.booked_seats);
-                  const price=selDayInfo?selDayInfo.effective_price:t.price;
-                  const DAY_SHORT=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
+                  const avail=t.total_seats-t.booked_seats;
                   return(
-                    <div key={t.id} style={{background:'#111',borderRadius:16,marginBottom:14,border:'1px solid #1a1a1a',overflow:'hidden'}}>
-
-                      {/* ── Top row: route info + price ── */}
-                      <div style={{padding:'16px 16px 12px',display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                    <div key={t.id} onClick={()=>{setSelTrip(t);setSelPickup(t.bestPickup||null);setSelDropoff(t.bestDropoff||null);setSeats(1);setTravelDate('');setWeekSchedule(null);loadWeekSchedule(t.id);}}
+                      style={{background:'#111',borderRadius:16,padding:'20px',marginBottom:12,cursor:'pointer',border:'1px solid #1a1a1a',transition:'border-color .15s'}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor='#fbbf2466'} onMouseLeave={e=>e.currentTarget.style.borderColor='#1a1a1a'}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
                         <div style={{flex:1}}>
-                          <div style={{fontSize:15,fontWeight:700,color:'#fff',marginBottom:3}}>{t.from_loc} → {t.to_loc}</div>
-                          <div style={{fontSize:12,color:'#555'}}>{t.pickup_time} · ★ {parseFloat(t.avg_rating).toFixed(1)}</div>
-                          {t.bestPickup&&(
-                            <div style={{fontSize:11,color:'#fbbf24',marginTop:4}}>
-                              🟢 {t.bestPickup.label||'Nearest stop'}
-                              {t.bestPickupDist>0&&<span style={{color:'#555'}}> · {formatDist(t.bestPickupDist)}</span>}
-                            </div>
-                          )}
+                          <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>{t.from_loc} → {t.to_loc}</div>
+                          <div style={{fontSize:12,color:'#555'}}>{fmtDate(t.date)} · {t.pickup_time}</div>
                         </div>
-                        <div style={{textAlign:'right',marginLeft:12}}>
-                          <div style={{fontSize:22,fontWeight:800,color:selDayInfo?.is_surge?'#fbbf24':'#fff'}}>{price}</div>
-                          <div style={{fontSize:10,color:'#555'}}>EGP/seat</div>
-                          {selDayInfo?.is_surge&&<div style={{fontSize:9,color:'#fbbf24'}}>⚡ surge</div>}
+                        <div style={{textAlign:'right',marginLeft:16}}>
+                          <div style={{fontSize:24,fontWeight:800,color:'#fbbf24'}}>{t.price}</div>
+                          <div style={{fontSize:11,color:'#555'}}>EGP/seat</div>
                         </div>
                       </div>
-
-                      {/* ── Day selector bar ── */}
-                      <div style={{paddingBottom:12,paddingLeft:12,paddingRight:12}}>
-                        <div style={{fontSize:10,color:'#444',letterSpacing:'.07em',textTransform:'uppercase',marginBottom:8}}>Select travel day</div>
-                        {!sched?(
-                          // Loading skeleton
-                          <div style={{display:'flex',gap:6}}>
-                            {[0,1,2,3,4,5].map(i=>(
-                              <div key={i} style={{flex:1,height:54,borderRadius:10,background:'#1a1a1a',animation:'pulse 1.4s ease-in-out infinite',animationDelay:`${i*0.1}s`}}/>
-                            ))}
-                          </div>
-                        ):(
-                          <div style={{display:'flex',gap:5,overflowX:'auto',paddingBottom:2}}>
-                            {sched.schedule.map(day=>{
-                              const isSel=selDay===day.date;
-                              const full=day.available===0;
-                              const almostFull=!full&&day.available<=3;
-                              const dotColor=full?'#f87171':almostFull?'#fbbf24':'#4ade80';
-                              return(
-                                <div key={day.date}
-                                  onClick={e=>{
-                                    e.stopPropagation();
-                                    if(!full) setCardSelectedDays(prev=>({...prev,[t.id]:day.date}));
-                                  }}
-                                  style={{
-                                    minWidth:46,flex:1,borderRadius:10,padding:'8px 4px',textAlign:'center',
-                                    cursor:full?'not-allowed':'pointer',
-                                    border:`1.5px solid ${isSel?'#fbbf24':full?'#111':'#222'}`,
-                                    background:isSel?'rgba(251,191,36,0.12)':full?'#0a0a0a':'#161616',
-                                    opacity:full?0.45:1,
-                                    transition:'all .12s',
-                                    position:'relative',
-                                  }}>
-                                  <div style={{fontSize:10,fontWeight:800,color:isSel?'#fbbf24':'#888'}}>{day.day_name}</div>
-                                  <div style={{fontSize:9,color:'#444',marginBottom:4}}>{day.date.slice(5)}</div>
-                                  {/* Availability dot */}
-                                  <div style={{width:5,height:5,borderRadius:'50%',background:dotColor,margin:'0 auto 2px'}}/>
-                                  <div style={{fontSize:9,color:dotColor,fontWeight:700}}>
-                                    {full?'Full':day.available}
-                                  </div>
-                                  {day.is_surge&&<div style={{fontSize:7,color:'#fbbf24',marginTop:1}}>⚡</div>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* ── Book button — only shown when a day is selected ── */}
-                      {selDay&&selDayInfo&&selDayInfo.available>0?(
-                        <div
-                          onClick={()=>setConfirmModal({trip:t,dayInfo:selDayInfo,selDay,sched})}
-                          style={{
-                            margin:'0 12px 12px',borderRadius:12,padding:'13px 16px',
-                            background:'linear-gradient(135deg,#92400e,#fbbf24)',
-                            cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',
-                          }}>
-                          <div>
-                            <div style={{fontSize:13,fontWeight:800,color:'#000'}}>
-                              Book for {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(selDay).getDay()]} {selDay.slice(5)}
-                            </div>
-                            <div style={{fontSize:11,color:'rgba(0,0,0,0.6)',marginTop:1}}>
-                              {selDayInfo.available} seat{selDayInfo.available!==1?'s':''} left · {selDayInfo.effective_price} EGP/seat
-                              {selDayInfo.is_surge?' ⚡':''}
-                            </div>
-                          </div>
-                          <div style={{fontSize:18,color:'#000'}}>→</div>
-                        </div>
-                      ):selDay&&selDayInfo&&selDayInfo.available===0?(
-                        <div style={{margin:'0 12px 12px',borderRadius:12,padding:'12px 16px',background:'#1a1a1a',textAlign:'center',fontSize:12,color:'#f87171'}}>
-                          🚫 Full on this day — pick another day
-                        </div>
-                      ):!sched?(
-                        <div style={{margin:'0 12px 12px',borderRadius:12,padding:'12px 16px',background:'#1a1a1a',textAlign:'center',fontSize:12,color:'#555'}}>
-                          Loading availability…
-                        </div>
-                      ):(
-                        <div style={{margin:'0 12px 12px',borderRadius:12,padding:'12px 16px',background:'#1a1a1a',textAlign:'center',fontSize:12,color:'#555'}}>
-                          ☝️ Tap a day above to book
+                      {t.bestPickup&&(
+                        <div style={{background:'rgba(251,191,36,0.08)',borderRadius:10,padding:'10px 12px',marginBottom:8}}>
+                          <div style={{fontSize:12,color:'#fbbf24',fontWeight:600,marginBottom:2}}>🟢 {t.bestPickup.label||'Nearest pickup'}</div>
+                          {t.bestPickupDist>0&&<div style={{fontSize:11,color:'#666'}}>{formatDist(t.bestPickupDist)} · {estimateWalkTime(t.bestPickupDist)}</div>}
                         </div>
                       )}
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <Badge type={avail<=0?'red':avail<=3?'amber':'green'}>{avail<=0?'Full':`${avail} seats left`}</Badge>
+                          <span style={{fontSize:12,color:'#fbbf24'}}>★ {parseFloat(t.avg_rating).toFixed(1)}</span>
+                        </div>
+                        <span style={{fontSize:12,color:'#444'}}>View →</span>
+                      </div>
+                      <CapBar booked={t.booked_seats} total={t.total_seats}/>
                     </div>
                   );
                 })}
                 <PoolUpsell onClick={openSmartPool}/>
               </div>
-            )}
-
-            {/* ── INLINE BOOKING CONFIRM MODAL ── */}
-            {confirmModal&&(
-              <InlineConfirmModal
-                trip={confirmModal.trip}
-                dayInfo={confirmModal.dayInfo}
-                selDay={confirmModal.selDay}
-                onConfirm={(seats)=>quickBook(confirmModal.trip,confirmModal.selDay,seats)}
-                onClose={()=>setConfirmModal(null)}
-                booking={booking}
-              />
             )}
 
             {/* ── SMART POOL MODAL ── */}
@@ -1416,30 +1286,34 @@ export default function PassengerDash(){
             <h2 style={{fontSize:20,fontWeight:700,color:'#fff',marginBottom:4}}>{selTrip.from_loc} → {selTrip.to_loc}</h2>
             <p style={{color:'#555',fontSize:13,marginBottom:16}}>{selTrip.pickup_time}</p>
 
-            {/* ── Selected day banner ── */}
-            {travelDate&&weekSchedule&&(()=>{
-              const dayInfo=weekSchedule.schedule.find(d=>d.date===travelDate);
-              const FULL_DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-              return dayInfo?(
-                <div style={{background:dayInfo.is_surge?'rgba(251,191,36,0.1)':'rgba(74,222,128,0.07)',border:`1px solid ${dayInfo.is_surge?'rgba(251,191,36,0.3)':'rgba(74,222,128,0.2)'}`,borderRadius:14,padding:'14px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                  <div>
-                    <div style={{fontSize:12,color:'#666',marginBottom:2}}>Travelling on</div>
-                    <div style={{fontSize:17,fontWeight:800,color:'#fff'}}>{FULL_DAYS[new Date(travelDate).getDay()]} · {travelDate.slice(5)}</div>
-                    <div style={{fontSize:12,color:'#888',marginTop:2}}>{dayInfo.available} seat{dayInfo.available!==1?'s':''} left</div>
-                  </div>
-                  <div style={{textAlign:'right'}}>
-                    <div style={{fontSize:22,fontWeight:800,color:dayInfo.is_surge?'#fbbf24':'#fff'}}>{dayInfo.effective_price} <span style={{fontSize:12,fontWeight:400,color:'#555'}}>EGP</span></div>
-                    {dayInfo.is_surge&&<div style={{fontSize:10,color:'#fbbf24'}}>⚡ surge pricing</div>}
-                  </div>
-                </div>
-              ):null;
-            })()}
-
-            {/* ── DAY SELECTOR BAR — change day ── */}
+            {/* ── DAY SELECTOR BAR (like Google Maps transit) ── */}
             <div style={{marginBottom:20}}>
-              <p style={{...sectSt,marginBottom:10}}>{travelDate?'Change travel day':'Select travel day'}</p>
+              <p style={{...sectSt,marginBottom:10}}>Select travel day</p>
               {weekSchedule ? (
-                <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6}}>\n                  {weekSchedule.schedule.map(day=>{\n                    const isSel=travelDate===day.date;\n                    const full=day.available===0;\n                    return(\n                      <div key={day.date}\n                        onClick={()=>{if(!full)setTravelDate(day.date);}}\n                        style={{\n                          minWidth:72,flexShrink:0,borderRadius:14,padding:'10px 8px',textAlign:'center',cursor:full?'not-allowed':'pointer',\n                          border:`2px solid ${isSel?'#fbbf24':full?'#1a1a1a':'#2a2a2a'}`,\n                          background:isSel?'rgba(251,191,36,0.12)':full?'#0a0a0a':'#111',\n                          opacity:full?0.5:1,transition:'all .15s',\n                        }}>\n                        <div style={{fontSize:11,fontWeight:800,color:isSel?'#fbbf24':'#888',marginBottom:2}}>{day.day_name}</div>\n                        <div style={{fontSize:10,color:'#555',marginBottom:6}}>{day.date.slice(5)}</div>\n                        <div style={{height:3,borderRadius:3,background:full?'#333':day.available<=3?'rgba(251,191,36,0.6)':'rgba(74,222,128,0.6)',marginBottom:6}}/>\n                        <div style={{fontSize:10,color:full?'#f87171':day.available<=3?'#fbbf24':'#4ade80',fontWeight:700}}>\n                          {full?'Full':`${day.available}`}\n                        </div>\n                        {day.is_surge&&<div style={{fontSize:8,color:'#fbbf24',marginTop:2}}>⚡+{day.effective_price-weekSchedule.trip.price}</div>}\n                      </div>\n                    );\n                  })}\n                </div>
+                <div style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6}}>
+                  {weekSchedule.schedule.map(day=>{
+                    const isSel=travelDate===day.date;
+                    const full=day.available===0;
+                    return(
+                      <div key={day.date}
+                        onClick={()=>{if(!full)setTravelDate(day.date);}}
+                        style={{
+                          minWidth:72,flexShrink:0,borderRadius:14,padding:'10px 8px',textAlign:'center',cursor:full?'not-allowed':'pointer',
+                          border:`2px solid ${isSel?'#fbbf24':full?'#1a1a1a':'#2a2a2a'}`,
+                          background:isSel?'rgba(251,191,36,0.12)':full?'#0a0a0a':'#111',
+                          opacity:full?0.5:1,transition:'all .15s',
+                        }}>
+                        <div style={{fontSize:11,fontWeight:800,color:isSel?'#fbbf24':'#888',marginBottom:2}}>{day.day_name}</div>
+                        <div style={{fontSize:10,color:'#555',marginBottom:6}}>{day.date.slice(5)}</div>
+                        <div style={{height:3,borderRadius:3,background:full?'#333':day.available<=3?'rgba(251,191,36,0.6)':'rgba(74,222,128,0.6)',marginBottom:6}}/>
+                        <div style={{fontSize:10,color:full?'#f87171':day.available<=3?'#fbbf24':'#4ade80',fontWeight:700}}>
+                          {full?'Full':`${day.available}`}
+                        </div>
+                        {day.is_surge&&<div style={{fontSize:8,color:'#fbbf24',marginTop:2}}>⚡+{day.effective_price-weekSchedule.trip.price}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
               ):(
                 <div style={{color:'#555',fontSize:12,padding:'10px 0'}}>Loading availability…</div>
               )}
@@ -1541,25 +1415,12 @@ export default function PassengerDash(){
                     style={{background:'#111',borderRadius:16,padding:'20px',marginBottom:12,cursor:'pointer',border:`1px solid ${st==='picked'?'#4ade8044':st==='dropped'?'#60a5fa44':'#1a1a1a'}`}}>
                     <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
                       <Badge type={st==='picked'?'green':st==='dropped'?'blue':'amber'}>{st==='picked'?'✅ Picked up':st==='dropped'?'🏁 Dropped off':'⏳ Confirmed'}</Badge>
-                      <span style={{marginLeft:'auto',fontSize:12,color:'#555'}}>{fmtDate(b.travel_date||b.date)}</span>
+                      <span style={{marginLeft:'auto',fontSize:12,color:'#555'}}>{fmtDate(b.date)}</span>
                     </div>
-                    {/* Travel day highlight */}
-                    {b.travel_date&&(
-                      <div style={{background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.15)',borderRadius:10,padding:'7px 12px',marginBottom:10,display:'flex',alignItems:'center',gap:8}}>
-                        <span style={{fontSize:14}}>📅</span>
-                        <div>
-                          <div style={{fontSize:12,fontWeight:700,color:'#fbbf24'}}>
-                            {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(b.travel_date).getDay()]} · {b.travel_date}
-                          </div>
-                          <div style={{fontSize:10,color:'#666'}}>Travel date</div>
-                        </div>
-                        {b.is_surge?<span style={{marginLeft:'auto',fontSize:10,color:'#fbbf24'}}>⚡ surge</span>:null}
-                      </div>
-                    )}
                     <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>{b.from_loc} → {b.to_loc}</div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
                       <div style={{fontSize:12,color:'#555'}}>{b.driver_name} · {b.pickup_time}</div>
-                      <div style={{fontSize:15,fontWeight:700,color:b.is_surge?'#fbbf24':'#fff'}}>{b.seats*(b.effective_price||b.pool_price||b.price)} EGP</div>
+                      <div style={{fontSize:15,fontWeight:700,color:'#fbbf24'}}>{b.seats*(b.pool_price||b.price)} EGP</div>
                     </div>
                     {b.is_pool===1&&(
                       <button onClick={e=>{e.stopPropagation();openPoolChat(b.trip_id);}}
@@ -1578,12 +1439,11 @@ export default function PassengerDash(){
                   <div key={b.id} style={{background:'#111',borderRadius:16,padding:'16px 20px',marginBottom:10,border:'1px solid #1a1a1a'}}>
                     <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
                       <Badge type={b.status==='completed'?'blue':'red'}>{b.status}</Badge>
-                      <span style={{fontSize:11,color:'#555'}}>{fmtDate(b.travel_date||b.date)}</span>
+                      <span style={{fontSize:11,color:'#555'}}>{fmtDate(b.date)}</span>
                     </div>
-                    {b.travel_date&&<div style={{fontSize:11,color:'#666',marginBottom:6}}>📅 {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(b.travel_date).getDay()]} · {b.travel_date}</div>}
                     <div style={{fontSize:14,fontWeight:600,color:'#fff',marginBottom:4}}>{b.from_loc} → {b.to_loc}</div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                      <span style={{fontSize:12,color:'#555'}}>{b.seats} seats · {b.seats*(b.effective_price||b.pool_price||b.price)} EGP</span>
+                      <span style={{fontSize:12,color:'#555'}}>{b.seats} seats · {b.seats*(b.pool_price||b.price)} EGP</span>
                       {b.status==='completed'&&!b.rated&&(<button onClick={()=>setRateTrip(b)} style={{background:'rgba(251,191,36,0.1)',border:'1px solid #fbbf2444',borderRadius:8,padding:'5px 12px',color:'#fbbf24',fontSize:12,cursor:'pointer',fontFamily:"'Sora',sans-serif"}}>Rate ★</button>)}
                       {b.rated&&<span style={{fontSize:12,color:'#fbbf24'}}>★ Rated</span>}
                     </div>
@@ -1643,7 +1503,27 @@ export default function PassengerDash(){
               {st==='picked'&&(<div style={{padding:'14px 16px',background:'rgba(74,222,128,0.08)',border:'1px solid #4ade8033',borderRadius:12,marginBottom:16,display:'flex',alignItems:'center',gap:12}}><span style={{fontSize:24}}>✅</span><div style={{fontSize:13,fontWeight:700,color:'#4ade80'}}>You've been picked up!</div></div>)}
               <TripMap tripId={b.trip_id} stops={b.stops||[]} pickupLat={b.pickup_lat||(b.stops||[]).find(s=>s.type==='pickup')?.lat} pickupLng={b.pickup_lng||(b.stops||[]).find(s=>s.type==='pickup')?.lng} dropoffLat={b.dropoff_lat||(b.stops||[]).find(s=>s.type==='dropoff')?.lat} dropoffLng={b.dropoff_lng||(b.stops||[]).find(s=>s.type==='dropoff')?.lng} passengerLat={userLocation?.lat} passengerLng={userLocation?.lng} driverName={b.driver_name} checkinStatus={st} height={300}/>
               <div style={{...card,marginBottom:16}}>
-                {b.assigned_company_name ? (
+                {/* Dispatch batch info — shown when admin has assigned a driver/company */}
+                {b.batch_status === 'assigned' && b.batch_driver_name ? (
+                  <>
+                    <div style={{background:'rgba(74,222,128,0.08)',border:'1px solid rgba(74,222,128,0.2)',borderRadius:10,padding:'10px 14px',marginBottom:12}}>
+                      <div style={{fontSize:11,color:'#4ade80',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>✅ Vehicle Assigned</div>
+                      {b.batch_company_name && <DetailRow label="Company" val={b.batch_company_name} accent="#f5c842"/>}
+                      <DetailRow label="Driver" val={b.batch_driver_name} accent="#4ade80"/>
+                      <DetailRow label="Vehicle" val={b.batch_car_plate ? `${b.batch_car_plate}${b.batch_car_model ? ` · ${b.batch_car_model}` : ''}` : '—'}/>
+                    </div>
+                  </>
+                ) : b.batch_status === 'tendered' ? (
+                  <div style={{background:'rgba(96,165,250,0.08)',border:'1px solid rgba(96,165,250,0.2)',borderRadius:10,padding:'10px 14px',marginBottom:12}}>
+                    <div style={{fontSize:11,color:'#60a5fa',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>🏷 Being Assigned</div>
+                    <div style={{fontSize:12,color:'#555'}}>A vehicle is being arranged for your trip. You'll be notified once confirmed.</div>
+                  </div>
+                ) : b.batch_status === 'pending' ? (
+                  <div style={{background:'rgba(251,191,36,0.06)',border:'1px solid rgba(251,191,36,0.2)',borderRadius:10,padding:'10px 14px',marginBottom:12}}>
+                    <div style={{fontSize:11,color:'#fbbf24',fontWeight:700,marginBottom:4}}>⏳ Vehicle Being Arranged</div>
+                    <div style={{fontSize:12,color:'#555'}}>Admin is arranging your vehicle. Details coming soon.</div>
+                  </div>
+                ) : b.assigned_company_name ? (
                   <>
                     <DetailRow label="Company" val={b.assigned_company_name} accent="#f5c842"/>
                     <DetailRow label="Driver" val={b.daily_driver_name || '—'}/>
@@ -1816,118 +1696,6 @@ export default function PassengerDash(){
 
       </div>
       <BottomNav active={tab} onSet={changeTab} bookingCount={activeBookings.length} isAdmin={isAdmin} pendingCount={pendingDrivers.length}/>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Inline Booking Confirm Bottom-Sheet
-// Shown when passenger taps "Book for [day]" from search results
-// No page navigation — confirm right here, then go to Activity
-// ─────────────────────────────────────────────────────────────────────────────
-function InlineConfirmModal({ trip, dayInfo, selDay, onConfirm, onClose, booking }) {
-  const [seats, setSeats] = useState(1);
-  const FULL_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const dayName = FULL_DAYS[new Date(selDay).getDay()];
-  const total = seats * dayInfo.effective_price;
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:500,
-        display:'flex',flexDirection:'column',justifyContent:'flex-end',
-      }}>
-      <div
-        onClick={e=>e.stopPropagation()}
-        style={{
-          background:'#0d0d0d',borderRadius:'22px 22px 0 0',padding:'24px 20px 40px',
-          border:'1px solid #1e1e1e',fontFamily:"'Sora',sans-serif",
-        }}>
-
-        {/* Handle bar */}
-        <div style={{width:40,height:4,borderRadius:2,background:'#333',margin:'0 auto 20px'}}/>
-
-        {/* Route header */}
-        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:16,fontWeight:800,color:'#fff',marginBottom:3}}>
-              {trip.from_loc} → {trip.to_loc}
-            </div>
-            <div style={{fontSize:12,color:'#555'}}>{trip.pickup_time}</div>
-          </div>
-          <button onClick={onClose}
-            style={{background:'#1a1a1a',border:'none',color:'#888',width:32,height:32,borderRadius:'50%',cursor:'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}>
-            ✕
-          </button>
-        </div>
-
-        {/* Day + price pill */}
-        <div style={{
-          background: dayInfo.is_surge ? 'rgba(251,191,36,0.1)' : 'rgba(74,222,128,0.07)',
-          border: `1px solid ${dayInfo.is_surge ? 'rgba(251,191,36,0.3)' : 'rgba(74,222,128,0.2)'}`,
-          borderRadius:14,padding:'14px 16px',marginBottom:20,
-          display:'flex',alignItems:'center',justifyContent:'space-between',
-        }}>
-          <div>
-            <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>{dayName} · {selDay.slice(5)}</div>
-            <div style={{fontSize:11,color:'#666',marginTop:3}}>
-              {dayInfo.available} seat{dayInfo.available!==1?'s':''} available
-            </div>
-          </div>
-          <div style={{textAlign:'right'}}>
-            <div style={{fontSize:20,fontWeight:800,color:dayInfo.is_surge?'#fbbf24':'#fff'}}>
-              {dayInfo.effective_price} EGP
-            </div>
-            {dayInfo.is_surge && (
-              <div style={{fontSize:10,color:'#a07c1a'}}>⚡ surge pricing</div>
-            )}
-          </div>
-        </div>
-
-        {/* Seat selector */}
-        <div style={{marginBottom:24}}>
-          <div style={{fontSize:11,color:'#555',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:12}}>
-            Number of seats
-          </div>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:28}}>
-            <button onClick={()=>setSeats(s=>Math.max(1,s-1))}
-              style={{width:48,height:48,borderRadius:24,border:'1px solid #2a2a2a',background:'#1a1a1a',color:'#fff',fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
-              −
-            </button>
-            <div style={{textAlign:'center'}}>
-              <div style={{fontSize:36,fontWeight:800,color:'#fff',lineHeight:1}}>{seats}</div>
-              <div style={{fontSize:11,color:'#555',marginTop:2}}>seat{seats!==1?'s':''}</div>
-            </div>
-            <button onClick={()=>setSeats(s=>Math.min(Math.min(dayInfo.available,16),s+1))}
-              style={{width:48,height:48,borderRadius:24,border:'1px solid #2a2a2a',background:'#1a1a1a',color:'#fff',fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
-              +
-            </button>
-          </div>
-        </div>
-
-        {/* Total + confirm */}
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <div style={{flex:1,background:'#1a1a1a',borderRadius:14,padding:'14px 16px'}}>
-            <div style={{fontSize:10,color:'#555',letterSpacing:'.07em',textTransform:'uppercase'}}>Total</div>
-            <div style={{fontSize:22,fontWeight:800,color:dayInfo.is_surge?'#fbbf24':'#fff',marginTop:2}}>
-              {total} EGP
-            </div>
-          </div>
-          <button
-            onClick={()=>onConfirm(seats)}
-            disabled={booking}
-            style={{
-              flex:2,padding:'17px 0',borderRadius:14,border:'none',cursor:booking?'not-allowed':'pointer',
-              background: booking ? '#333' : 'linear-gradient(135deg,#92400e,#fbbf24)',
-              color:booking?'#666':'#000',fontSize:15,fontWeight:800,
-              fontFamily:"'Sora',sans-serif",
-            }}>
-            {booking ? 'Booking…' : `Confirm Booking`}
-          </button>
-        </div>
-
-      </div>
     </div>
   );
 }
