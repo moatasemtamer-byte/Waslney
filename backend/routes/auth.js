@@ -5,7 +5,7 @@ const bcrypt     = require('bcryptjs');
 const jwt        = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const db         = require('../db');
-const { requireAuth } = require('../auth');
+const { requireAuth, requireRole } = require('../auth');
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'waslney_secret_change_me';
