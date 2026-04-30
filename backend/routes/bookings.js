@@ -169,6 +169,20 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
     );
     if (existing.length) return res.status(409).json({ error: 'already_reserved' });
 
+    // ── Check seat availability ──────────────────────────────────────────────
+    const [[{ bookedSeats }]] = await db.query(
+      "SELECT COALESCE(SUM(seats),0) AS bookedSeats FROM bookings WHERE trip_id=? AND travel_date=? AND status='confirmed'",
+      [trip_id, travel_date]
+    );
+    const available = trip.total_seats - parseInt(bookedSeats);
+    if (available < seats) {
+      return res.status(400).json({
+        error: available <= 0
+          ? 'No seats available for this date'
+          : `Only ${available} seat(s) available for this date`
+      });
+    }
+
     const effectivePrice = await computePrice(trip.price, travel_date);
     const isSurge = effectivePrice > trip.price;
     const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];

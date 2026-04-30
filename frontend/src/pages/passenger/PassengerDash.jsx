@@ -16,7 +16,13 @@ async function photonSearch(q){
   try{const r=await fetch('https://photon.komoot.io/api/?q='+encodeURIComponent(q)+'&limit=7&lang=en&bbox=24.6,22.0,36.9,31.7');const data=await r.json();if(!data.features?.length)return[];return data.features.map(f=>({place_id:f.properties.osm_id,lat:f.geometry.coordinates[1],lng:f.geometry.coordinates[0],name:[f.properties.name,f.properties.street,f.properties.district||f.properties.suburb,f.properties.city||f.properties.county].filter(Boolean).slice(0,3).join(', '),type:f.properties.type||'',city:f.properties.city||f.properties.county||''}));}catch{return[];}
 }
 async function reverseGeocode(lat,lng){
-  try{const r=await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=1&lang=en`);const data=await r.json();if(!data.features?.length)return null;const p=data.features[0].properties;return[p.name,p.street,p.city||p.county].filter(Boolean).slice(0,2).join(', ');}catch{return null;}
+  try{
+    const token=localStorage.getItem('shuttle_token');
+    const r=await fetch(`/api/geocode/reverse?lat=${lat}&lng=${lng}`,{headers:{Authorization:`Bearer ${token}`}});
+    if(!r.ok)return null;
+    const data=await r.json();
+    return data.name||data.display_name||null;
+  }catch{return null;}
 }
 
 function PlaceSearch({placeholder,icon,value,onChange}){
@@ -801,10 +807,15 @@ export default function PassengerDash(){
     try{
       await api.bookTrip({trip_id:selTrip.id,seats,pickup_note:fromCoord?.name||selPickup?.label||'',travel_date:travelDate});
       setSelTrip(null);setTravelDate('');setWeekSchedule(null);changeTab('activity');
+      loadBookings();
       notify('Booking confirmed!',`${travelDate} · Pickup at ${selTrip.pickup_time}`);
     }catch(e){
       const msg=e.message||'';
-      if(msg==='already_reserved'||msg.toLowerCase().includes('already'))notify('Already reserved','You have an active booking on this trip for this day.','warning');
+      if(msg==='already_reserved'||msg.toLowerCase().includes('already')){
+        notify('Already reserved','You have an active booking on this trip for this day.','warning');
+        setSelTrip(null);setTravelDate('');setWeekSchedule(null);changeTab('activity');
+        loadBookings();
+      }
       else if(msg.toLowerCase().includes('seats'))notify('No seats available',msg,'error');
       else notify('Error',msg,'error');
     }finally{setBooking(false);}
