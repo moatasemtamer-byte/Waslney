@@ -263,6 +263,50 @@ module.exports = async function runMigrations() {
       }
     } catch(e) { console.warn('⚠️  is_surge:', e.message); }
 
+    // ── Dispatch batch tables (required for bookings/mine JOIN) ─────────────
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS dispatch_batches (
+          id                   INT AUTO_INCREMENT PRIMARY KEY,
+          trip_id              INT          NOT NULL,
+          travel_date          DATE         NOT NULL,
+          vehicle_type         ENUM('coaster','hiace','other') NOT NULL DEFAULT 'coaster',
+          capacity             INT          NOT NULL DEFAULT 24,
+          dispatch_type        ENUM('tender','own','company') DEFAULT NULL,
+          status               ENUM('pending','tendered','assigned','completed') NOT NULL DEFAULT 'pending',
+          own_driver_id        INT          DEFAULT NULL,
+          assigned_company_id  INT          DEFAULT NULL,
+          driver_name          VARCHAR(100) DEFAULT NULL,
+          driver_phone         VARCHAR(30)  DEFAULT NULL,
+          car_plate            VARCHAR(30)  DEFAULT NULL,
+          car_model            VARCHAR(100) DEFAULT NULL,
+          tender_id            INT          DEFAULT NULL,
+          notes                TEXT         DEFAULT NULL,
+          created_at           TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+          updated_at           TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_trip_date (trip_id, travel_date)
+        )
+      `);
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS dispatch_batch_bookings (
+          batch_id    INT NOT NULL,
+          booking_id  INT NOT NULL,
+          PRIMARY KEY (batch_id, booking_id),
+          INDEX idx_booking (booking_id)
+        )
+      `);
+      // Add batch_id column to tenders if missing
+      const [batchCol] = await db.query(
+        `SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tenders' AND COLUMN_NAME='batch_id'`
+      );
+      if (!batchCol[0].cnt) {
+        await db.query(`ALTER TABLE tenders ADD COLUMN batch_id INT DEFAULT NULL`);
+        console.log('✅  Added batch_id to tenders');
+      }
+      console.log('✅  Dispatch batch tables ready');
+    } catch(e) { console.warn('⚠️  dispatch_batches:', e.message); }
+
     console.log('✅  Migrations done');
   } catch (err) {
     console.error('⚠️  Migration warning:', err.message);
