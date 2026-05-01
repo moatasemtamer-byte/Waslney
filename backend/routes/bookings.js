@@ -158,7 +158,7 @@ router.post('/', requireAuth, requireRole('passenger'), async (req, res) => {
 
   try {
     const [tripRows] = await db.query(
-      "SELECT * FROM trips WHERE id=? AND status IN ('upcoming','active')", [trip_id]
+      "SELECT * FROM trips WHERE id=? AND status IN ('upcoming','active','tendered','awarded','assigned')", [trip_id]
     );
     if (!tripRows.length) return res.status(404).json({ error: 'Trip not found or not available' });
     const trip = tripRows[0];
@@ -461,8 +461,8 @@ router.put('/dispatch/batch/:id/company', requireAuth, requireRole('admin'), asy
       `UPDATE dispatch_batches SET dispatch_type='company', assigned_company_id=?, status='assigned' WHERE id=?`,
       [company_id, req.params.id]
     );
-    // Notify passengers that a company has been assigned (driver details TBD)
-    await notifyBatchPassengers(req.params.id, companies[0].company_name, 'TBD');
+    // Notify passengers that a transport company has been assigned
+    await notifyBatchPassengers(req.params.id, companies[0].company_name, 'Vehicle TBD');
     res.json({ ok: true, company_name: companies[0].company_name });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
@@ -546,7 +546,7 @@ async function notifyBatchPassengers(batchId, driverName, carPlate) {
         'INSERT INTO notifications (user_id, message) VALUES (?,?)',
         [p.passenger_id, message]
       );
-      // Emit real-time event so passenger dashboard updates instantly
+      // Emit real-time event so passenger dashboard updates instantly without polling
       if (io) {
         io.to(`user:${p.passenger_id}`).emit('driver:assigned', {
           bookingId: p.booking_id,

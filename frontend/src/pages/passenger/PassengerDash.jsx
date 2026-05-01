@@ -673,8 +673,8 @@ export default function PassengerDash(){
         return updated;
       });
     });
-    // Driver assigned by company — refresh bookings and notify passenger
-    socket.on('driver:assigned', ({ bookingId, driverName, carPlate, travelDate, message }) => {
+    // Driver/company assigned by admin — refresh bookings and alert passenger
+    socket.on('driver:assigned', ({ driverName, carPlate }) => {
       loadBookings();
       loadNotifs();
       notify('🚌 Driver Assigned!', `${driverName} — ${carPlate}`, 'success');
