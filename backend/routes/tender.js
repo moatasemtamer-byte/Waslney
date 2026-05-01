@@ -439,6 +439,29 @@ router.post('/won/:weekAssignmentId/daily', companyAuth, async (req, res) => {
       car_plate: cars[0].plate
     });
 
+    // Notify passengers who booked this trip for this specific date
+    try {
+      const db = require('../db');
+      const [pax] = await db.query(
+        `SELECT id AS booking_id, passenger_id FROM bookings
+         WHERE trip_id=? AND travel_date=? AND status='confirmed'`,
+        [wa[0].trip_id, assignment_date]
+      );
+      for (const p of pax) {
+        const msg = `Your driver for ${assignment_date} has been assigned: ${drivers[0].name} — ${cars[0].plate}. Have a safe trip! 🚌`;
+        await db.query('INSERT INTO notifications (user_id, message) VALUES (?,?) ON DUPLICATE KEY UPDATE message=VALUES(message)', [p.passenger_id, msg]);
+        if (io) {
+          io.to(`user:${p.passenger_id}`).emit('driver:assigned', {
+            bookingId: p.booking_id,
+            driverName: drivers[0].name,
+            carPlate: cars[0].plate,
+            travelDate: assignment_date,
+            message: msg,
+          });
+        }
+      }
+    } catch(notifyErr) { console.error('Passenger notify error:', notifyErr.message); }
+
     res.json({
       ok: true,
       driver_name: drivers[0].name,

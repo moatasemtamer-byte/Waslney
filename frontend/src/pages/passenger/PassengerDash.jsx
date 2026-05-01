@@ -209,7 +209,7 @@ function TripDetailSheet({ booking, poolRequest, userLocation, onOpenChat, onClo
               </div>
               {booking && (
                 <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                  {booking.travel_date||booking.date} · {booking.pickup_time} ·{' '}
+                  {fmtDate(booking.travel_date||booking.date)} · {booking.pickup_time} ·{' '}
                   {booking.batch_status === 'assigned' && booking.batch_driver_name
                     ? <span style={{color:'#4ade80',fontWeight:700}}>✅ {booking.batch_driver_name}</span>
                     : booking.batch_status === 'tendered'
@@ -676,7 +676,7 @@ export default function PassengerDash(){
     socket.on('driver:assigned', ({ driverName, carPlate }) => {
       loadBookings();
       loadNotifs();
-      notify('Driver Assigned!', driverName + ' - ' + carPlate, 'success');
+      notify('🚌 Driver Assigned!', `${driverName} — ${carPlate}`, 'success');
     });
     return()=>{
       socket.off('checkin:update');
@@ -1436,7 +1436,7 @@ export default function PassengerDash(){
                     </div>
                     <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>{b.from_loc} → {b.to_loc}</div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
-                      <div style={{fontSize:12,color:'#555'}}>{b.batch_driver_name||b.driver_name||b.batch_company_name||'Driver TBD'} · {b.pickup_time}</div>
+                      <div style={{fontSize:12,color:'#555'}}>{b.daily_driver_name||b.batch_driver_name||b.driver_name||b.daily_company_name||b.batch_company_name||'Driver TBD'} · {b.pickup_time}</div>
                       <div style={{fontSize:15,fontWeight:700,color:'#fbbf24'}}>{b.seats*(b.pool_price||b.price)} EGP</div>
                     </div>
                     {b.is_pool===1&&(
@@ -1521,12 +1521,19 @@ export default function PassengerDash(){
               <TripMap tripId={b.trip_id} stops={b.stops||[]} pickupLat={b.pickup_lat||(b.stops||[]).find(s=>s.type==='pickup')?.lat} pickupLng={b.pickup_lng||(b.stops||[]).find(s=>s.type==='pickup')?.lng} dropoffLat={b.dropoff_lat||(b.stops||[]).find(s=>s.type==='dropoff')?.lat} dropoffLng={b.dropoff_lng||(b.stops||[]).find(s=>s.type==='dropoff')?.lng} passengerLat={userLocation?.lat} passengerLng={userLocation?.lng} driverName={b.driver_name} checkinStatus={st} height={300}/>
               <div style={{...card,marginBottom:16}}>
                 {/* Dispatch batch info — shown when admin has assigned a driver/company */}
-                {b.batch_status === 'assigned' && (b.batch_driver_name || b.batch_company_name) ? (
+                {b.daily_driver_name ? (
+                  <div style={{background:'rgba(74,222,128,0.08)',border:'1px solid rgba(74,222,128,0.2)',borderRadius:10,padding:'10px 14px',marginBottom:12}}>
+                    <div style={{fontSize:11,color:'#4ade80',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>✅ Driver Assigned</div>
+                    {b.daily_company_name && <DetailRow label="Company" val={b.daily_company_name} accent="#f5c842"/>}
+                    <DetailRow label="Driver" val={b.daily_driver_name} accent="#4ade80"/>
+                    <DetailRow label="Vehicle" val={b.daily_car_plate ? `${b.daily_car_plate}${b.daily_car_model ? ` · ${b.daily_car_model}` : ''}` : '—'}/>
+                  </div>
+                ) : b.batch_status === 'assigned' && (b.batch_driver_name || b.batch_company_name) ? (
                   <>
                     <div style={{background:'rgba(74,222,128,0.08)',border:'1px solid rgba(74,222,128,0.2)',borderRadius:10,padding:'10px 14px',marginBottom:12}}>
                       <div style={{fontSize:11,color:'#4ade80',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>✅ Vehicle Assigned</div>
                       {b.batch_company_name && <DetailRow label="Company" val={b.batch_company_name} accent="#f5c842"/>}
-                      <DetailRow label="Driver" val={b.batch_driver_name} accent="#4ade80"/>
+                      <DetailRow label="Driver" val={b.batch_driver_name||'TBD — company will assign'} accent="#4ade80"/>
                       <DetailRow label="Vehicle" val={b.batch_car_plate ? `${b.batch_car_plate}${b.batch_car_model ? ` · ${b.batch_car_model}` : ''}` : '—'}/>
                     </div>
                   </>
