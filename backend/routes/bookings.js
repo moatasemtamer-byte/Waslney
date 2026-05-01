@@ -461,7 +461,7 @@ router.put('/dispatch/batch/:id/company', requireAuth, requireRole('admin'), asy
       `UPDATE dispatch_batches SET dispatch_type='company', assigned_company_id=?, status='assigned' WHERE id=?`,
       [company_id, req.params.id]
     );
-    // Notify passengers that a transport company has been assigned
+    // Notify passengers that a company has been assigned to their batch
     await notifyBatchPassengers(req.params.id, companies[0].company_name, 'Vehicle TBD');
     res.json({ ok: true, company_name: companies[0].company_name });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
@@ -539,21 +539,19 @@ async function notifyBatchPassengers(batchId, driverName, carPlate) {
     );
 
     const io = getIo();
-
     for (const p of passengers) {
-      const message = `Your driver for ${b.travel_date} (${b.from_loc} → ${b.to_loc}) has been assigned: ${driverName} — ${carPlate}. Have a safe trip! 🚌`;
+      const msg = `Your driver for ${b.travel_date} (${b.from_loc} → ${b.to_loc}) has been assigned: ${driverName} — ${carPlate}. Have a safe trip!`;
       await db.query(
         'INSERT INTO notifications (user_id, message) VALUES (?,?)',
-        [p.passenger_id, message]
+        [p.passenger_id, msg]
       );
-      // Emit real-time event so passenger dashboard updates instantly without polling
       if (io) {
         io.to(`user:${p.passenger_id}`).emit('driver:assigned', {
           bookingId: p.booking_id,
           driverName,
           carPlate,
           travelDate: b.travel_date,
-          message,
+          message: msg,
         });
       }
     }

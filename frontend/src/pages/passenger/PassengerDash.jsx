@@ -209,7 +209,7 @@ function TripDetailSheet({ booking, poolRequest, userLocation, onOpenChat, onClo
               </div>
               {booking && (
                 <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-                  {booking.date} · {booking.pickup_time} ·{' '}
+                  {booking.travel_date||booking.date} · {booking.pickup_time} ·{' '}
                   {booking.batch_status === 'assigned' && booking.batch_driver_name
                     ? <span style={{color:'#4ade80',fontWeight:700}}>✅ {booking.batch_driver_name}</span>
                     : booking.batch_status === 'tendered'
@@ -673,11 +673,10 @@ export default function PassengerDash(){
         return updated;
       });
     });
-    // Driver/company assigned by admin — refresh bookings and alert passenger
     socket.on('driver:assigned', ({ driverName, carPlate }) => {
       loadBookings();
       loadNotifs();
-      notify('🚌 Driver Assigned!', `${driverName} — ${carPlate}`, 'success');
+      notify('Driver Assigned!', driverName + ' - ' + carPlate, 'success');
     });
     return()=>{
       socket.off('checkin:update');
@@ -1433,11 +1432,11 @@ export default function PassengerDash(){
                     style={{background:'#111',borderRadius:16,padding:'20px',marginBottom:12,cursor:'pointer',border:`1px solid ${st==='picked'?'#4ade8044':st==='dropped'?'#60a5fa44':'#1a1a1a'}`}}>
                     <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
                       <Badge type={st==='picked'?'green':st==='dropped'?'blue':'amber'}>{st==='picked'?'✅ Picked up':st==='dropped'?'🏁 Dropped off':'⏳ Confirmed'}</Badge>
-                      <span style={{marginLeft:'auto',fontSize:12,color:'#555'}}>{fmtDate(b.date)}</span>
+                      <span style={{marginLeft:'auto',fontSize:12,color:'#555'}}>{fmtDate(b.travel_date||b.date)}</span>
                     </div>
                     <div style={{fontSize:16,fontWeight:700,color:'#fff',marginBottom:4}}>{b.from_loc} → {b.to_loc}</div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
-                      <div style={{fontSize:12,color:'#555'}}>{b.driver_name} · {b.pickup_time}</div>
+                      <div style={{fontSize:12,color:'#555'}}>{b.batch_driver_name||b.driver_name||b.batch_company_name||'Driver TBD'} · {b.pickup_time}</div>
                       <div style={{fontSize:15,fontWeight:700,color:'#fbbf24'}}>{b.seats*(b.pool_price||b.price)} EGP</div>
                     </div>
                     {b.is_pool===1&&(
@@ -1457,7 +1456,7 @@ export default function PassengerDash(){
                   <div key={b.id} style={{background:'#111',borderRadius:16,padding:'16px 20px',marginBottom:10,border:'1px solid #1a1a1a'}}>
                     <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
                       <Badge type={b.status==='completed'?'blue':'red'}>{b.status}</Badge>
-                      <span style={{fontSize:11,color:'#555'}}>{fmtDate(b.date)}</span>
+                      <span style={{fontSize:11,color:'#555'}}>{fmtDate(b.travel_date||b.date)}</span>
                     </div>
                     <div style={{fontSize:14,fontWeight:600,color:'#fff',marginBottom:4}}>{b.from_loc} → {b.to_loc}</div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -1516,13 +1515,13 @@ export default function PassengerDash(){
             <div style={{paddingTop:16}}>
               <button onClick={()=>{setSelBooking(null);sessionStorage.removeItem('selBookingId');}} style={{background:'transparent',border:'none',color:'#fff',fontSize:24,cursor:'pointer',padding:'4px 0',marginBottom:16}}>←</button>
               <h2 style={{fontSize:20,fontWeight:700,color:'#fff',marginBottom:4}}>{b.from_loc} → {b.to_loc}</h2>
-              <p style={{color:'#555',fontSize:13,marginBottom:16}}>{fmtDate(b.date)} · Pickup {b.pickup_time}</p>
+              <p style={{color:'#555',fontSize:13,marginBottom:16}}>{fmtDate(b.travel_date||b.date)} · Pickup {b.pickup_time}</p>
               {(!st||st==='pending')&&(<div style={{padding:'14px 16px',background:'rgba(251,191,36,0.08)',border:'1px solid #fbbf2433',borderRadius:12,marginBottom:16,display:'flex',alignItems:'center',gap:12}}><span style={{fontSize:24}}>⏳</span><div><div style={{fontSize:13,fontWeight:700,color:'#fbbf24'}}>Waiting for driver</div><div style={{fontSize:12,color:'#666',marginTop:2}}>Driver will appear on map when they start</div></div></div>)}
               {st==='picked'&&(<div style={{padding:'14px 16px',background:'rgba(74,222,128,0.08)',border:'1px solid #4ade8033',borderRadius:12,marginBottom:16,display:'flex',alignItems:'center',gap:12}}><span style={{fontSize:24}}>✅</span><div style={{fontSize:13,fontWeight:700,color:'#4ade80'}}>You've been picked up!</div></div>)}
               <TripMap tripId={b.trip_id} stops={b.stops||[]} pickupLat={b.pickup_lat||(b.stops||[]).find(s=>s.type==='pickup')?.lat} pickupLng={b.pickup_lng||(b.stops||[]).find(s=>s.type==='pickup')?.lng} dropoffLat={b.dropoff_lat||(b.stops||[]).find(s=>s.type==='dropoff')?.lat} dropoffLng={b.dropoff_lng||(b.stops||[]).find(s=>s.type==='dropoff')?.lng} passengerLat={userLocation?.lat} passengerLng={userLocation?.lng} driverName={b.driver_name} checkinStatus={st} height={300}/>
               <div style={{...card,marginBottom:16}}>
                 {/* Dispatch batch info — shown when admin has assigned a driver/company */}
-                {b.batch_status === 'assigned' && b.batch_driver_name ? (
+                {b.batch_status === 'assigned' && (b.batch_driver_name || b.batch_company_name) ? (
                   <>
                     <div style={{background:'rgba(74,222,128,0.08)',border:'1px solid rgba(74,222,128,0.2)',borderRadius:10,padding:'10px 14px',marginBottom:12}}>
                       <div style={{fontSize:11,color:'#4ade80',fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>✅ Vehicle Assigned</div>
