@@ -449,14 +449,30 @@ export function StopPicker({ stops, onChange, height = 340, centerOn = null }) {
       </div>
       {stops.length > 0 && (
         <div style={{ background:C.bg3, padding:'10px 14px', borderTop:`1px solid ${C.border}` }}>
+          <div style={{ fontSize:10, color:C.text3, letterSpacing:'.08em', textTransform:'uppercase', marginBottom:8, paddingBottom:6, borderBottom:`1px solid ${C.border}` }}>
+            ⏱ Set estimated minutes from departure for each stop
+          </div>
           {stops.map((s, i) => (
-            <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', fontSize:12 }}>
-              <span style={{ color:s.type==='pickup'?C.green:C.blue, minWidth:80 }}>{s.type==='pickup'?'🟢':'🔵'} {s.type} {stops.filter((x,j)=>x.type===s.type&&j<=i).length}</span>
-              <span style={{ color:C.text3, fontSize:11 }}>{parseFloat(s.lat).toFixed(4)}, {parseFloat(s.lng).toFixed(4)}</span>
-              <input value={s.label} onChange={e => { const n=[...stops]; n[i]={...n[i],label:e.target.value}; onChange(n); }}
-                placeholder="Label (optional)"
-                style={{ background:C.bg4, border:`1px solid ${C.border}`, borderRadius:4, padding:'2px 8px', color:C.text, fontSize:11, fontFamily:"'Sora',sans-serif", outline:'none', flex:1 }} />
-              <button onClick={() => onChange(stops.filter((_,j)=>j!==i))} style={{ background:'transparent', border:'none', color:C.red, cursor:'pointer', fontSize:14 }}>×</button>
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', fontSize:12, borderBottom:`1px solid rgba(255,255,255,0.04)`, flexWrap:'wrap' }}>
+              <span style={{ color:s.type==='pickup'?C.green:C.blue, minWidth:72, fontWeight:600 }}>
+                {s.type==='pickup'?'🟢':'🔵'} #{stops.filter((x,j)=>x.type===s.type&&j<=i).length}
+              </span>
+              <input value={s.label||''} onChange={e => { const n=[...stops]; n[i]={...n[i],label:e.target.value}; onChange(n); }}
+                placeholder="Stop label…"
+                style={{ background:C.bg4, border:`1px solid ${C.border}`, borderRadius:4, padding:'3px 8px', color:C.text, fontSize:11, fontFamily:"'Sora',sans-serif", outline:'none', flex:2, minWidth:100 }} />
+              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                <span style={{ fontSize:10, color:C.text3 }}>+</span>
+                <input
+                  type="number" min="0" max="300"
+                  value={s.offset_minutes ?? ''}
+                  onChange={e => { const n=[...stops]; n[i]={...n[i],offset_minutes:e.target.value===''?null:parseInt(e.target.value)}; onChange(n); }}
+                  placeholder="0"
+                  style={{ background:C.bg4, border:`1px solid rgba(251,191,36,0.3)`, borderRadius:4, padding:'3px 6px', color:'#fbbf24', fontSize:12, fontFamily:"'Sora',sans-serif", outline:'none', width:52, textAlign:'center', fontWeight:700 }}
+                />
+                <span style={{ fontSize:10, color:C.text3 }}>min</span>
+              </div>
+              <span style={{ fontSize:10, color:C.text3, flex:1 }}>{parseFloat(s.lat).toFixed(4)}, {parseFloat(s.lng).toFixed(4)}</span>
+              <button onClick={() => onChange(stops.filter((_,j)=>j!==i))} style={{ background:'transparent', border:'none', color:C.red, cursor:'pointer', fontSize:16, lineHeight:1 }}>×</button>
             </div>
           ))}
         </div>
