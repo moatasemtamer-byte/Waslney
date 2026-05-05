@@ -237,17 +237,9 @@ export default function AdminDash() {
   const [lightbox, setLightbox] = useState(null); // { src, label }
 
   const [form, setForm] = useState({
-    from_loc:'', to_loc:'', departure_time:'', price:'',
-    days_of_week: [1,2,3,4,6], // Mon=1,Tue=2,Wed=3,Thu=4,Sat=6 (skip Fri=5)
+    from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:''
   });
   const f = k => e => setForm({ ...form, [k]: e.target.value });
-  const DAYS = [{d:0,l:'Sun'},{d:1,l:'Mon'},{d:2,l:'Tue'},{d:3,l:'Wed'},{d:4,l:'Thu'},{d:5,l:'Fri'},{d:6,l:'Sat'}];
-  const toggleDay = d => setForm(prev => ({
-    ...prev,
-    days_of_week: prev.days_of_week.includes(d)
-      ? prev.days_of_week.filter(x=>x!==d)
-      : [...prev.days_of_week, d].sort()
-  }));
 
   // ── Track last searched location to pan the StopPicker map ───────────────
   const [mapCenter, setMapCenter] = useState(null);     // { lat, lng, name } for create form
@@ -350,32 +342,17 @@ export default function AdminDash() {
   }
 
   async function handleCreate() {
-    const { from_loc, to_loc, departure_time, price, days_of_week } = form;
-    if (!from_loc || !to_loc || !departure_time || !price) {
-      notify('Incomplete', 'Fill in route, departure time and price.', 'error'); return;
-    }
-    if (!days_of_week || days_of_week.length === 0) {
-      notify('Pick days', 'Select at least one day of the week.', 'error'); return;
+    const { from_loc, to_loc, pickup_time, date, price } = form;
+    if (!from_loc||!to_loc||!pickup_time||!date||!price) {
+      notify('Incomplete', 'Fill in all required fields.', 'error'); return;
     }
     if (stops.length < 2) {
       notify('Add stops', 'Add at least 1 pickup and 1 drop-off on the map.', 'error'); return;
     }
-    const hasPickup  = stops.some(s => s.type === 'pickup');
-    const hasDropoff = stops.some(s => s.type === 'dropoff');
-    if (!hasPickup || !hasDropoff) {
-      notify('Add stops', 'Need at least one pickup AND one drop-off stop.', 'error'); return;
-    }
     try {
-      await api.createTrip({
-        from_loc, to_loc,
-        departure_time,
-        price: parseFloat(price),
-        days_of_week,
-        stops,
-        // Keep DB compat: no date, no total_seats, no driver_id
-      });
-      notify('Trip created! 🎉', `${from_loc} → ${to_loc} — repeats ${days_of_week.length} days/week`);
-      setForm({ from_loc:'', to_loc:'', departure_time:'', price:'', days_of_week:[1,2,3,4,6] });
+      await api.createTrip({ ...form, price: parseFloat(form.price), total_seats: parseInt(form.total_seats)||16, stops });
+      notify('Trip created!', `${from_loc} → ${to_loc} on ${date}`);
+      setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'' });
       setStops([]);
       setMapCenter(null);
       loadAll(); goTab('trips');
@@ -386,10 +363,9 @@ export default function AdminDash() {
     try {
       await api.updateTrip(editTrip.id, {
         from_loc: editTrip.from_loc, to_loc: editTrip.to_loc,
-        departure_time: editTrip.departure_time || editTrip.pickup_time,
-        price: parseFloat(editTrip.price),
-        days_of_week: editTrip.days_of_week,
-        stops: editStops,
+        pickup_time: editTrip.pickup_time, dropoff_time: editTrip.dropoff_time,
+        date: editTrip.date, price: parseFloat(editTrip.price),
+        driver_id: editTrip.driver_id, stops: editStops,
       });
       notify('Trip updated', 'Changes saved.');
       setEditTrip(null); setEditStops([]); setEditMapCenter(null);
@@ -484,54 +460,19 @@ export default function AdminDash() {
         {tab === 'create' && (
           <div style={card}>
             <p style={sectSt}>New trip</p>
-            {/* Route */}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               <AreaSearch label="📍 Pickup area"   placeholder="e.g. Nasr City…" icon="📍" value={form.from_loc?{name:form.from_loc}:null} onChange={c=>{ setForm({...form,from_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
               <AreaSearch label="🏁 Drop-off area" placeholder="e.g. Maadi…"     icon="🏁" value={form.to_loc?{name:form.to_loc}:null}   onChange={c=>{ setForm({...form,to_loc:c?c.name:''}); if(c?.lat) setMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
+              <Inp label="📅 Date"             type="date"   value={form.date}         onChange={f('date')} />
+              <Inp label="🕐 Pickup time"      type="time"   value={form.pickup_time}  onChange={f('pickup_time')} />
+              <Inp label="🕐 Est. drop-off"    type="time"   value={form.dropoff_time} onChange={f('dropoff_time')} />
+              <Inp label="💰 Price/seat (EGP)" type="number" value={form.price}        onChange={f('price')}       placeholder="45" />
+              <Inp label="💺 Total seats"      type="number" value={form.total_seats}  onChange={f('total_seats')} />
             </div>
-
-            {/* Days of week */}
-            <div style={{ marginTop:14 }}>
-              <label style={{ fontSize:11, color:C.text3, letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:8 }}>📅 Runs on days</label>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                {DAYS.map(({d,l}) => {
-                  const active = form.days_of_week.includes(d);
-                  const isFri  = d === 5;
-                  return (
-                    <button key={d} onClick={() => !isFri && toggleDay(d)} disabled={isFri}
-                      style={{
-                        padding:'7px 14px', borderRadius:8, fontSize:13, fontWeight:600, cursor: isFri ? 'not-allowed' : 'pointer',
-                        fontFamily:"'Sora',sans-serif",
-                        background: isFri ? 'transparent' : active ? '#fbbf24' : C.bg3,
-                        color: isFri ? '#333' : active ? '#000' : C.text2,
-                        border: isFri ? `1px solid #222` : active ? '1px solid #fbbf24' : `1px solid ${C.border}`,
-                        opacity: isFri ? 0.4 : 1,
-                      }}>
-                      {l}{isFri ? ' 🚫' : ''}
-                    </button>
-                  );
-                })}
-              </div>
-              <p style={{ fontSize:11, color:C.text3, marginTop:6 }}>Friday is always off. Passengers book per-day from the weekly schedule.</p>
-            </div>
-
-            {/* Departure time + price */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:14 }}>
-              <div>
-                <Inp label="🕐 Departure time (trip start)" type="time" value={form.departure_time} onChange={f('departure_time')} />
-                <p style={{ fontSize:11, color:C.text3, marginTop:4 }}>Each stop's ETA is set per-stop below (e.g. Stop 1: +0 min, Stop 2: +8 min…)</p>
-              </div>
-              <Inp label="💰 Price/seat (EGP)" type="number" value={form.price} onChange={f('price')} placeholder="45" />
-            </div>
-
-            {/* Capacity & driver info box */}
-            <div style={{ background:'rgba(96,165,250,0.06)', border:'1px solid rgba(96,165,250,0.15)', borderRadius:10, padding:'12px 16px', marginTop:4 }}>
-              <div style={{ fontSize:12, color:'#60a5fa', fontWeight:700, marginBottom:4 }}>💡 No seat limit or driver needed now</div>
-              <div style={{ fontSize:12, color:C.text3, lineHeight:1.6 }}>
-                Seats are unlimited — after passengers book, you dispatch them into vehicle batches via the <b style={{color:C.text2}}>Manage Bookings</b> tab.
-                Assign your own drivers, tender to companies, or mix both — per day, per batch.
-              </div>
-            </div>
+            <Sel label="🚐 Assign driver (optional)" value={form.driver_id} onChange={f('driver_id')}>
+              <option value="">Select active driver…</option>
+              {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
+            </Sel>
             <p style={{ ...sectSt, marginTop:20 }}>🗺️ Set pickup & drop-off points on map</p>
             <p style={{ fontSize:12, color:C.text3, marginBottom:12 }}>Click map to add pickup 🟢 and drop-off 🔵 points.</p>
             <StopPicker stops={stops} onChange={setStops} height={340} centerOn={mapCenter} />
@@ -541,13 +482,13 @@ export default function AdminDash() {
               <div style={{ fontSize:12, color:'#555', marginBottom:10 }}>Skip assigning a driver — publish the trip for bus companies to bid on.</div>
               <button
                 onClick={async () => {
-                  const { from_loc, to_loc, departure_time, price, days_of_week } = form;
-                  if (!from_loc||!to_loc||!departure_time||!price) { notify('Incomplete','Fill route, time and price first.','error'); return; }
-                  if (!days_of_week||days_of_week.length===0) { notify('Pick days','Select at least one day.','error'); return; }
+                  const { from_loc, to_loc, date } = form;
+                  if (!from_loc||!to_loc||!date) { notify('Incomplete','Fill from, to, and date first.','error'); return; }
                   if (stops.length < 2) { notify('Add stops','Add at least 1 pickup and 1 drop-off on the map.','error'); return; }
+                  // Create the trip first (without driver), then open tender modal
                   try {
-                    const created = await api.createTrip({ from_loc, to_loc, departure_time, price: parseFloat(price)||0, days_of_week, stops });
-                    setForm({ from_loc:'', to_loc:'', departure_time:'', price:'', days_of_week:[1,2,3,4,6] });
+                    const created = await api.createTrip({ ...form, price: parseFloat(form.price)||0, total_seats: parseInt(form.total_seats)||16, stops });
+                    setForm({ from_loc:'', to_loc:'', pickup_time:'', dropoff_time:'', date:'', price:'', total_seats:16, driver_id:'' });
                     setStops([]); setMapCenter(null);
                     loadAll();
                     openTenderModal(created.id || created.trip_id, from_loc, to_loc);
@@ -573,10 +514,7 @@ export default function AdminDash() {
                 <div key={t.id} style={{ ...card, marginBottom:12 }}>
                   <div style={{ display:'flex', alignItems:'center', marginBottom:8 }}>
                     <Badge type={t.status==='completed'?'blue':t.status==='active'?'green':t.status==='cancelled'?'red':'amber'}>{t.status}</Badge>
-                    <span style={{ marginLeft:'auto', fontSize:11, color:C.text3 }}>
-                      {t.days_of_week ? (() => { const dn=['Sun','Mon','Tue','Wed','Thu','Fri','Sat']; return (Array.isArray(t.days_of_week)?t.days_of_week:JSON.parse(t.days_of_week||'[]')).map(d=>dn[d]).join(', '); })() : fmtDate(t.date)}
-                      {' · '}{t.departure_time || t.pickup_time}
-                    </span>
+                    <span style={{ marginLeft:'auto', fontSize:11, color:C.text3 }}>{fmtDate(t.date)} · {t.pickup_time}</span>
                   </div>
                   <div style={{ fontSize:16, fontWeight:400, marginBottom:4 }}>{t.from_loc} → {t.to_loc}</div>
                   <div style={{ fontSize:12, color:C.text2, marginBottom:6 }}>
@@ -619,28 +557,14 @@ export default function AdminDash() {
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
                 <AreaSearch label="📍 Pickup area"   icon="📍" value={editTrip.from_loc?{name:editTrip.from_loc}:null} onChange={c=>{ setEditTrip({...editTrip,from_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
                 <AreaSearch label="🏁 Drop-off area" icon="🏁" value={editTrip.to_loc?{name:editTrip.to_loc}:null}   onChange={c=>{ setEditTrip({...editTrip,to_loc:c?c.name:''}); if(c?.lat) setEditMapCenter({lat:c.lat,lng:c.lng,name:c.name}); }} />
-                <Inp label="🕐 Departure time" type="time"   value={editTrip.departure_time||editTrip.pickup_time||''} onChange={e=>setEditTrip({...editTrip,departure_time:e.target.value})} />
-                <Inp label="💰 Price (EGP)"   type="number" value={editTrip.price}              onChange={e=>setEditTrip({...editTrip,price:e.target.value})} />
+                <Inp label="Date"          type="date"   value={editTrip.date?.slice(0,10)}  onChange={e=>setEditTrip({...editTrip,date:e.target.value})} />
+                <Inp label="Pickup time"   type="time"   value={editTrip.pickup_time}        onChange={e=>setEditTrip({...editTrip,pickup_time:e.target.value})} />
+                <Inp label="Drop-off time" type="time"   value={editTrip.dropoff_time||''}   onChange={e=>setEditTrip({...editTrip,dropoff_time:e.target.value})} />
+                <Inp label="Price (EGP)"   type="number" value={editTrip.price}              onChange={e=>setEditTrip({...editTrip,price:e.target.value})} />
               </div>
-              <div style={{ marginTop:10 }}>
-                <label style={{ fontSize:11, color:C.text3, letterSpacing:'.08em', textTransform:'uppercase', display:'block', marginBottom:8 }}>📅 Runs on days</label>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-                  {DAYS.map(({d,l}) => {
-                    const days = editTrip.days_of_week || [1,2,3,4,6];
-                    const active = days.includes(d);
-                    const isFri = d === 5;
-                    return (
-                      <button key={d} onClick={() => { if(isFri) return; const nd=active?days.filter(x=>x!==d):[...days,d].sort(); setEditTrip({...editTrip,days_of_week:nd}); }} disabled={isFri}
-                        style={{ padding:'6px 12px', borderRadius:8, fontSize:12, fontWeight:600, cursor:isFri?'not-allowed':'pointer', fontFamily:"'Sora',sans-serif",
-                          background:isFri?'transparent':active?'#fbbf24':C.bg3, color:isFri?'#333':active?'#000':C.text2,
-                          border:isFri?`1px solid #222`:active?'1px solid #fbbf24':`1px solid ${C.border}`, opacity:isFri?0.4:1 }}>
-                        {l}{isFri?' 🚫':''}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p style={{ fontSize:11, color:C.text3, marginTop:4 }}>Drivers/batches are assigned per-day via Manage Bookings.</p>
-              </div>
+              <Sel label="Assign driver" value={editTrip.driver_id} onChange={e=>setEditTrip({...editTrip,driver_id:e.target.value})}>
+                {driverUsers.map(d => <option key={d.id} value={d.id}>{d.name} — {d.plate}</option>)}
+              </Sel>
               <p style={{ ...sectSt, marginTop:16 }}>🗺️ Edit stops</p>
               <StopPicker stops={editStops} onChange={setEditStops} height={300} centerOn={editMapCenter} />
               <button onClick={handleSaveEdit} style={btnPrimary}>Save changes</button>

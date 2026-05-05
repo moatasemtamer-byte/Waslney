@@ -141,16 +141,11 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // POST /api/trips — admin creates trip with stops
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
-  const { from_loc, to_loc, departure_time, pickup_time, price, days_of_week, stops,
-          // Legacy fields (kept for backward compat)
-          dropoff_time, date, total_seats, driver_id } = req.body;
-
-  const deptTime = departure_time || pickup_time;
-  if (!from_loc || !to_loc || !deptTime || !price)
-    return res.status(400).json({ error: 'Missing required fields (from_loc, to_loc, departure_time, price)' });
-
+  const { from_loc, to_loc, pickup_time, dropoff_time, date, price, total_seats, driver_id, stops, offer_tender } = req.body;
+  if (!from_loc||!to_loc||!pickup_time||!date||!price)
+    return res.status(400).json({ error: 'Missing required fields' });
   try {
-    // Coords from first pickup and last dropoff stop
+    // Get coords from first pickup and last dropoff stop if provided
     let pickup_lat = null, pickup_lng = null, dropoff_lat = null, dropoff_lng = null;
     if (stops && stops.length) {
       const firstPickup = stops.find(s => s.type === 'pickup');
@@ -159,39 +154,26 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
       if (lastDropoff) { dropoff_lat = lastDropoff.lat; dropoff_lng = lastDropoff.lng; }
     }
 
-    // days_of_week stored as JSON array string, e.g. "[1,2,3,4,6]"
-    const daysJson = days_of_week ? JSON.stringify(days_of_week) : JSON.stringify([1,2,3,4,6]);
-    // Use today as placeholder date (trips are recurring, date is just for DB compat)
-    const tripDate = date || new Date().toISOString().slice(0, 10);
-
     const [result] = await db.query(
-      \`INSERT INTO trips (from_loc, to_loc, pickup_time, dropoff_time, date, price, total_seats,
-        driver_id, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, days_of_week)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)\`,
-      [from_loc, to_loc, deptTime, dropoff_time||null, tripDate, price,
-       total_seats||9999, driver_id||null, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, daysJson]
+      'INSERT INTO trips (from_loc,to_loc,pickup_time,dropoff_time,date,price,total_seats,driver_id,pickup_lat,pickup_lng,dropoff_lat,dropoff_lng) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      [from_loc, to_loc, pickup_time, dropoff_time||null, date, price, total_seats||16, driver_id||null, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng]
     );
     const tripId = result.insertId;
 
-    // Save stops with offset_minutes
+    // Save stops
     if (stops && stops.length) {
       for (let i = 0; i < stops.length; i++) {
         const s = stops[i];
-        const offsetMin = (s.offset_minutes !== undefined && s.offset_minutes !== null)
-          ? parseInt(s.offset_minutes) : null;
-        try {
-          await db.query(
-            'INSERT INTO trip_stops (trip_id, type, label, lat, lng, stop_order, offset_minutes) VALUES (?,?,?,?,?,?,?)',
-            [tripId, s.type, s.label || '', s.lat, s.lng, i, offsetMin]
-          );
-        } catch(colErr) {
-          // Fallback if offset_minutes column doesn't exist yet
-          await db.query(
-            'INSERT INTO trip_stops (trip_id, type, label, lat, lng, stop_order) VALUES (?,?,?,?,?,?)',
-            [tripId, s.type, s.label || '', s.lat, s.lng, i]
-          );
-        }
+        await db.query(
+          'INSERT INTO trip_stops (trip_id, type, label, lat, lng, stop_order) VALUES (?,?,?,?,?,?)',
+          [tripId, s.type, s.label || '', s.lat, s.lng, i]
+        );
       }
+    }
+
+    if (driver_id) {
+      await db.query('INSERT INTO notifications (user_id,message) VALUES (?,?)',
+        [driver_id, `New trip assigned: ${from_loc} → ${to_loc} on ${date}`]);
     }
 
     const [trip] = await db.query('SELECT * FROM trips WHERE id=?', [tripId]);
@@ -204,22 +186,12 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
 
 // PUT /api/trips/:id — admin updates trip
 router.put('/:id', requireAuth, requireRole('admin'), async (req, res) => {
-  const { from_loc, to_loc, departure_time, pickup_time, dropoff_time, date, price, days_of_week, driver_id, status, stops } = req.body;
-  const deptTime = departure_time || pickup_time || null;
-  const daysJson = days_of_week ? JSON.stringify(days_of_week) : null;
+  const { from_loc, to_loc, pickup_time, dropoff_time, date, price, driver_id, status, stops } = req.body;
   try {
-    // Build dynamic update to handle days_of_week column (may not exist yet)
-    let setClauses = [
-      'from_loc=COALESCE(?,from_loc)',
-      'to_loc=COALESCE(?,to_loc)',
-      'pickup_time=COALESCE(?,pickup_time)',
-      'price=COALESCE(?,price)',
-      'status=COALESCE(?,status)',
-    ];
-    let params = [from_loc, to_loc, deptTime, price, status];
-    if (daysJson) { setClauses.push('days_of_week=?'); params.push(daysJson); }
-    params.push(req.params.id);
-    await db.query(`UPDATE trips SET ${setClauses.join(', ')} WHERE id=?`, params);
+    await db.query(
+      'UPDATE trips SET from_loc=COALESCE(?,from_loc), to_loc=COALESCE(?,to_loc), pickup_time=COALESCE(?,pickup_time), dropoff_time=COALESCE(?,dropoff_time), date=COALESCE(?,date), price=COALESCE(?,price), driver_id=COALESCE(?,driver_id), status=COALESCE(?,status) WHERE id=?',
+      [from_loc,to_loc,pickup_time,dropoff_time,date,price,driver_id,status, req.params.id]
+    );
 
     // Update stops if provided
     if (stops) {
